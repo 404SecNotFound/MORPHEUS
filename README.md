@@ -56,12 +56,32 @@ python secure_data_encryption.py
 - Confirm the password.
 - The script will display the encrypted data in bright yellow text.
 
+## Example
+
+## Encryption
+
+Do you want to encrypt or decrypt? (e/d): e
+Enter the value to encrypt: MySecretData
+Enter the password:
+Confirm the password:
+
+Encrypted data:
+<encrypted data displayed in bright yellow>
+
 ## Decrypting Data
 
 - Run the script and enter d to select decryption.
 - Paste the base64-encoded encrypted data when prompted.
 - Enter the password used during encryption.
 - If the password is correct, the script will display the decrypted data.
+
+## Decryption
+
+- Do you want to encrypt or decrypt? (e/d): d
+- Enter the encrypted data: <paste encrypted data>
+- Enter the password:
+- Decrypted data:
+- MySecretData
 
 ## Notes
 
