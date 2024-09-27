@@ -61,10 +61,10 @@ python secure_data_encryption.py
 
 ## Encryption
 
-Do you want to encrypt or decrypt? (e/d): e
-Enter the value to encrypt: MySecretData
-Enter the password:
-Confirm the password:
+- Do you want to encrypt or decrypt? (e/d): e
+- Enter the value to encrypt: MySecretData
+- Enter the password:
+- Confirm the password:
 
 Encrypted data:
 <encrypted data displayed in bright yellow>
