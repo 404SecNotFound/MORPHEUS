@@ -26,3 +26,15 @@ Welcome to the **Secure Data Encryption** tool! This Python script allows you to
    ```bash
    git clone https://github.com/404securitynotfound/SecureDataEncryption.git
    cd SecureDataEncryption
+
+## Installation
+
+It's recommended to use a virtual environment.
+
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+pip install -r requirements.txt
+
+
