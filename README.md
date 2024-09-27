@@ -37,9 +37,10 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 pip install -r requirements.txt
 
-Usage
-Run the script using Python:
-
+```
+## Usage
+ - Run the script using Python:
+```
 python secure_data_encryption.py
 
 ```
