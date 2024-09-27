@@ -41,3 +41,42 @@ Usage
 Run the script using Python:
 
 python secure_data_encryption.py
+
+```
+
+## Encrypting Data
+
+- The program will display a stylized header in bright green and prompt you to choose an action.
+- Enter e to select encryption.
+- Input the data you wish to encrypt.
+- Provide a strong password that meets the complexity requirements:
+- At least 12 characters long.
+- Includes uppercase and lowercase letters.
+- Contains digits and special characters.
+- Confirm the password.
+- The script will display the encrypted data in bright yellow text.
+
+## Decrypting Data
+
+- Run the script and enter d to select decryption.
+- Paste the base64-encoded encrypted data when prompted.
+- Enter the password used during encryption.
+- If the password is correct, the script will display the decrypted data.
+
+## Notes
+
+- Security Reminder: Always keep your passwords secure and do not share them.
+- Dependencies: Ensure all dependencies are up to date to maintain security.
+- Console Compatibility: For the best visual experience, use a console that supports ANSI escape codes and a monospaced font.
+
+## License
+
+- This project is licensed under the MIT License.
+
+## Contributing
+
+- Contributions are welcome! Please open an issue or submit a pull request for any improvements.
+
+## Contact
+
+- For any questions or feedback, please contact 404securitynotfound.
