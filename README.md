@@ -26,8 +26,9 @@ Welcome to the **Secure Data Encryption** tool! This Python script allows you to
    ```bash
    git clone https://github.com/404securitynotfound/SecureDataEncryption.git
    cd SecureDataEncryption
+   ```
 
-## Install Dependencies
+2. **Install Dependencies**
 
 It's recommended to use a virtual environment.
 
