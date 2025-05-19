@@ -122,7 +122,7 @@ def main():
             sys.exit(1)
 
         decrypted = decrypt(b64_encrypted_data, password)
-        if decrypted:
+        if decrypted is not None:
             print("\nDecrypted data:")
             print(decrypted)
 
