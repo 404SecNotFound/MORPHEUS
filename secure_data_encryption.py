@@ -3,6 +3,7 @@ import sys
 import base64
 import getpass
 import re
+import argparse
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -36,6 +37,26 @@ def is_strong_password(password):
     if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
         return False
     return True
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Secure Data Encryption")
+    parser.add_argument(
+        "-o",
+        "--operation",
+        choices=["encrypt", "decrypt"],
+        help="Operation to perform",
+    )
+    parser.add_argument(
+        "-d",
+        "--data",
+        help="Plaintext for encryption or base64 ciphertext for decryption",
+    )
+    parser.add_argument(
+        "-p",
+        "--password",
+        help="Password for encryption or decryption",
+    )
+    return parser.parse_args()
 
 def encrypt(plaintext, password):
     salt = os.urandom(16)   # 128-bit salt
@@ -81,16 +102,27 @@ def decrypt(b64_encrypted_data, password):
         return None
 
 def main():
+    args = parse_args()
     # Create an ASCII art header with the new text
     ascii_banner = pyfiglet.figlet_format("404SecurityNotFound")
     print(Fore.GREEN + Style.BRIGHT + ascii_banner)
 
-    action = input("Do you want to encrypt or decrypt? (e/d): ").strip().lower()
+    if args.operation:
+        action = args.operation[0].lower()
+    else:
+        action = input("Do you want to encrypt or decrypt? (e/d): ").strip().lower()
 
     if action == 'e':
-        plaintext = input("Enter the value to encrypt: ").strip()
-        password = getpass.getpass("Enter the password: ")
-        password_confirm = getpass.getpass("Confirm the password: ")
+        if args.data:
+            plaintext = args.data
+        else:
+            plaintext = input("Enter the value to encrypt: ").strip()
+        if args.password:
+            password = args.password
+            password_confirm = args.password
+        else:
+            password = getpass.getpass("Enter the password: ")
+            password_confirm = getpass.getpass("Confirm the password: ")
         
         if password != password_confirm:
             print("Passwords do not match.")
@@ -114,8 +146,14 @@ def main():
         plaintext = None
         
     elif action == 'd':
-        b64_encrypted_data = input("Enter the encrypted data: ").strip()
-        password = getpass.getpass("Enter the password: ")
+        if args.data:
+            b64_encrypted_data = args.data
+        else:
+            b64_encrypted_data = input("Enter the encrypted data: ").strip()
+        if args.password:
+            password = args.password
+        else:
+            password = getpass.getpass("Enter the password: ")
         
         if not password:
             print("Password cannot be empty.")
