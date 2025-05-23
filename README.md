@@ -40,10 +40,18 @@ pip install -r requirements.txt
 
 ```
 ## Usage
- - Run the script using Python:
-```
-python secure_data_encryption.py
+Run the script using Python:
 
+```bash
+python secure_data_encryption.py
+```
+
+### Command-Line Options
+The tool now supports non-interactive usage. You can specify the operation,
+data, and password directly as arguments:
+
+```bash
+python secure_data_encryption.py --operation encrypt --data "MySecret" --password "StrongP@ssw0rd"
 ```
 
 ## Encrypting Data
