@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import logging
 import sys
 from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
 
 _libc_loaded = False  # Sentinel: distinguishes "not yet attempted" from "attempted and failed"
 _libc = None
@@ -102,6 +105,12 @@ class SecureBuffer:
     def __init__(self, size: int):
         self.data = bytearray(size)
         self._locked = mlock_buffer(self.data)
+        if not self._locked and size > 0:
+            logger.warning(
+                "mlock() failed: sensitive buffer (%d bytes) is NOT locked in memory "
+                "and may be swapped to disk. Consider raising RLIMIT_MEMLOCK.",
+                size,
+            )
 
     def __enter__(self):
         return self

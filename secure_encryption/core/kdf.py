@@ -12,7 +12,6 @@ from abc import ABC, abstractmethod
 
 from argon2.low_level import Type as Argon2Type
 from argon2.low_level import hash_secret_raw
-from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
@@ -98,7 +97,6 @@ class ScryptKDF(KDF):
             n=self.n,
             r=self.r,
             p=self.p,
-            backend=default_backend(),
         )
         result = kdf.derive(bytes(password))
         return bytearray(result)
