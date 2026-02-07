@@ -672,7 +672,11 @@ class SecureEncryptionApp(App):
         output = self.query_one("#output-text", TextArea)
         output.clear()
         self.query_one("#countdown-label", Static).update("")
-        # Also clear clipboard if we copied
+        # Clear the system clipboard. Note: this overwrites the current clipboard
+        # contents but clipboard history managers (macOS Universal Clipboard,
+        # Windows Clipboard History, KDE Klipper, etc.) may retain the previous
+        # value in a separate history store. Users with clipboard managers should
+        # disable history during sensitive operations.
         try:
             pyperclip.copy("")
         except Exception:

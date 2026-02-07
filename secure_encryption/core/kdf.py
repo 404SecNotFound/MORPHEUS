@@ -35,8 +35,11 @@ class KDF(ABC):
         """Required salt length in bytes."""
 
     @abstractmethod
-    def derive(self, password: str, salt: bytes, key_length: int = 32) -> bytes:
-        """Derive a key from a password and salt."""
+    def derive(self, password: bytes | bytearray, salt: bytes, key_length: int = 32) -> bytearray:
+        """Derive a key from a password (as bytes/bytearray) and salt.
+
+        Returns a mutable bytearray so callers can zero it after use.
+        """
 
     def generate_salt(self) -> bytes:
         return os.urandom(self.salt_size)
@@ -59,9 +62,9 @@ class Argon2idKDF(KDF):
         self.memory_cost = memory_cost
         self.parallelism = parallelism
 
-    def derive(self, password: str, salt: bytes, key_length: int = 32) -> bytes:
-        return hash_secret_raw(
-            secret=password.encode("utf-8"),
+    def derive(self, password: bytes | bytearray, salt: bytes, key_length: int = 32) -> bytearray:
+        result = hash_secret_raw(
+            secret=bytes(password),
             salt=salt,
             time_cost=self.time_cost,
             memory_cost=self.memory_cost,
@@ -69,6 +72,7 @@ class Argon2idKDF(KDF):
             hash_len=key_length,
             type=Argon2Type.ID,
         )
+        return bytearray(result)
 
 
 class ScryptKDF(KDF):
@@ -87,7 +91,7 @@ class ScryptKDF(KDF):
         self.r = r
         self.p = p
 
-    def derive(self, password: str, salt: bytes, key_length: int = 32) -> bytes:
+    def derive(self, password: bytes | bytearray, salt: bytes, key_length: int = 32) -> bytearray:
         kdf = Scrypt(
             salt=salt,
             length=key_length,
@@ -96,7 +100,8 @@ class ScryptKDF(KDF):
             p=self.p,
             backend=default_backend(),
         )
-        return kdf.derive(password.encode("utf-8"))
+        result = kdf.derive(bytes(password))
+        return bytearray(result)
 
 
 KDF_REGISTRY: dict[int, type[KDF]] = {
