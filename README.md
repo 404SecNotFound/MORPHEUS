@@ -122,7 +122,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-86 tests cover: cipher roundtrips, KDF derivation, format serialization,
+93 tests cover: cipher roundtrips, KDF derivation, format serialization,
 password validation, pipeline chaining, hybrid PQ encryption, memory zeroing,
 cross-compatibility, and negative cases (wrong password, tampered data,
 corrupted format).
@@ -143,7 +143,7 @@ SecureDataEncryption/
 │       ├── formats.py       # Versioned binary ciphertext format
 │       ├── memory.py        # mlock, secure zeroing
 │       └── validation.py    # Password strength scoring, input checks
-├── tests/                   # 86 tests
+├── tests/                   # 93 tests
 ├── docs/
 │   └── USAGE.md             # Full guide with plain-English explanations
 ├── secure_data_encryption.py  # Entry point script
@@ -172,6 +172,84 @@ SecureDataEncryption/
   cipher additions without breaking existing ciphertexts.
 - **Password hygiene**: Strong enforcement (12+ chars, mixed classes),
   interactive-only input, real-time strength feedback.
+
+### Security Settings Rationale
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| **Argon2id** (default KDF) | `t=3, m=64 MiB, p=4` | Meets OWASP 2024 minimum recommendation. Memory-hardness resists GPU/ASIC attacks; the hybrid Argon2**id** variant resists both side-channel and brute-force attacks. |
+| **Scrypt** (alternative KDF) | `n=2^17, r=8, p=1` | RFC 7914 parameters matching ~128 MiB memory. Offered for environments where Argon2 is unavailable. |
+| **AES-256-GCM** (default cipher) | 256-bit key, 96-bit nonce | NIST standard; hardware-accelerated via AES-NI on x86/ARM. 256-bit key provides ~128-bit post-quantum security against Grover's algorithm. |
+| **ChaCha20-Poly1305** (alternative) | 256-bit key, 96-bit nonce | Constant-time in software; preferred on devices without AES-NI. Same post-quantum security margin as AES-256. |
+| **ML-KEM-768** (hybrid PQ) | FIPS 203, Category 3 | Balances post-quantum security (Category 3 ≈ AES-192 equivalent) with key size. Category 5 (ML-KEM-1024) was considered but doubles key sizes for marginal benefit. |
+| **Salt size** | 16 bytes (128 bits) | Standard for Argon2id/Scrypt; 128 bits of entropy prevents rainbow table attacks and ensures unique key derivation per encryption. |
+| **Nonce size** | 12 bytes (96 bits) | Standard for AES-GCM and ChaCha20-Poly1305. Random nonces are safe for the expected number of encryptions per key. |
+
+### Threat Model & Limitations
+
+**In scope — what this tool protects against:**
+- Offline brute-force attacks on encrypted data (via memory-hard KDFs)
+- Future quantum computers (via hybrid ML-KEM-768 layer)
+- Single-algorithm compromise (via cipher chaining)
+- Casual memory forensics (via `mlock` + secure zeroing)
+
+**Out of scope — what this tool does NOT protect against:**
+- **Compromised endpoint**: If your machine has malware, a keylogger, or a
+  hostile root process, no user-space encryption tool can help. This tool
+  assumes the OS and hardware are trustworthy.
+- **Python string immutability**: Python `str` objects are immutable and
+  cannot be reliably zeroed. The password exists as an immutable string
+  briefly before conversion to `bytearray`. The GC may not collect it
+  immediately. This is a fundamental language limitation.
+- **Clipboard history managers**: The GUI clears the system clipboard after
+  the auto-clear timer, but clipboard history managers (macOS Universal
+  Clipboard, Windows Clipboard History, KDE Klipper) may retain copies in
+  a separate history store beyond our control.
+- **Swap/hibernation on systems without mlock**: If `mlock()` fails (e.g.,
+  insufficient `RLIMIT_MEMLOCK`), sensitive buffers may be swapped to disk.
+  The tool logs a warning but continues operating.
+- **Side-channel attacks**: This tool does not implement constant-time
+  comparisons for all paths. It relies on the `cryptography` library's
+  constant-time primitives for AEAD operations.
+- **KDF parameter storage**: KDF tuning parameters (time_cost, memory_cost)
+  are NOT stored in the ciphertext format. The decrypting pipeline must use
+  matching KDF parameters. Mismatched parameters silently derive wrong keys,
+  producing an authentication failure (not a clear config error).
+
+### Ciphertext Format
+
+The binary format is self-describing — the header identifies the cipher, KDF,
+and mode so any compatible tool can decrypt without out-of-band configuration.
+
+```
+Offset  Size  Field
+──────  ────  ─────────────────────────────────
+0       1     Version (0x02)
+1       1     Cipher ID (0x01=AES-256-GCM, 0x02=ChaCha20, 0x03=Chained)
+2       1     KDF ID (0x01=Scrypt, 0x02=Argon2id)
+3       1     Flags (bit 0=chained, bit 1=hybrid PQ)
+4-5     2     Reserved (0x0000)
+6+      var   Payload (see below)
+```
+
+**Payload layout — single cipher:**
+```
+[16-byte salt][12-byte nonce][ciphertext + 16-byte auth tag]
+```
+
+**Payload layout — chained (AES-GCM → ChaCha20):**
+```
+[16-byte salt][12-byte AES nonce][12-byte ChaCha nonce][ciphertext + tags]
+```
+
+**Payload layout — hybrid PQ prefix (prepended before cipher payload):**
+```
+[2-byte KEM ciphertext length (big-endian)][KEM ciphertext]
+```
+
+All ciphertexts are base64-encoded for safe text transport. The header fields
+are authenticated as Associated Data (AAD), binding the format metadata to the
+ciphertext and preventing downgrade or context-switching attacks.
 
 ## License
 

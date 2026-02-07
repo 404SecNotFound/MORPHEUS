@@ -191,9 +191,25 @@ def run_cli(argv: list[str] | None = None) -> None:
             sys.exit(1)
         import base64 as b64
         if args.pq_public_key:
-            pq_pk = b64.b64decode(args.pq_public_key)
+            try:
+                pq_pk = b64.b64decode(args.pq_public_key, validate=True)
+            except Exception:
+                _print_status(
+                    "Error: --pq-public-key is not valid base64. "
+                    "Use the output from --generate-keypair.",
+                    error=True,
+                )
+                sys.exit(1)
         if args.pq_secret_key:
-            pq_sk = b64.b64decode(args.pq_secret_key)
+            try:
+                pq_sk = b64.b64decode(args.pq_secret_key, validate=True)
+            except Exception:
+                _print_status(
+                    "Error: --pq-secret-key is not valid base64. "
+                    "Use the output from --generate-keypair.",
+                    error=True,
+                )
+                sys.exit(1)
 
     pipeline = EncryptionPipeline(
         cipher=cipher_cls(),
