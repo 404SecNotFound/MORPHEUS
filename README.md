@@ -1,281 +1,354 @@
-# SecureDataEncryption v2.0
+<p align="center">
+  <h1 align="center">SecureDataEncryption</h1>
+  <p align="center">
+    Quantum-resistant encryption for text and files. No data touches the disk.<br>
+    <strong>AES-256-GCM + ChaCha20-Poly1305 + ML-KEM-768 | Argon2id | Terminal GUI</strong>
+  </p>
+  <p align="center">
+    <a href="#quick-start">Quick Start</a> &middot;
+    <a href="docs/USAGE.md">Full Guide</a> &middot;
+    <a href="SECURITY.md">Security Policy</a> &middot;
+    <a href="CHANGELOG.md">Changelog</a> &middot;
+    <a href="CONTRIBUTING.md">Contributing</a>
+  </p>
+</p>
 
-A modern, quantum-resistant, multi-cipher encryption tool with a terminal GUI.
+---
 
-Encrypt and decrypt arbitrary blocks of text — documents, credentials, notes,
-code snippets, configuration files — using modern, standards-based cryptography with an
-intuitive interface. **No data is intentionally written to disk** (see
-[Threat Model](#threat-model--limitations) for caveats). Encrypted output is
-displayed once and then auto-cleared.
+## Why SecureDataEncryption?
 
-## What Makes This Different
+Most encryption tools make you choose: easy to use *or* cryptographically
+serious. SecureDataEncryption does both.
 
-| Feature | This Tool | Typical CLI Tools |
-|---------|-----------|-------------------|
-| **Hybrid post-quantum encryption** | ML-KEM-768 + AES/ChaCha via FIPS 203 | Not available |
-| **Cipher chaining** | AES-256-GCM → ChaCha20-Poly1305 (two independent algorithms) | Single cipher |
-| **One-time output** | Auto-clears after 60 seconds, wipes clipboard | Stays in scrollback forever |
-| **Memory protection** | Best-effort `mlock()` + zeroing (see [limitations](#threat-model--limitations)) | None |
-| **Modern terminal GUI** | Full TUI with dropdowns, strength meter, dark theme | Plain text prompts |
-| **File encryption** | Encrypt any file type (text, binary, images, archives) up to 100 MiB | Usually text-only |
-| **Self-describing format** | Versioned binary header identifies cipher, KDF, and flags | Ad-hoc formats |
+It ships **post-quantum protection today** (ML-KEM-768, FIPS 203) so your data
+stays safe even when large-scale quantum computers arrive. It wraps everything
+in a terminal GUI that anyone can operate — no cryptography degree required.
+
+**Three things no other open-source CLI tool does at once:**
+
+1. **Hybrid post-quantum encryption** — password + ML-KEM-768 lattice-based KEM
+2. **Cipher chaining** — AES-256-GCM *then* ChaCha20-Poly1305 with independent keys
+3. **Zero-disk, auto-clear workflow** — output self-destructs in 60 seconds, clipboard wiped
+
+## At a Glance
+
+| | SecureDataEncryption | age | gpg | openssl enc |
+|---|---|---|---|---|
+| Post-quantum layer | ML-KEM-768 (FIPS 203) | -- | -- | -- |
+| Cipher chaining | AES + ChaCha | -- | -- | -- |
+| Terminal GUI | Full TUI with strength meter | -- | -- | -- |
+| File encryption | Up to 100 MiB (any type) | Yes | Yes | Yes |
+| Memory protection | `mlock` + `ctypes.memset` zeroing | -- | pinentry | -- |
+| Self-describing format | Versioned header with AAD | Yes | Yes | -- |
+| Auto-clear output | 60 s countdown + clipboard wipe | -- | -- | -- |
+| KDF | Argon2id / Scrypt | scrypt | S2K | PBKDF2 |
 
 ## Quick Start
 
 ```bash
-# Clone and install
 git clone https://github.com/404securitynotfound/SecureDataEncryption.git
-cd SecureDataEncryption
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+cd SecureDataEncryption && pip install -r requirements.txt
 
 # Launch the GUI
 python secure_data_encryption.py
 
-# Or use CLI mode
-python secure_data_encryption.py --cli
+# Or encrypt from the command line
+python secure_data_encryption.py -o encrypt --data "sensitive text"
+
+# Encrypt a file
+python secure_data_encryption.py -o encrypt -f secret.pdf
 ```
 
-## Encryption Modes
+> Post-quantum support: `pip install pqcrypto`
 
-### 1. Single Cipher (Password Only)
+---
+
+## How It Works
+
+### The 30-Second Version
+
+1. You provide **text or a file** and a **strong password**
+2. The password is stretched through **Argon2id** (memory-hard, 64 MiB, ~1 s)
+   into a 256-bit key
+3. Your data is encrypted with **AES-256-GCM** (authenticated encryption)
+4. The output is a single **base64 string** you can store anywhere
+
+Every encryption produces different output — even for identical inputs —
+because a fresh random salt and nonce are generated each time.
+
+### Encryption Modes
+
+Choose your protection level:
+
+| Mode | What Happens | Best For |
+|------|-------------|----------|
+| **Single cipher** | AES-256-GCM *or* ChaCha20-Poly1305 | Everyday encryption |
+| **Cipher chaining** | AES-256-GCM *then* ChaCha20 with independent keys | Defense against single-algorithm compromise |
+| **Hybrid PQ** | Password key + ML-KEM-768 shared secret combined via HKDF | Protection against future quantum computers |
+| **Maximum** | Chaining + Hybrid PQ (all layers) | Highest assurance |
+
+<details>
+<summary><strong>How cipher chaining works under the hood</strong></summary>
+
+Your password derives a master key via Argon2id. That master key is expanded
+through HKDF into two independent 256-bit subkeys — one for AES-256-GCM, one
+for ChaCha20-Poly1305. Your data is encrypted with AES first, then the AES
+ciphertext is encrypted again with ChaCha. An attacker must break *both*
+algorithms to recover your data.
+
+</details>
+
+<details>
+<summary><strong>How hybrid post-quantum works under the hood</strong></summary>
+
 ```
-AES-256-GCM   — NIST standard, hardware-accelerated on modern CPUs
-ChaCha20-Poly1305 — Constant-time, ideal when AES-NI is unavailable
+Password ──> Argon2id ──> password_key (32 bytes)
+                                |
+ML-KEM-768 encapsulate ──> kem_shared_secret (32 bytes)
+                                |
+              HKDF(password_key || kem_shared_secret) ──> final_key
+                                                            |
+                                                       AES-256-GCM
 ```
-Both are **already quantum-safe** for symmetric encryption (Grover's algorithm
-reduces AES-256 to ~128-bit equivalent security, which remains unbreakable).
 
-### 2. Cipher Chaining (Defense-in-Depth)
-Encrypts with AES-256-GCM **then** ChaCha20-Poly1305 using independent keys.
-If a vulnerability is found in one algorithm, the other still protects your data.
+The encryption key is derived from *both* your password *and* a lattice-based
+shared secret. An attacker must break Argon2id (brute-force your password)
+**and** ML-KEM-768 (solve the Learning With Errors problem). Overall security
+is bounded by the strongest factor, but a weak password remains the weakest link.
 
-### 3. Hybrid Post-Quantum (ML-KEM-768)
-Layers NIST FIPS 203 ML-KEM-768 key encapsulation on top of password-based
-encryption. The final encryption key combines:
-- Your password (via Argon2id/Scrypt)
-- An ML-KEM-768 shared secret
+</details>
 
-An attacker must break **both** the password **and** ML-KEM to decrypt.
-This provides defense-in-depth against future quantum computers that could
-break the KEM, but overall security is still bounded by password entropy —
-a weak password remains the weakest link regardless of PQ layers.
+---
 
-### 4. Maximum Security (Chained + Hybrid PQ)
-All layers combined: ML-KEM-768 + AES-256-GCM + ChaCha20-Poly1305.
+## Using the GUI
 
-## Key Derivation Functions
-
-| KDF | Default | Description |
-|-----|---------|-------------|
-| **Argon2id** (recommended) | `t=3, m=64MiB, p=4` | OWASP/IETF recommended (RFC 9106). Memory-hard, resists GPU attacks. |
-| **Scrypt** | `n=2^17, r=8, p=1` | RFC 7914. Also memory-hard, well-established. |
-
-## GUI Usage
-
-Launch with no arguments to open the terminal GUI:
+Launch with no arguments:
 
 ```bash
 python secure_data_encryption.py
 ```
 
-The GUI provides:
-- **Mode toggle**: Encrypt / Decrypt
-- **Cipher selection**: AES-256-GCM or ChaCha20-Poly1305
-- **KDF selection**: Argon2id or Scrypt
-- **Chain ciphers checkbox**: Enable defense-in-depth chaining
-- **Hybrid PQ checkbox**: Enable ML-KEM-768 (with key generation)
-- **Multi-line text area**: Paste or type any block of text
-- **Password field**: With real-time strength meter and match indicator
-- **One-time output**: Auto-clears after 60 seconds with countdown
-- **Copy button**: Copies to clipboard (auto-cleared with output)
+The terminal GUI provides:
 
-**Keyboard shortcuts**: `Ctrl+E` Encrypt | `Ctrl+D` Decrypt | `Ctrl+L` Clear | `Ctrl+Q` Quit
+- **Encrypt / Decrypt** toggle
+- **Cipher** and **KDF** dropdowns
+- **Chain ciphers** and **Hybrid PQ** checkboxes
+- **Multi-line text area** for input
+- **Password field** with real-time strength meter
+- **Auto-clearing output** with 60-second countdown
+- **One-click copy** to clipboard (wiped on clear)
 
-## CLI Usage
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+E` | Encrypt |
+| `Ctrl+D` | Decrypt |
+| `Ctrl+L` | Clear all |
+| `Ctrl+Q` | Quit |
+
+---
+
+## Using the CLI
 
 ```bash
-# Interactive CLI
+# Interactive mode
 python secure_data_encryption.py --cli
 
-# Encrypt with specific options
-python secure_data_encryption.py -o encrypt --data "sensitive text" --cipher ChaCha20-Poly1305 --kdf Argon2id
+# Encrypt text
+python secure_data_encryption.py -o encrypt --data "sensitive text"
 
-# Encrypt with chaining
-python secure_data_encryption.py -o encrypt --data "sensitive text" --chain
+# Encrypt with chaining + Scrypt
+python secure_data_encryption.py -o encrypt --data "text" --chain --kdf Scrypt
 
-# Read from stdin
-echo "my secret document" | python secure_data_encryption.py -o encrypt --data -
+# Encrypt a file (any type: text, binary, images, archives)
+python secure_data_encryption.py -o encrypt -f document.pdf
+# -> document.pdf.enc
 
-# Decrypt
-python secure_data_encryption.py -o decrypt --data "AgEB..."
+# Decrypt a file (restores original filename)
+python secure_data_encryption.py -o decrypt -f document.pdf.enc
 
-# Encrypt a file (any format — text, binary, images, archives)
-python secure_data_encryption.py -o encrypt -f secret.pdf
-# -> produces secret.pdf.enc
+# Pipe from stdin
+echo "secret" | python secure_data_encryption.py -o encrypt --data -
 
-# Decrypt a file
-python secure_data_encryption.py -o decrypt -f secret.pdf.enc
-# -> restores secret.pdf with original filename
-
-# Encrypt with explicit output path
-python secure_data_encryption.py -o encrypt -f data.csv --output encrypted.dat
-
-# Generate ML-KEM-768 keypair
+# Generate ML-KEM-768 keypair for hybrid PQ
 python secure_data_encryption.py --generate-keypair
 
 # Hybrid PQ encrypt
-python secure_data_encryption.py -o encrypt --data "secret" --hybrid-pq --pq-public-key <base64-pk>
+python secure_data_encryption.py -o encrypt --data "text" \
+  --hybrid-pq --pq-public-key <base64-pk>
+
+# Hybrid PQ decrypt
+python secure_data_encryption.py -o decrypt --data "AgEB..." \
+  --hybrid-pq --pq-secret-key <base64-sk>
 ```
 
-**Security note**: Passwords are always entered interactively (never as CLI
-arguments) to prevent leaking via `ps`, shell history, or `/proc`.
+Passwords are always entered interactively — never passed as arguments —
+to prevent leaking via `ps`, shell history, or `/proc`.
 
-## Running Tests
+<details>
+<summary><strong>All CLI flags</strong></summary>
+
+| Flag | Description |
+|------|-------------|
+| `-o, --operation` | `encrypt` or `decrypt` |
+| `-d, --data` | Text to encrypt/decrypt. Use `-` for stdin |
+| `-f, --file` | File to encrypt/decrypt |
+| `--output` | Explicit output path (overrides defaults) |
+| `--cipher` | `AES-256-GCM` (default) or `ChaCha20-Poly1305` |
+| `--kdf` | `Argon2id` (default) or `Scrypt` |
+| `--chain` | Enable cipher chaining |
+| `--hybrid-pq` | Enable hybrid post-quantum |
+| `--pq-public-key` | Base64 ML-KEM-768 public key |
+| `--pq-secret-key` | Base64 ML-KEM-768 secret key |
+| `--generate-keypair` | Generate and print an ML-KEM-768 keypair |
+| `--cli` | Force CLI mode (skip GUI) |
+
+</details>
+
+---
+
+## Security Design
+
+### What We Protect Against
+
+| Threat | Protection |
+|--------|-----------|
+| Offline password brute-force | Argon2id: 64 MiB memory, ~1 s per guess |
+| Future quantum computers | Hybrid ML-KEM-768 layer (FIPS 203) |
+| Single-algorithm compromise | Cipher chaining (two independent algorithms) |
+| Memory forensics | `mlock()` + `ctypes.memset` zeroing of all key material |
+| Ciphertext tampering | AEAD authentication tag (16 bytes) |
+| Algorithm downgrade | Header authenticated as AAD (6-byte binding) |
+
+### What We Do Not Protect Against
+
+| Limitation | Why |
+|-----------|-----|
+| Compromised endpoint (malware, keylogger) | No user-space tool can defend against a hostile OS |
+| Python `str` immutability | Password briefly exists as immutable string before `bytearray` conversion; GC timing is unpredictable |
+| Clipboard history managers | We wipe the system clipboard, but history extensions (Klipper, macOS Universal Clipboard) may retain copies |
+| Swap without `mlock` | If `RLIMIT_MEMLOCK` is insufficient, buffers may be swapped. The tool logs a warning |
+| KDF parameter mismatch | KDF tuning parameters are not stored in the format. Mismatched params cause auth failure, not a clear config error |
+
+### Why These Defaults?
+
+| Setting | Value | Rationale |
+|---------|-------|-----------|
+| **Argon2id** | `t=3, m=64 MiB, p=4` | OWASP 2024 minimum. Memory-hard, resists GPU/ASIC. The *id* variant resists both side-channel and brute-force |
+| **AES-256-GCM** | 256-bit key, 96-bit nonce | NIST standard, AES-NI accelerated. 256-bit key gives ~128-bit post-quantum margin via Grover |
+| **ChaCha20-Poly1305** | 256-bit key, 96-bit nonce | Constant-time in software, preferred without AES-NI. Same quantum margin |
+| **ML-KEM-768** | FIPS 203, Category 3 | Balances post-quantum security (~AES-192) with practical key sizes. Category 5 doubles sizes for marginal gain |
+| **Scrypt** | `n=2^17, r=8, p=1` | RFC 7914, ~128 MiB. Offered where Argon2 is unavailable |
+| **Salt** | 16 bytes | Standard for Argon2id/Scrypt. Prevents rainbow tables |
+| **Nonce** | 12 bytes | Standard for AES-GCM and ChaCha20. Random nonces safe for expected use |
+
+---
+
+## Ciphertext Format
+
+The format is **self-describing** — the header tells the decryptor exactly what
+algorithms were used. No out-of-band configuration needed.
+
+```
+Offset  Size  Field
+------  ----  ----------------------------------
+0       1     Version        (0x02)
+1       1     Cipher ID      (0x01=AES-256-GCM, 0x02=ChaCha20, 0x03=Chained)
+2       1     KDF ID         (0x01=Scrypt, 0x02=Argon2id)
+3       1     Flags          (bit 0=chained, bit 1=hybrid PQ)
+4-5     2     Reserved       (0x0000, validated on read)
+6+      var   Payload
+```
+
+**Single cipher payload:**
+`[16B salt][12B nonce][ciphertext + 16B auth tag]`
+
+**Chained payload:**
+`[16B salt][12B AES nonce][12B ChaCha nonce][ciphertext + tags]`
+
+**Hybrid PQ prefix** (before nonces):
+`[2B KEM-ct length, big-endian][KEM ciphertext]`
+
+All header bytes are authenticated as AAD — modifying any byte causes
+decryption to fail, preventing algorithm-downgrade attacks.
+
+---
+
+## Testing
 
 ```bash
 pip install pytest
 python -m pytest tests/ -v
 ```
 
-122 tests cover: cipher roundtrips, KDF derivation, format serialization,
-password validation, pipeline chaining, hybrid PQ encryption, memory zeroing,
-cross-compatibility, file encryption, NIST/RFC test vectors, and negative
-cases (wrong password, tampered data, corrupted format).
+**122 tests** across 7 test files:
+
+| File | Scope |
+|------|-------|
+| `test_ciphers.py` | AES-GCM + ChaCha20 roundtrips, NIST SP 800-38D TC14 vector, RFC 8439 vector, indistinguishability, wrong key/AAD/tampered data |
+| `test_kdf.py` | Argon2id + Scrypt derivation, determinism, bytearray returns, salt generation |
+| `test_formats.py` | Serialize/deserialize, flag combinations, version/reserved byte validation, AAD collision resistance |
+| `test_pipeline.py` | All mode roundtrips (single/chained/hybrid/both), wrong password (`InvalidTag`), cross-compatibility, payload truncation, KEM length=0 bypass, header tampering |
+| `test_memory.py` | `secure_zero`, `SecureBuffer`, `secure_key` context manager |
+| `test_validation.py` | Password scoring (0-100), minimum requirements, edge cases |
+| `test_cli.py` | File encrypt/decrypt roundtrip (text + binary) |
+
+Tests include **NIST SP 800-38D** and **RFC 8439** reference vectors verified
+against the `cryptography` library's validated implementations.
+
+---
 
 ## Project Structure
 
 ```
 SecureDataEncryption/
 ├── secure_encryption/
-│   ├── __init__.py          # Package version
-│   ├── __main__.py          # Entry point (auto-detects GUI vs CLI)
-│   ├── gui.py               # Textual TUI application
-│   ├── cli.py               # Command-line interface
+│   ├── __init__.py            # Package version
+│   ├── __main__.py            # Entry point (auto-detects GUI vs CLI)
+│   ├── gui.py                 # Textual TUI application
+│   ├── cli.py                 # CLI with file encryption support
 │   └── core/
-│       ├── ciphers.py       # AES-256-GCM, ChaCha20-Poly1305
-│       ├── kdf.py           # Argon2id, Scrypt
-│       ├── pipeline.py      # Encryption orchestration, chaining, hybrid PQ
-│       ├── formats.py       # Versioned binary ciphertext format
-│       ├── memory.py        # mlock, secure zeroing
-│       └── validation.py    # Password strength scoring, input checks
-├── tests/                   # 122 tests
-├── docs/
-│   └── USAGE.md             # Full guide with plain-English explanations
-├── secure_data_encryption.py  # Entry point script
-├── requirements.txt
+│       ├── ciphers.py         # AES-256-GCM, ChaCha20-Poly1305
+│       ├── kdf.py             # Argon2id, Scrypt
+│       ├── pipeline.py        # Orchestration: chaining, hybrid PQ, key lifecycle
+│       ├── formats.py         # Versioned binary format with AAD
+│       ├── memory.py          # mlock, ctypes.memset zeroing, SecureBuffer
+│       └── validation.py      # Password scoring, input validation
+├── tests/                     # 122 tests (NIST/RFC vectors included)
+├── docs/USAGE.md              # Full guide for technical and non-technical readers
+├── SECURITY.md                # Vulnerability disclosure policy
+├── CHANGELOG.md               # Version history
+├── CONTRIBUTING.md            # Contributor guide
+├── .github/workflows/ci.yml   # CI: Python 3.10-3.13 test matrix
 ├── pyproject.toml
-└── LICENSE
+├── requirements.txt
+└── LICENSE                    # MIT
 ```
 
 ## Requirements
 
-- Python 3.10+
-- `cryptography` — AES-GCM, ChaCha20-Poly1305, Scrypt, HKDF
-- `argon2-cffi` — Argon2id key derivation
-- `textual` — Terminal GUI framework
-- `pyperclip` — Clipboard access
-- `pqcrypto` — ML-KEM-768 post-quantum key encapsulation (optional)
+| Package | Purpose | Required |
+|---------|---------|----------|
+| `cryptography` | AES-GCM, ChaCha20, Scrypt, HKDF | Yes |
+| `argon2-cffi` | Argon2id key derivation | Yes |
+| `textual` | Terminal GUI framework | Yes |
+| `pyperclip` | Clipboard access | Yes |
+| `pqcrypto` | ML-KEM-768 post-quantum KEM | Optional |
 
-## Security Design
+Python 3.10+
 
-- **No intentional disk writes**: All data lives in memory. Output auto-clears.
-  If `mlock()` fails, the OS may swap sensitive pages to disk (see Threat Model).
-- **Memory locking**: Sensitive buffers are `mlock`'d to prevent swap (best-effort;
-  logs a warning if locking fails due to `RLIMIT_MEMLOCK`).
-- **Secure zeroing**: Key material is overwritten with zeros after use.
-- **Contextual AAD**: The cipher ID, KDF ID, version, and flags are
-  authenticated as Associated Data, preventing ciphertext reuse across contexts.
-- **Versioned format**: Forward-compatible binary header enables future
-  cipher additions without breaking existing ciphertexts.
-- **Password hygiene**: Strong enforcement (12+ chars, mixed classes),
-  interactive-only input, real-time strength feedback.
-
-### Security Settings Rationale
-
-| Setting | Value | Why |
-|---------|-------|-----|
-| **Argon2id** (default KDF) | `t=3, m=64 MiB, p=4` | Meets OWASP 2024 minimum recommendation. Memory-hardness resists GPU/ASIC attacks; the hybrid Argon2**id** variant resists both side-channel and brute-force attacks. |
-| **Scrypt** (alternative KDF) | `n=2^17, r=8, p=1` | RFC 7914 parameters matching ~128 MiB memory. Offered for environments where Argon2 is unavailable. |
-| **AES-256-GCM** (default cipher) | 256-bit key, 96-bit nonce | NIST standard; hardware-accelerated via AES-NI on x86/ARM. 256-bit key provides ~128-bit post-quantum security against Grover's algorithm. |
-| **ChaCha20-Poly1305** (alternative) | 256-bit key, 96-bit nonce | Constant-time in software; preferred on devices without AES-NI. Same post-quantum security margin as AES-256. |
-| **ML-KEM-768** (hybrid PQ) | FIPS 203, Category 3 | Balances post-quantum security (Category 3 ≈ AES-192 equivalent) with key size. Category 5 (ML-KEM-1024) was considered but doubles key sizes for marginal benefit. |
-| **Salt size** | 16 bytes (128 bits) | Standard for Argon2id/Scrypt; 128 bits of entropy prevents rainbow table attacks and ensures unique key derivation per encryption. |
-| **Nonce size** | 12 bytes (96 bits) | Standard for AES-GCM and ChaCha20-Poly1305. Random nonces are safe for the expected number of encryptions per key. |
-
-### Threat Model & Limitations
-
-**In scope — what this tool protects against:**
-- Offline brute-force attacks on encrypted data (via memory-hard KDFs)
-- Future quantum computers (via hybrid ML-KEM-768 layer)
-- Single-algorithm compromise (via cipher chaining)
-- Casual memory forensics (via `mlock` + secure zeroing)
-
-**Out of scope — what this tool does NOT protect against:**
-- **Compromised endpoint**: If your machine has malware, a keylogger, or a
-  hostile root process, no user-space encryption tool can help. This tool
-  assumes the OS and hardware are trustworthy.
-- **Python string immutability**: Python `str` objects are immutable and
-  cannot be reliably zeroed. The password exists as an immutable string
-  briefly before conversion to `bytearray`. The GC may not collect it
-  immediately. This is a fundamental language limitation.
-- **Clipboard history managers**: The GUI clears the system clipboard after
-  the auto-clear timer, but clipboard history managers (macOS Universal
-  Clipboard, Windows Clipboard History, KDE Klipper) may retain copies in
-  a separate history store beyond our control.
-- **Swap/hibernation on systems without mlock**: If `mlock()` fails (e.g.,
-  insufficient `RLIMIT_MEMLOCK`), sensitive buffers may be swapped to disk.
-  The tool logs a warning but continues operating.
-- **Side-channel attacks**: This tool does not implement constant-time
-  comparisons for all paths. It relies on the `cryptography` library's
-  constant-time primitives for AEAD operations.
-- **KDF parameter storage**: KDF tuning parameters (time_cost, memory_cost)
-  are NOT stored in the ciphertext format. The decrypting pipeline must use
-  matching KDF parameters. Mismatched parameters silently derive wrong keys,
-  producing an authentication failure (not a clear config error).
-
-### Ciphertext Format
-
-The binary format is self-describing — the header identifies the cipher, KDF,
-and mode so any compatible tool can decrypt without out-of-band configuration.
-
-```
-Offset  Size  Field
-──────  ────  ─────────────────────────────────
-0       1     Version (0x02)
-1       1     Cipher ID (0x01=AES-256-GCM, 0x02=ChaCha20, 0x03=Chained)
-2       1     KDF ID (0x01=Scrypt, 0x02=Argon2id)
-3       1     Flags (bit 0=chained, bit 1=hybrid PQ)
-4-5     2     Reserved (0x0000)
-6+      var   Payload (see below)
-```
-
-**Payload layout — single cipher:**
-```
-[16-byte salt][12-byte nonce][ciphertext + 16-byte auth tag]
-```
-
-**Payload layout — chained (AES-GCM → ChaCha20):**
-```
-[16-byte salt][12-byte AES nonce][12-byte ChaCha nonce][ciphertext + tags]
-```
-
-**Payload layout — hybrid PQ prefix (prepended before cipher payload):**
-```
-[2-byte KEM ciphertext length (big-endian)][KEM ciphertext]
-```
-
-All ciphertexts are base64-encoded for safe text transport. The header fields
-are authenticated as Associated Data (AAD), binding the format metadata to the
-ciphertext and preventing downgrade or context-switching attacks.
-
-## License
-
-MIT License
+---
 
 ## Contributing
 
-Contributions welcome. Please open an issue or submit a pull request.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. We welcome:
+- Bug reports and security disclosures (see [SECURITY.md](SECURITY.md))
+- New cipher or KDF implementations
+- Documentation improvements
+- Test coverage expansion
+
+## License
+
+[MIT](LICENSE)
 
 ## Contact
 
