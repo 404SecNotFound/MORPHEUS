@@ -1,8 +1,8 @@
 # SecureDataEncryption — Full Usage Guide
 
-This document explains everything about the tool: what it does, how it works
-under the hood, how to use every feature, and how to verify it's working
-correctly. Written for both technical and non-technical readers.
+Everything you need to know: what the tool does, how each feature works,
+how to use it from the GUI and CLI, and how to verify it's working correctly.
+Written for both technical and non-technical readers.
 
 ---
 
@@ -13,53 +13,56 @@ correctly. Written for both technical and non-technical readers.
 3. [Installation](#installation)
 4. [Using the GUI](#using-the-gui)
 5. [Using the CLI](#using-the-cli)
-6. [Encryption Modes Explained](#encryption-modes-explained)
-7. [Post-Quantum Encryption Explained](#post-quantum-encryption-explained)
-8. [Password Requirements](#password-requirements)
-9. [The Ciphertext Format](#the-ciphertext-format)
-10. [Testing and Verification](#testing-and-verification)
-11. [Security Guarantees and Limitations](#security-guarantees-and-limitations)
-12. [Troubleshooting](#troubleshooting)
+6. [File Encryption](#file-encryption)
+7. [Encryption Modes Explained](#encryption-modes-explained)
+8. [Post-Quantum Encryption Explained](#post-quantum-encryption-explained)
+9. [Password Requirements](#password-requirements)
+10. [The Ciphertext Format](#the-ciphertext-format)
+11. [Testing and Verification](#testing-and-verification)
+12. [Security Guarantees and Limitations](#security-guarantees-and-limitations)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## What This Tool Does (Plain English)
 
 Imagine you have a private note, a password list, a configuration file, or any
-block of text that you need to protect. This tool lets you:
+text or file that you need to protect. This tool lets you:
 
-1. **Type or paste your text** into the application
+1. **Type or paste your text** into the application (or point it at a file)
 2. **Choose a password** that only you know
-3. **Get back scrambled text** (the encrypted version) that looks like random
-   characters
-4. **Later, paste that scrambled text back** and enter your password to get
-   the original back
+3. **Get back scrambled output** that looks like random characters
+4. **Later, paste that scrambled text back** (or decrypt the file) and enter
+   your password to get the original back
 
 **The key guarantees:**
 
-- **Nobody can read your text** without your password — not even us, not even
+- **Nobody can read your data** without your password — not even us, not even
   someone who has the scrambled version
-- **If anyone changes even one character** of the scrambled text, the tool
+- **If anyone changes even one character** of the encrypted output, the tool
   will detect it and refuse to decrypt (tamper protection)
-- **Your text is never saved to a file** — it lives only in the application
-  window, and the output automatically disappears after 60 seconds
+- **Your text is never saved to a file** — in text mode, data lives only in the
+  application window and the output automatically disappears after 60 seconds
 - **The scrambled output is different every time** — even if you encrypt the
   same text with the same password twice, you get different output (this
   prevents pattern analysis)
 
 ### What Can I Encrypt?
 
-Anything that's text:
+**Text** — anything you can type or paste:
 - Passwords and credentials
 - Private notes or messages
 - Configuration files with secrets
 - API keys and tokens
 - Code snippets
-- Multi-line documents
-- Any text up to 10 MB
+- Multi-line documents (up to 10 MB)
 
-This is **not** designed for encrypting binary files (images, PDFs, executables).
-It's a **text encryption tool**.
+**Files** — any type, any format:
+- Documents (PDF, DOCX, TXT)
+- Images (PNG, JPG, BMP)
+- Archives (ZIP, TAR, 7Z)
+- Databases, binaries, executables
+- Any file up to 100 MiB
 
 ---
 
@@ -69,7 +72,7 @@ It's a **text encryption tool**.
 
 Think of encryption like a special lockbox:
 
-1. **Your text** is the item you put inside
+1. **Your data** is the item you put inside
 2. **Your password** is the key to the lock
 3. **The encrypted output** is the locked box — anyone can hold it, but
    nobody can see inside without the key
@@ -86,12 +89,12 @@ Your password: "MyStr0ng!Pass#2024"
 
 Step 1 — Key Derivation (making the lock)
    Your password + a random salt → run through Argon2id (a deliberately
-   slow process that takes about 1 second) → produces a 256-bit key
+   slow process that takes about 1 second) → produces a 256-bit key.
    This slowness is intentional — it means an attacker trying millions
    of passwords would take years instead of seconds.
 
 Step 2 — Encryption (locking the box)
-   Your text + the 256-bit key → AES-256-GCM → scrambled ciphertext
+   Your text + the 256-bit key → AES-256-GCM → scrambled ciphertext.
    A random nonce (number-used-once) ensures the output is unique every time.
 
 Step 3 — Packaging
@@ -120,7 +123,8 @@ Step 4 — If the tag checks out → show your original text
 Because of **key derivation** (Step 1 above). Argon2id is designed to be:
 - **Slow**: Each attempt takes ~1 second
 - **Memory-hungry**: Each attempt uses 64 MB of RAM
-- **Non-parallelizable**: You can't easily split the work across thousands of GPUs
+- **Non-parallelizable**: You can't easily split the work across thousands
+  of GPUs
 
 An attacker trying 1 billion passwords would need ~31 years of continuous
 computation. With a strong password (16+ characters, mixed types), it would
@@ -128,7 +132,8 @@ take longer than the age of the universe.
 
 ### What About Quantum Computers?
 
-See [Post-Quantum Encryption Explained](#post-quantum-encryption-explained) below.
+See [Post-Quantum Encryption Explained](#post-quantum-encryption-explained)
+below.
 
 ---
 
@@ -160,10 +165,8 @@ pip install pqcrypto
 ### Verify Installation
 
 ```bash
-# Run the test suite
 python -m pytest tests/ -v
-
-# You should see: "86 passed"
+# You should see: "122 passed"
 ```
 
 ---
@@ -222,13 +225,6 @@ As you type your password, a strength meter shows:
 - **Cyan (Strong)**: Good password
 - **Green (Excellent)**: Very strong password
 
-The tool requires a **minimum acceptable** password:
-- At least 12 characters
-- Uppercase letters (A-Z)
-- Lowercase letters (a-z)
-- Digits (0-9)
-- Special characters (!@#$%^&*...)
-
 ---
 
 ## Using the CLI
@@ -249,29 +245,92 @@ python secure_data_encryption.py -o encrypt --data "my secret text"
 # (password entered interactively — never as a flag)
 
 # Encrypt with ChaCha20 and chaining
-python secure_data_encryption.py -o encrypt --data "secret" --cipher ChaCha20-Poly1305 --chain
+python secure_data_encryption.py -o encrypt --data "secret" \
+  --cipher ChaCha20-Poly1305 --chain
 
-# Encrypt from stdin (pipe a file's contents)
+# Encrypt from stdin (pipe a file's contents as text)
 cat my_secret_notes.txt | python secure_data_encryption.py -o encrypt --data -
 
 # Decrypt
 python secure_data_encryption.py -o decrypt --data "AgECAADE3f7a..."
 ```
 
-### All CLI Options
+### All CLI Flags
 
+| Flag | Description |
+|------|-------------|
+| `-o, --operation` | `encrypt` or `decrypt` |
+| `-d, --data` | Text to encrypt, or base64 ciphertext to decrypt. Use `-` for stdin |
+| `-f, --file` | Path to file to encrypt or decrypt |
+| `--output` | Explicit output file path (overrides default naming) |
+| `--cipher` | `AES-256-GCM` (default) or `ChaCha20-Poly1305` |
+| `--kdf` | `Argon2id` (default) or `Scrypt` |
+| `--chain` | Enable cipher chaining (AES + ChaCha) |
+| `--hybrid-pq` | Enable hybrid post-quantum (ML-KEM-768) |
+| `--pq-public-key` | Base64-encoded ML-KEM-768 public key (for hybrid encrypt) |
+| `--pq-secret-key` | Base64-encoded ML-KEM-768 secret key (for hybrid decrypt) |
+| `--generate-keypair` | Generate and display an ML-KEM-768 keypair |
+| `--cli` | Force CLI mode (skip GUI) |
+
+---
+
+## File Encryption
+
+Encrypt any file type — documents, images, binaries, archives — up to 100 MiB.
+
+### Encrypt a File
+
+```bash
+python secure_data_encryption.py -o encrypt -f document.pdf
+# Enter password interactively
+# -> Creates document.pdf.enc
 ```
--o, --operation    encrypt | decrypt
--d, --data         Text to encrypt, or base64 ciphertext to decrypt. Use '-' for stdin.
---cipher           AES-256-GCM | ChaCha20-Poly1305
---kdf              Argon2id | Scrypt
---chain            Enable cipher chaining (AES + ChaCha)
---hybrid-pq        Enable hybrid post-quantum (ML-KEM-768)
---pq-public-key    Base64-encoded ML-KEM-768 public key (for hybrid encrypt)
---pq-secret-key    Base64-encoded ML-KEM-768 secret key (for hybrid decrypt)
---generate-keypair Generate and display an ML-KEM-768 keypair
---cli              Force CLI mode (skip GUI)
+
+### Decrypt a File
+
+```bash
+python secure_data_encryption.py -o decrypt -f document.pdf.enc
+# Enter password interactively
+# -> Restores document.pdf (original filename preserved)
 ```
+
+### Custom Output Path
+
+```bash
+# Encrypt to specific location
+python secure_data_encryption.py -o encrypt -f secret.docx --output /tmp/backup.enc
+
+# Decrypt to specific location
+python secure_data_encryption.py -o decrypt -f /tmp/backup.enc --output ~/restored.docx
+```
+
+### File Encryption with Advanced Modes
+
+```bash
+# Encrypt a file with cipher chaining
+python secure_data_encryption.py -o encrypt -f database.sqlite --chain
+
+# Encrypt a file with hybrid post-quantum
+python secure_data_encryption.py -o encrypt -f classified.pdf \
+  --hybrid-pq --pq-public-key <base64-pk>
+
+# Decrypt the hybrid PQ file
+python secure_data_encryption.py -o decrypt -f classified.pdf.enc \
+  --hybrid-pq --pq-secret-key <base64-sk>
+```
+
+### How File Encryption Works
+
+1. The file is read as raw bytes
+2. The bytes are wrapped in a JSON envelope that preserves the original
+   filename: `{"filename": "secret.pdf", "data": "<base64-encoded bytes>"}`
+3. The envelope is encrypted through the same pipeline as text
+4. On decryption, the envelope is parsed and the original file is restored
+   with its original name (unless `--output` overrides it)
+
+**Supported file types**: Any. Text, binary, images, archives — the tool
+treats all files as raw byte streams. The 100 MiB limit prevents excessive
+memory use during in-memory encryption.
 
 ---
 
@@ -290,7 +349,7 @@ proves the ciphertext hasn't been tampered with.
 
 ### Mode 2: ChaCha20-Poly1305
 
-**What it is**: A newer cipher designed by Daniel J. Bernstein. Used by
+**What it is**: A modern cipher designed by Daniel J. Bernstein. Used by
 Google, Cloudflare, and WireGuard VPN.
 
 **How it works**: Uses a stream cipher (ChaCha20) for encryption and a
@@ -302,16 +361,17 @@ high-security contexts because it runs in constant time (no timing attacks).
 
 ### Mode 3: Cipher Chaining
 
-**What it is**: Encrypts your text with AES-256-GCM first, then encrypts the
+**What it is**: Encrypts your data with AES-256-GCM first, then encrypts the
 result with ChaCha20-Poly1305. Two independent algorithms, two independent keys.
 
 **Why**: Defense-in-depth. If a catastrophic flaw is ever found in AES, your
-data is still protected by ChaCha20, and vice versa. This is the "belt and
-suspenders" approach.
+data is still protected by ChaCha20, and vice versa.
 
 **How keys work**: Your password is run through the KDF to produce a master key.
-That master key is then expanded (via HKDF) into two separate 256-bit keys —
-one for AES, one for ChaCha20. Knowing one key doesn't help you find the other.
+That master key is expanded through HKDF into two separate 256-bit subkeys —
+one for AES, one for ChaCha20. Each subkey uses domain-separated HKDF info
+strings bound to the application context and salt. Knowing one key doesn't
+help you find the other.
 
 **When to use**: When you want maximum confidence that your data will remain
 secure even if one algorithm is broken in the future.
@@ -337,22 +397,27 @@ types of encryption that rely on mathematical problems being hard to solve
 - Elliptic curve cryptography (ECDH, ECDSA)
 - Traditional key exchange
 
-**What's NOT at risk**: Symmetric encryption like AES-256 is already safe. A
-quantum computer using Grover's algorithm would reduce AES-256 to the
-equivalent of AES-128, which is still unbreakable (2^128 operations).
+**What's NOT at risk**: Symmetric encryption like AES-256 is already quantum-
+resistant. A quantum computer using Grover's algorithm would reduce AES-256
+to the equivalent of AES-128, which is still computationally infeasible
+(2^128 operations).
 
 ### So Why Add Post-Quantum to This Tool?
 
-While AES-256 is quantum-safe on its own, we add ML-KEM-768 as an **extra
-layer** for two reasons:
+While AES-256 is quantum-resistant on its own, we add ML-KEM-768 as a
+**defense-in-depth layer** for two reasons:
 
 1. **Harvest Now, Decrypt Later**: Adversaries may be recording your encrypted
    data today, planning to decrypt it when quantum computers mature. The hybrid
    approach adds a layer that's specifically designed to resist quantum attacks.
 
 2. **Two-Party Encryption**: If you're encrypting data for someone else, ML-KEM
-   provides a quantum-safe way to establish a shared secret without exchanging
-   passwords over insecure channels.
+   provides a quantum-resistant way to establish a shared secret without
+   exchanging passwords over insecure channels.
+
+**Important**: The overall security of hybrid mode is bounded by the strongest
+factor, but a weak password remains the weakest link. ML-KEM protects against
+quantum attacks on the key exchange, not against password brute-forcing.
 
 ### What Is ML-KEM-768?
 
@@ -362,9 +427,12 @@ It's based on the mathematical hardness of the **Learning With Errors** problem
 in lattice cryptography — a problem that even quantum computers can't solve
 efficiently.
 
-- **ML-KEM-512**: 128-bit security
-- **ML-KEM-768**: 192-bit security (what we use — the recommended level)
-- **ML-KEM-1024**: 256-bit security
+- **ML-KEM-512**: Category 1 (~AES-128 equivalent)
+- **ML-KEM-768**: Category 3 (~AES-192 equivalent — what we use)
+- **ML-KEM-1024**: Category 5 (~AES-256 equivalent)
+
+We chose ML-KEM-768 as the best balance of security and practical key sizes.
+Category 5 doubles key sizes for marginal gain.
 
 ### How Hybrid Mode Works
 
@@ -389,15 +457,22 @@ ML-KEM shared secret. An attacker needs to break **both** to read your data:
 ```bash
 python secure_data_encryption.py --generate-keypair
 ```
-This prints a public key and a secret key. The public key is safe to share.
-The secret key must be kept private.
+This prints a public key and a secret key (base64-encoded). The public key
+is safe to share. The secret key must be kept private.
 
 **Step 2: Encrypt (you or someone else)**
-Use the public key to encrypt. The encrypted output includes a KEM ciphertext
-that can only be decapsulated by the corresponding secret key.
+```bash
+python secure_data_encryption.py -o encrypt --data "sensitive text" \
+  --hybrid-pq --pq-public-key <base64-pk>
+```
+The encrypted output includes a KEM ciphertext that can only be decapsulated
+by the corresponding secret key.
 
 **Step 3: Decrypt**
-Use the secret key + the password to decrypt.
+```bash
+python secure_data_encryption.py -o decrypt --data "AgEB..." \
+  --hybrid-pq --pq-secret-key <base64-sk>
+```
 
 In the GUI, check the "Hybrid Post-Quantum" checkbox and click "Generate
 Keypair" to create keys. Copy them before closing the app — they exist
@@ -417,7 +492,8 @@ in memory only and are never saved to disk.
 ### Recommendations
 - **16+ characters** for strong security
 - **24+ characters** for excellent security
-- Use a passphrase: "Correct-Horse-Battery-Staple!42" is better than "P@ssw0rd123!"
+- Use a passphrase: `Correct-Horse-Battery-Staple!42` is better than
+  `P@ssw0rd123!`
 - Don't reuse passwords from other services
 - Consider a password manager
 
@@ -441,7 +517,7 @@ characters (aaa), no sequential patterns (123, abc).
 
 ### What the Encrypted Output Looks Like
 
-When you encrypt text, you get a base64-encoded string like:
+When you encrypt data, you get a base64-encoded string like:
 
 ```
 AgECAACYm3Kx8dE4R2Fk...long string...
@@ -463,7 +539,7 @@ Byte 2:     KDF ID
 Byte 3:     Flags
               Bit 0 = Cipher chaining enabled
               Bit 1 = Hybrid PQ enabled
-Bytes 4-5:  Reserved (0x0000)
+Bytes 4-5:  Reserved (0x0000, validated on read)
 Bytes 6+:   Payload (varies by mode)
 ```
 
@@ -476,13 +552,13 @@ Bytes 6+:   Payload (varies by mode)
 ### Payload Layout — Chained
 
 ```
-[16 bytes: salt][12 bytes: nonce_aes][12 bytes: nonce_chacha][ciphertext + tag]
+[16 bytes: salt][12 bytes: nonce_aes][12 bytes: nonce_chacha][ciphertext + tags]
 ```
 
 ### Payload Layout — Hybrid PQ
 
 ```
-[2 bytes: KEM ciphertext length][KEM ciphertext][standard cipher payload]
+[2 bytes: KEM ciphertext length (big-endian)][KEM ciphertext][standard cipher payload]
 ```
 
 ### Why This Matters
@@ -491,8 +567,9 @@ The format is **self-describing**: the header tells the decryptor exactly which
 algorithms were used. This means:
 - You don't need to remember what settings you used when encrypting
 - Future versions can add new ciphers without breaking old ciphertexts
-- The cipher choice is **authenticated** (part of the AAD), preventing
-  an attacker from tricking the decryptor into using a weaker algorithm
+- The full 6-byte header is **authenticated as AAD** — modifying any header
+  byte (including reserved bytes) causes decryption to fail, preventing
+  algorithm-downgrade attacks
 
 ---
 
@@ -504,31 +581,49 @@ algorithms were used. This means:
 python -m pytest tests/ -v
 ```
 
-Expected output: **86 passed**
+Expected output: **122 passed**
 
 ### What the Tests Cover
 
 | Test File | What It Tests | Count |
 |-----------|---------------|-------|
-| `test_ciphers.py` | AES-GCM and ChaCha20 encrypt/decrypt, wrong keys, tampered data, empty input, large input | 18 |
-| `test_kdf.py` | Argon2id and Scrypt key derivation, same inputs → same output, different inputs → different output | 12 |
-| `test_formats.py` | Binary format serialization, flag handling, version checking, invalid input rejection | 9 |
-| `test_validation.py` | Password strength scoring, edge cases (empty, short, missing char types), text validation | 14 |
-| `test_pipeline.py` | End-to-end roundtrips for all modes, chaining, hybrid PQ, wrong password, wrong keys, cross-compatibility | 28 |
-| `test_memory.py` | Secure zeroing, buffer management | 5 |
+| `test_ciphers.py` | AES-GCM and ChaCha20 roundtrips, NIST SP 800-38D test vector, RFC 8439 test vector, ciphertext indistinguishability, wrong key/AAD/tampered data, bytearray keys | 26 |
+| `test_kdf.py` | Argon2id and Scrypt key derivation, determinism, bytearray returns, salt generation, length validation | 17 |
+| `test_formats.py` | Binary format serialization, flag combinations, version/reserved byte validation, AAD collision resistance, empty/large payloads | 18 |
+| `test_pipeline.py` | End-to-end roundtrips for all modes (single/chained/hybrid/both), wrong password detection, cross-compatibility, payload truncation, KEM length=0 bypass, header tampering | 35 |
+| `test_memory.py` | Secure zeroing with ctypes.memset, SecureBuffer, secure_key context manager | 7 |
+| `test_validation.py` | Password strength scoring (0-100), minimum requirements, edge cases, input text validation | 17 |
+| `test_cli.py` | File encrypt/decrypt roundtrip (text and binary files) | 2 |
+
+Tests include **NIST SP 800-38D** (AES-256-GCM) and **RFC 8439** (ChaCha20-Poly1305) reference vectors verified against the `cryptography` library's validated implementations.
 
 ### Manual Verification — Encrypt/Decrypt Roundtrip
 
 ```bash
 # CLI roundtrip test
-python secure_data_encryption.py -o encrypt --data "The quick brown fox jumps over the lazy dog"
+python secure_data_encryption.py -o encrypt --data "The quick brown fox"
 # Enter a strong password, e.g.: Test!P@ssw0rd#2024
 
 # Copy the encrypted output, then:
 python secure_data_encryption.py -o decrypt --data "<paste encrypted output>"
 # Enter the same password
 
-# Verify you get back: "The quick brown fox jumps over the lazy dog"
+# Verify you get back: "The quick brown fox"
+```
+
+### Manual Verification — File Roundtrip
+
+```bash
+# Create a test file
+echo "Sensitive document content" > /tmp/test.txt
+
+# Encrypt the file
+python secure_data_encryption.py -o encrypt -f /tmp/test.txt
+# -> Creates /tmp/test.txt.enc
+
+# Decrypt the file
+python secure_data_encryption.py -o decrypt -f /tmp/test.txt.enc
+# -> Restores /tmp/test.txt with original content
 ```
 
 ### Manual Verification — Wrong Password Fails
@@ -573,11 +668,13 @@ python secure_data_encryption.py --generate-keypair
 # Save the public key and secret key
 
 # Encrypt with hybrid PQ
-python secure_data_encryption.py -o encrypt --data "quantum safe data" --hybrid-pq --pq-public-key "<public key>"
+python secure_data_encryption.py -o encrypt --data "quantum safe data" \
+  --hybrid-pq --pq-public-key "<public key>"
 # Enter password
 
 # Decrypt with hybrid PQ
-python secure_data_encryption.py -o decrypt --data "<encrypted output>" --hybrid-pq --pq-secret-key "<secret key>"
+python secure_data_encryption.py -o decrypt --data "<encrypted output>" \
+  --hybrid-pq --pq-secret-key "<secret key>"
 # Enter same password
 ```
 
@@ -606,23 +703,26 @@ python secure_data_encryption.py -o encrypt --data "same text"
    indistinguishable from random noise.
 
 2. **Integrity**: Any modification to the ciphertext — even a single bit
-   flip — is detected by the authentication tag. Decryption fails cleanly.
+   flip — is detected by the AEAD authentication tag. Decryption fails cleanly.
 
-3. **No data on disk**: The tool never writes sensitive data to files. The
-   GUI output auto-clears after 60 seconds. Clipboard is wiped on clear.
+3. **Memory protection**: Key material is stored in `mlock`'d buffers
+   (prevents the OS from swapping to disk) and zeroed after use via
+   `ctypes.memset`. KEM shared secrets and intermediate key material are
+   also zeroed.
 
-4. **Memory protection**: Key material is stored in `mlock`'d buffers
-   (prevents the OS from swapping to disk) and explicitly zeroed after use.
-
-5. **Forward uniqueness**: Every encryption produces unique output (random
+4. **Forward uniqueness**: Every encryption produces unique output (random
    salt + nonce), even for identical inputs.
 
-### Limitations (Be Honest About These)
+5. **Header authentication**: The full 6-byte header (including reserved bytes)
+   is authenticated as AEAD additional data, preventing algorithm-downgrade
+   attacks.
+
+### Limitations (Honest About These)
 
 1. **Python memory model**: Python strings are immutable. While we zero
-   `bytearray` buffers, the original password string may linger in Python's
-   heap until garbage collection. For absolute memory security, a C/Rust
-   implementation would be needed.
+   `bytearray` buffers via `ctypes.memset`, the original password string may
+   linger in Python's heap until garbage collection. For absolute memory
+   security, a C/Rust implementation would be needed.
 
 2. **Terminal scrollback**: While the GUI auto-clears, some terminals may
    retain content in their scrollback buffer. We recommend using the GUI
@@ -632,12 +732,14 @@ python secure_data_encryption.py -o encrypt --data "same text"
    clipboard managers (e.g., macOS Paste, Windows clipboard history) may
    retain copies.
 
-4. **Password via --password flag**: The legacy `-p` flag is supported for
-   backward compatibility but prints a warning. Passwords passed as CLI
-   arguments are visible in `ps` output and shell history.
+4. **`mlock` availability**: If `RLIMIT_MEMLOCK` is insufficient, buffers
+   may be swapped to disk. The tool logs a warning when this happens, but
+   cannot guarantee all key material stays in RAM.
 
-5. **No file encryption**: This tool encrypts text, not binary files.
-   For file encryption, consider `age`, `gpg`, or `7z` with AES-256.
+5. **KDF parameter mismatch**: KDF tuning parameters (time_cost, memory_cost)
+   are not stored in the ciphertext format. If you change KDF parameters
+   between encrypt and decrypt, the authentication tag will fail with a
+   generic error rather than a specific parameter mismatch message.
 
 6. **Single-user focus**: The hybrid PQ mode supports two-party encryption,
    but there's no built-in key distribution or PKI. You need to exchange
@@ -672,12 +774,23 @@ ciphertexts (from the original tool) are not compatible.
 
 ### "Ciphertext was created with KDF X, but pipeline is configured with Y"
 
-The encrypted data was created with a different KDF. In CLI mode, specify the
-matching KDF with `--kdf`. In GUI mode, the format is self-describing and
-this is handled automatically.
+The encrypted data was created with a different KDF than you're using now.
+In CLI mode, specify the matching KDF with `--kdf`. In GUI mode, the cipher
+and KDF are auto-detected from the header — only KDF parameters need to match.
+
+### "Reserved header bytes must be zero"
+
+The ciphertext header contains non-zero reserved bytes. This typically means
+the data has been corrupted or was created by a different tool. Version 2
+strictly validates that bytes 4-5 are `0x0000`.
 
 ### Encryption is slow
 
 Key derivation is intentionally slow (~1 second with Argon2id). This is a
-security feature, not a bug. If you need faster operation for testing, this
-is not something that should be reduced in production.
+security feature, not a bug. The slowness makes password brute-forcing
+computationally expensive.
+
+### File too large
+
+File encryption supports files up to 100 MiB. For larger files, consider
+splitting them first or using a streaming encryption tool.
