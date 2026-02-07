@@ -1,6 +1,6 @@
 """Tests for secure memory handling."""
 
-from secure_encryption.core.memory import SecureBuffer, secure_zero
+from secure_encryption.core.memory import SecureBuffer, secure_key, secure_zero
 
 
 class TestSecureZero:
@@ -33,3 +33,20 @@ class TestSecureBuffer:
         buf = SecureBuffer(64)
         assert len(buf.data) == 64
         buf.close()
+
+
+class TestSecureKey:
+    def test_yields_bytearray(self):
+        """secure_key should yield a mutable bytearray, not immutable bytes."""
+        key_data = b"A" * 32
+        with secure_key(key_data) as key:
+            assert isinstance(key, bytearray)
+            assert key == bytearray(b"A" * 32)
+
+    def test_zeros_on_exit(self):
+        key_data = b"S" * 16
+        holder = None
+        with secure_key(key_data) as key:
+            holder = key
+        # After context exit, the buffer should be zeroed
+        assert all(b == 0 for b in holder)

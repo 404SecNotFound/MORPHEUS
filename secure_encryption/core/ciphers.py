@@ -38,11 +38,11 @@ class Cipher(ABC):
         """Required nonce length in bytes."""
 
     @abstractmethod
-    def encrypt(self, key: bytes, plaintext: bytes, aad: bytes) -> tuple[bytes, bytes]:
+    def encrypt(self, key: bytes | bytearray, plaintext: bytes, aad: bytes) -> tuple[bytes, bytes]:
         """Encrypt plaintext, returning (nonce, ciphertext_with_tag)."""
 
     @abstractmethod
-    def decrypt(self, key: bytes, nonce: bytes, ciphertext: bytes, aad: bytes) -> bytes:
+    def decrypt(self, key: bytes | bytearray, nonce: bytes, ciphertext: bytes, aad: bytes) -> bytes:
         """Decrypt ciphertext, returning plaintext. Raises InvalidTag on failure."""
 
 
@@ -54,13 +54,13 @@ class AES256GCM(Cipher):
     key_size = 32
     nonce_size = 12
 
-    def encrypt(self, key: bytes, plaintext: bytes, aad: bytes) -> tuple[bytes, bytes]:
+    def encrypt(self, key: bytes | bytearray, plaintext: bytes, aad: bytes) -> tuple[bytes, bytes]:
         nonce = os.urandom(self.nonce_size)
-        ciphertext = AESGCM(key).encrypt(nonce, plaintext, aad)
+        ciphertext = AESGCM(bytes(key)).encrypt(nonce, plaintext, aad)
         return nonce, ciphertext
 
-    def decrypt(self, key: bytes, nonce: bytes, ciphertext: bytes, aad: bytes) -> bytes:
-        return AESGCM(key).decrypt(nonce, ciphertext, aad)
+    def decrypt(self, key: bytes | bytearray, nonce: bytes, ciphertext: bytes, aad: bytes) -> bytes:
+        return AESGCM(bytes(key)).decrypt(nonce, ciphertext, aad)
 
 
 class ChaCha20Poly1305Cipher(Cipher):
@@ -71,13 +71,13 @@ class ChaCha20Poly1305Cipher(Cipher):
     key_size = 32
     nonce_size = 12
 
-    def encrypt(self, key: bytes, plaintext: bytes, aad: bytes) -> tuple[bytes, bytes]:
+    def encrypt(self, key: bytes | bytearray, plaintext: bytes, aad: bytes) -> tuple[bytes, bytes]:
         nonce = os.urandom(self.nonce_size)
-        ciphertext = ChaCha20Poly1305(key).encrypt(nonce, plaintext, aad)
+        ciphertext = ChaCha20Poly1305(bytes(key)).encrypt(nonce, plaintext, aad)
         return nonce, ciphertext
 
-    def decrypt(self, key: bytes, nonce: bytes, ciphertext: bytes, aad: bytes) -> bytes:
-        return ChaCha20Poly1305(key).decrypt(nonce, ciphertext, aad)
+    def decrypt(self, key: bytes | bytearray, nonce: bytes, ciphertext: bytes, aad: bytes) -> bytes:
+        return ChaCha20Poly1305(bytes(key)).decrypt(nonce, ciphertext, aad)
 
 
 # Cipher ID 0x03 is reserved for chained AES-256-GCM -> ChaCha20-Poly1305
