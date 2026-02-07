@@ -19,32 +19,44 @@ class TestArgon2idKDF:
 
     def test_derive_produces_32_bytes(self):
         salt = os.urandom(16)
-        key = self.kdf.derive("TestP@ssw0rd!!", salt)
+        key = self.kdf.derive(b"TestP@ssw0rd!!", salt)
         assert len(key) == 32
 
     def test_derive_custom_length(self):
         salt = os.urandom(16)
-        key = self.kdf.derive("TestP@ssw0rd!!", salt, key_length=64)
+        key = self.kdf.derive(b"TestP@ssw0rd!!", salt, key_length=64)
         assert len(key) == 64
 
     def test_same_inputs_same_output(self):
         salt = os.urandom(16)
-        k1 = self.kdf.derive("TestP@ssw0rd!!", salt)
-        k2 = self.kdf.derive("TestP@ssw0rd!!", salt)
+        k1 = self.kdf.derive(b"TestP@ssw0rd!!", salt)
+        k2 = self.kdf.derive(b"TestP@ssw0rd!!", salt)
         assert k1 == k2
 
     def test_different_passwords_different_output(self):
         salt = os.urandom(16)
-        k1 = self.kdf.derive("TestP@ssw0rd!!", salt)
-        k2 = self.kdf.derive("OtherP@ssw0rd!!", salt)
+        k1 = self.kdf.derive(b"TestP@ssw0rd!!", salt)
+        k2 = self.kdf.derive(b"OtherP@ssw0rd!!", salt)
         assert k1 != k2
 
     def test_different_salts_different_output(self):
         s1 = os.urandom(16)
         s2 = os.urandom(16)
-        k1 = self.kdf.derive("TestP@ssw0rd!!", s1)
-        k2 = self.kdf.derive("TestP@ssw0rd!!", s2)
+        k1 = self.kdf.derive(b"TestP@ssw0rd!!", s1)
+        k2 = self.kdf.derive(b"TestP@ssw0rd!!", s2)
         assert k1 != k2
+
+    def test_derive_returns_bytearray(self):
+        salt = os.urandom(16)
+        key = self.kdf.derive(b"TestP@ssw0rd!!", salt)
+        assert isinstance(key, bytearray)
+
+    def test_derive_accepts_bytearray_password(self):
+        salt = os.urandom(16)
+        pwd = bytearray(b"TestP@ssw0rd!!")
+        key = self.kdf.derive(pwd, salt)
+        assert len(key) == 32
+        assert isinstance(key, bytearray)
 
     def test_generate_salt(self):
         salt = self.kdf.generate_salt()
@@ -61,20 +73,25 @@ class TestScryptKDF:
 
     def test_derive_produces_32_bytes(self):
         salt = os.urandom(16)
-        key = self.kdf.derive("TestP@ssw0rd!!", salt)
+        key = self.kdf.derive(b"TestP@ssw0rd!!", salt)
         assert len(key) == 32
 
     def test_same_inputs_same_output(self):
         salt = os.urandom(16)
-        k1 = self.kdf.derive("TestP@ssw0rd!!", salt)
-        k2 = self.kdf.derive("TestP@ssw0rd!!", salt)
+        k1 = self.kdf.derive(b"TestP@ssw0rd!!", salt)
+        k2 = self.kdf.derive(b"TestP@ssw0rd!!", salt)
         assert k1 == k2
 
     def test_different_passwords_different_output(self):
         salt = os.urandom(16)
-        k1 = self.kdf.derive("TestP@ssw0rd!!", salt)
-        k2 = self.kdf.derive("OtherP@ssw0rd!!", salt)
+        k1 = self.kdf.derive(b"TestP@ssw0rd!!", salt)
+        k2 = self.kdf.derive(b"OtherP@ssw0rd!!", salt)
         assert k1 != k2
+
+    def test_derive_returns_bytearray(self):
+        salt = os.urandom(16)
+        key = self.kdf.derive(b"TestP@ssw0rd!!", salt)
+        assert isinstance(key, bytearray)
 
     def test_kdf_id(self):
         assert self.kdf.kdf_id == 0x01
