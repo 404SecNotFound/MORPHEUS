@@ -1,8 +1,14 @@
 """Tests for the encryption pipeline — roundtrips, chaining, and hybrid PQ."""
 
+import base64
+import struct
+import warnings
+
 import pytest
+from cryptography.exceptions import InvalidTag
 
 from secure_encryption.core.ciphers import AES256GCM, ChaCha20Poly1305Cipher
+from secure_encryption.core.formats import FLAG_CHAINED, FLAG_HYBRID_PQ, FORMAT_VERSION, HEADER_FORMAT
 from secure_encryption.core.kdf import Argon2idKDF, ScryptKDF
 from secure_encryption.core.pipeline import (
     PQ_AVAILABLE,
@@ -51,10 +57,10 @@ class TestSingleCipherRoundtrip:
         decrypted = pipeline.decrypt(encrypted, PASSWORD)
         assert decrypted == text
 
-    def test_wrong_password_fails(self):
+    def test_wrong_password_fails_with_invalid_tag(self):
         pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
         encrypted = pipeline.encrypt("secret data", PASSWORD)
-        with pytest.raises(Exception):
+        with pytest.raises(InvalidTag):
             pipeline.decrypt(encrypted, "Wr0ng!Password#X")
 
     def test_unique_ciphertexts(self):
@@ -69,6 +75,26 @@ class TestSingleCipherRoundtrip:
         assert "AES-256-GCM" in p.description
         assert "Argon2id" in p.description
 
+    def test_pipeline_reuse(self):
+        """Pipeline can encrypt multiple messages without state leakage."""
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        for i in range(5):
+            text = f"message {i}"
+            encrypted = pipeline.encrypt(text, PASSWORD)
+            assert pipeline.decrypt(encrypted, PASSWORD) == text
+
+    def test_unicode_roundtrip(self):
+        """Unicode, emoji, and RTL text survive roundtrip."""
+        texts = [
+            "\u4e16\u754c\u3053\u3093\u306b\u3061\u306f",  # Japanese
+            "\U0001f512\U0001f511\U0001f50f",  # Emoji (lock, key, locked-with-pen)
+            "\u0645\u0631\u062d\u0628\u0627",  # Arabic
+        ]
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        for text in texts:
+            ct = pipeline.encrypt(text, PASSWORD)
+            assert pipeline.decrypt(ct, PASSWORD) == text
+
 
 class TestChainedCipher:
     """Test cipher chaining (AES-256-GCM -> ChaCha20-Poly1305)."""
@@ -82,19 +108,29 @@ class TestChainedCipher:
         assert decrypted == SAMPLE_TEXT
 
     def test_chain_always_uses_fixed_order(self):
-        """Chaining always uses AES→ChaCha regardless of cipher param."""
+        """Chaining always uses AES->ChaCha regardless of cipher param."""
         p1 = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2, chain=True)
-        p2 = EncryptionPipeline(cipher=ChaCha20Poly1305Cipher(), kdf=FAST_ARGON2, chain=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            p2 = EncryptionPipeline(cipher=ChaCha20Poly1305Cipher(), kdf=FAST_ARGON2, chain=True)
         ct = p1.encrypt("test", PASSWORD)
         # Both pipelines can decrypt because chain forces fixed order
         assert p2.decrypt(ct, PASSWORD) == "test"
+
+    def test_chain_with_chacha_emits_warning(self):
+        """Passing ChaCha as cipher with chain=True should emit a warning."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            EncryptionPipeline(cipher=ChaCha20Poly1305Cipher(), kdf=FAST_ARGON2, chain=True)
+            assert len(w) == 1
+            assert "overridden" in str(w[0].message).lower()
 
     def test_chained_wrong_password(self):
         pipeline = EncryptionPipeline(
             cipher=AES256GCM(), kdf=FAST_ARGON2, chain=True,
         )
         encrypted = pipeline.encrypt("secret", PASSWORD)
-        with pytest.raises(Exception):
+        with pytest.raises(InvalidTag):
             pipeline.decrypt(encrypted, "Wr0ng!Password#X")
 
     def test_chained_description(self):
@@ -154,7 +190,7 @@ class TestHybridPQ:
             hybrid_pq=True, pq_secret_key=self.sk,
         )
         encrypted = enc.encrypt("secret", PASSWORD)
-        with pytest.raises(Exception):
+        with pytest.raises(InvalidTag):
             dec.decrypt(encrypted, "Wr0ng!Password#X")
 
     def test_hybrid_wrong_sk_fails(self):
@@ -213,8 +249,7 @@ class TestCrossCompatibility:
         a = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
         s = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_SCRYPT)
         ct = a.encrypt("test", PASSWORD)
-        # Different KDF ID in header, should still parse but derive wrong key
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match="KDF"):
             s.decrypt(ct, PASSWORD)
 
 
@@ -223,9 +258,6 @@ class TestPayloadValidation:
 
     def test_truncated_payload_raises_valueerror(self):
         """A payload too short for salt+nonce should raise ValueError."""
-        import base64
-        import struct
-        from secure_encryption.core.formats import FORMAT_VERSION, HEADER_FORMAT
         # Build a valid header but truncated payload (only 10 bytes, need 16+12=28)
         header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, 0x01, 0x02, 0x00, 0)
         truncated = header + b"\x00" * 10
@@ -236,9 +268,6 @@ class TestPayloadValidation:
 
     def test_empty_ciphertext_after_fields_raises(self):
         """Payload with correct salt+nonce but no ciphertext data."""
-        import base64
-        import struct
-        from secure_encryption.core.formats import FORMAT_VERSION, HEADER_FORMAT
         header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, 0x01, 0x02, 0x00, 0)
         # Exactly salt (16) + nonce (12) = 28 bytes, no ciphertext
         payload = b"\x00" * 28
@@ -246,3 +275,87 @@ class TestPayloadValidation:
         pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
         with pytest.raises(ValueError, match="no encrypted data"):
             pipeline.decrypt(b64, PASSWORD)
+
+    def test_kem_ciphertext_length_zero_rejected(self):
+        """KEM ciphertext length of 0 should be rejected to prevent PQ bypass."""
+        # Build header with hybrid PQ flag
+        flags = FLAG_HYBRID_PQ
+        header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, 0x01, 0x02, flags, 0)
+        # salt (16) + nonce (12) + KEM length field (2 bytes, value=0) + fake ciphertext
+        salt = b"\x00" * 16
+        nonce = b"\x00" * 12
+        kem_len = struct.pack("!H", 0)  # Zero-length KEM ciphertext
+        fake_ct = b"\x00" * 32
+        payload = salt + nonce + kem_len + fake_ct
+        b64 = base64.b64encode(header + payload).decode()
+        pipeline = EncryptionPipeline(
+            cipher=AES256GCM(), kdf=FAST_ARGON2,
+            hybrid_pq=True, pq_secret_key=b"\x00" * 2400,
+        )
+        with pytest.raises(ValueError, match="KEM ciphertext length is zero"):
+            pipeline.decrypt(b64, PASSWORD)
+
+    def test_unknown_cipher_id_raises(self):
+        """Unknown cipher_id in header should raise ValueError."""
+        header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, 0xAA, 0x02, 0x00, 0)
+        payload = b"\x00" * 64
+        b64 = base64.b64encode(header + payload).decode()
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        with pytest.raises(ValueError, match="Unknown cipher"):
+            pipeline.decrypt(b64, PASSWORD)
+
+    def test_tampered_header_flag_fails_aead(self):
+        """Flipping a flag bit in the ciphertext should cause AEAD validation failure."""
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        ct = pipeline.encrypt("test", PASSWORD)
+        raw = base64.b64decode(ct)
+        # Flip the chained flag (byte 3)
+        tampered = bytearray(raw)
+        tampered[3] ^= FLAG_CHAINED
+        b64_tampered = base64.b64encode(bytes(tampered)).decode()
+        # Chained flag set means cipher_id should be 0x03, but it's 0x01
+        # This should fail during decrypt (InvalidTag or ValueError)
+        with pytest.raises((InvalidTag, ValueError)):
+            pipeline.decrypt(b64_tampered, PASSWORD)
+
+
+class TestFormatFlagCombinations:
+    """Test all flag combinations for format consistency."""
+
+    def test_no_flags(self):
+        p = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        ct = p.encrypt("test", PASSWORD)
+        assert p.decrypt(ct, PASSWORD) == "test"
+
+    def test_chained_flag_only(self):
+        p = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2, chain=True)
+        ct = p.encrypt("test", PASSWORD)
+        assert p.decrypt(ct, PASSWORD) == "test"
+
+    @pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
+    def test_hybrid_flag_only(self):
+        pk, sk = pq_generate_keypair()
+        enc = EncryptionPipeline(
+            cipher=AES256GCM(), kdf=FAST_ARGON2,
+            hybrid_pq=True, pq_public_key=pk,
+        )
+        dec = EncryptionPipeline(
+            cipher=AES256GCM(), kdf=FAST_ARGON2,
+            hybrid_pq=True, pq_secret_key=sk,
+        )
+        ct = enc.encrypt("test", PASSWORD)
+        assert dec.decrypt(ct, PASSWORD) == "test"
+
+    @pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
+    def test_both_flags(self):
+        pk, sk = pq_generate_keypair()
+        enc = EncryptionPipeline(
+            cipher=AES256GCM(), kdf=FAST_ARGON2,
+            chain=True, hybrid_pq=True, pq_public_key=pk,
+        )
+        dec = EncryptionPipeline(
+            cipher=AES256GCM(), kdf=FAST_ARGON2,
+            chain=True, hybrid_pq=True, pq_secret_key=sk,
+        )
+        ct = enc.encrypt("test", PASSWORD)
+        assert dec.decrypt(ct, PASSWORD) == "test"

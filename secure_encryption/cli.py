@@ -190,6 +190,8 @@ def run_cli(argv: list[str] | None = None) -> None:
             _print_status("Error: pqcrypto not installed. Run: pip install pqcrypto", error=True)
             sys.exit(1)
         import base64 as b64
+        _ML_KEM_768_PK_SIZE = 1184
+        _ML_KEM_768_SK_SIZE = 2400
         if args.pq_public_key:
             try:
                 pq_pk = b64.b64decode(args.pq_public_key, validate=True)
@@ -200,12 +202,28 @@ def run_cli(argv: list[str] | None = None) -> None:
                     error=True,
                 )
                 sys.exit(1)
+            if len(pq_pk) != _ML_KEM_768_PK_SIZE:
+                _print_status(
+                    f"Error: --pq-public-key has wrong size ({len(pq_pk)} bytes, "
+                    f"expected {_ML_KEM_768_PK_SIZE} for ML-KEM-768). "
+                    "Use the output from --generate-keypair.",
+                    error=True,
+                )
+                sys.exit(1)
         if args.pq_secret_key:
             try:
                 pq_sk = b64.b64decode(args.pq_secret_key, validate=True)
             except Exception:
                 _print_status(
                     "Error: --pq-secret-key is not valid base64. "
+                    "Use the output from --generate-keypair.",
+                    error=True,
+                )
+                sys.exit(1)
+            if len(pq_sk) != _ML_KEM_768_SK_SIZE:
+                _print_status(
+                    f"Error: --pq-secret-key has wrong size ({len(pq_sk)} bytes, "
+                    f"expected {_ML_KEM_768_SK_SIZE} for ML-KEM-768). "
                     "Use the output from --generate-keypair.",
                     error=True,
                 )
