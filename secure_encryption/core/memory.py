@@ -86,9 +86,21 @@ def munlock_buffer(buf: bytearray) -> bool:
 
 
 def secure_zero(buf: bytearray) -> None:
-    """Overwrite a bytearray with zeros."""
-    for i in range(len(buf)):
-        buf[i] = 0
+    """Overwrite a bytearray with zeros.
+
+    Uses ctypes.memset when available for a C-level zeroing that is less
+    likely to be optimized away than a Python-level loop.
+    """
+    n = len(buf)
+    if n == 0:
+        return
+    try:
+        addr = ctypes.addressof((ctypes.c_char * n).from_buffer(buf))
+        ctypes.memset(addr, 0, n)
+    except (ValueError, TypeError):
+        # Fallback: Python-level zeroing (e.g., if buffer is too small for from_buffer)
+        for i in range(n):
+            buf[i] = 0
 
 
 class SecureBuffer:

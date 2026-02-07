@@ -33,6 +33,15 @@ def _build_parser() -> argparse.ArgumentParser:
              "Omit to enter interactively. Use '-' to read from stdin.",
     )
     parser.add_argument(
+        "-f", "--file",
+        help="Path to file to encrypt or decrypt. "
+             "Output goes to FILE.enc (encrypt) or original name (decrypt).",
+    )
+    parser.add_argument(
+        "--output",
+        help="Explicit output file path (overrides default naming).",
+    )
+    parser.add_argument(
         "--cipher",
         choices=list(CIPHER_CHOICES.keys()),
         default="AES-256-GCM",
@@ -129,30 +138,32 @@ def run_cli(argv: list[str] | None = None) -> None:
             _print_status("Invalid choice.", error=True)
             sys.exit(1)
 
-    # --- Read data ---
-    if args.data == "-":
-        data = sys.stdin.read()
-    elif args.data:
-        data = args.data
-    else:
-        if operation == "encrypt":
-            print("Enter text to encrypt (Ctrl+D or Ctrl+Z when done):")
-            lines = []
-            try:
-                while True:
-                    lines.append(input())
-            except EOFError:
-                pass
-            data = "\n".join(lines)
+    # --- Read data (skip if file mode) ---
+    data = ""
+    if not args.file:
+        if args.data == "-":
+            data = sys.stdin.read()
+        elif args.data:
+            data = args.data
         else:
-            data = input("Enter encrypted data: ").strip()
+            if operation == "encrypt":
+                print("Enter text to encrypt (Ctrl+D or Ctrl+Z when done):")
+                lines = []
+                try:
+                    while True:
+                        lines.append(input())
+                except EOFError:
+                    pass
+                data = "\n".join(lines)
+            else:
+                data = input("Enter encrypted data: ").strip()
 
-    # --- Validate ---
-    if operation == "encrypt":
-        valid, err = validate_input_text(data)
-        if not valid:
-            _print_status(f"Error: {err}", error=True)
-            sys.exit(1)
+        # --- Validate ---
+        if operation == "encrypt":
+            valid, err = validate_input_text(data)
+            if not valid:
+                _print_status(f"Error: {err}", error=True)
+                sys.exit(1)
 
     # --- Password ---
     if args.password:
@@ -238,7 +249,12 @@ def run_cli(argv: list[str] | None = None) -> None:
         pq_secret_key=pq_sk,
     )
 
-    # --- Execute ---
+    # --- File mode ---
+    if args.file:
+        _run_file_operation(args, operation, password, pipeline)
+        return
+
+    # --- Text mode ---
     try:
         if operation == "encrypt":
             result = pipeline.encrypt(data, password)
@@ -256,3 +272,86 @@ def run_cli(argv: list[str] | None = None) -> None:
             error=True,
         )
         sys.exit(1)
+
+
+def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
+    """Encrypt or decrypt a file."""
+    import base64
+    import os
+
+    file_path = args.file
+    if not os.path.isfile(file_path):
+        _print_status(f"Error: file not found: {file_path}", error=True)
+        sys.exit(1)
+
+    file_size = os.path.getsize(file_path)
+    max_size = 100 * 1024 * 1024  # 100 MiB
+    if file_size > max_size:
+        _print_status(
+            f"Error: file too large ({file_size / 1024 / 1024:.1f} MiB, max 100 MiB)",
+            error=True,
+        )
+        sys.exit(1)
+
+    if operation == "encrypt":
+        # Read file bytes, base64 encode for the pipeline
+        with open(file_path, "rb") as f:
+            raw_data = f.read()
+
+        # Wrap raw bytes in a transport envelope so decrypt knows it's binary
+        import json
+        envelope = json.dumps({
+            "filename": os.path.basename(file_path),
+            "data": base64.b64encode(raw_data).decode(),
+        })
+
+        try:
+            encrypted = pipeline.encrypt(envelope, password)
+        except Exception as exc:
+            _print_status(f"Encryption error: {exc}", error=True)
+            sys.exit(1)
+
+        out_path = args.output or (file_path + ".enc")
+        with open(out_path, "w") as f:
+            f.write(encrypted)
+
+        _print_status(
+            f"Encrypted ({pipeline.description}): {file_path} -> {out_path} "
+            f"({file_size} bytes -> {len(encrypted)} chars)"
+        )
+
+    else:
+        with open(file_path, "r") as f:
+            encrypted_data = f.read().strip()
+
+        try:
+            decrypted = pipeline.decrypt(encrypted_data, password)
+        except Exception:
+            _print_status(
+                "Decryption failed: incorrect password or corrupted file",
+                error=True,
+            )
+            sys.exit(1)
+
+        # Try to parse as file envelope
+        import json
+        try:
+            envelope = json.loads(decrypted)
+            if "data" in envelope and "filename" in envelope:
+                raw_data = base64.b64decode(envelope["data"])
+                original_name = envelope["filename"]
+                out_path = args.output or original_name
+                with open(out_path, "wb") as f:
+                    f.write(raw_data)
+                _print_status(
+                    f"Decrypted: {file_path} -> {out_path} ({len(raw_data)} bytes)"
+                )
+                return
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+        # Fallback: treat as plain text
+        out_path = args.output or file_path.removesuffix(".enc")
+        with open(out_path, "w") as f:
+            f.write(decrypted)
+        _print_status(f"Decrypted: {file_path} -> {out_path}")
