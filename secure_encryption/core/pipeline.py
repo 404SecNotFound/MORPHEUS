@@ -88,10 +88,12 @@ def _derive_keys(
 
     keys: list[bytearray] = []
     for i in range(num_keys):
+        # Domain-separate each subkey by binding application context and salt
+        info = f"SecureDataEncryption-v2-key-{i}".encode() + salt
         expanded = HKDFExpand(
             algorithm=SHA256(),
             length=32,
-            info=f"cipher-key-{i}".encode(),
+            info=info,
         ).derive(bytes(master))
         keys.append(bytearray(expanded))
 
@@ -104,16 +106,20 @@ def _derive_keys(
 def _combine_with_kem(password_key: bytes | bytearray, kem_shared_secret: bytes, salt: bytes) -> bytearray:
     """Combine a password-derived key with a KEM shared secret via HKDF.
 
-    Returns a mutable bytearray so callers can zero it after use.
+    Uses a mutable bytearray for the concatenated intermediate to enable
+    zeroing after derivation. Returns a mutable bytearray.
     """
-    combined = bytes(password_key) + kem_shared_secret
-    result = HKDF(
-        algorithm=SHA256(),
-        length=32,
-        salt=salt,
-        info=b"hybrid-pq-v1",
-    ).derive(combined)
-    return bytearray(result)
+    combined = bytearray(bytes(password_key) + kem_shared_secret)
+    try:
+        result = HKDF(
+            algorithm=SHA256(),
+            length=32,
+            salt=salt,
+            info=b"hybrid-pq-v1",
+        ).derive(bytes(combined))
+        return bytearray(result)
+    finally:
+        secure_zero(combined)
 
 
 # ---------------------------------------------------------------------------
@@ -210,15 +216,18 @@ class EncryptionPipeline:
 
             # Hybrid PQ layer
             kem_prefix = b""
+            kem_ss: bytearray | None = None
             if self.hybrid_pq:
                 if not self.pq_public_key:
                     raise ValueError("Hybrid PQ requires a public key for encryption")
-                kem_ct, kem_ss = _pq_encapsulate(self.pq_public_key)
+                kem_ct, raw_ss = _pq_encapsulate(self.pq_public_key)
+                kem_ss = bytearray(raw_ss)
                 old_keys = keys
                 keys = [_combine_with_kem(k, kem_ss, salt) for k in keys]
-                # Zero the pre-KEM keys
+                # Zero the pre-KEM keys and the KEM shared secret
                 for k in old_keys:
                     secure_zero(k)
+                secure_zero(kem_ss)
                 # KEM ciphertext length stored as 2-byte unsigned short (!H).
                 # ML-KEM-768 ciphertext is 1088 bytes, well within the 65535 limit.
                 # Future KEMs with larger ciphertexts (e.g., Classic McEliece ~200KB)
@@ -310,7 +319,7 @@ class EncryptionPipeline:
             nonce2 = b""
 
         # KEM ciphertext if hybrid
-        kem_ss = b""
+        kem_ss: bytearray | None = None
         if is_hybrid:
             if not self.pq_secret_key:
                 raise ValueError("Hybrid PQ ciphertext requires a secret key for decryption")
@@ -329,7 +338,7 @@ class EncryptionPipeline:
                 )
             kem_ct = payload[offset : offset + kem_ct_len]
             offset += kem_ct_len
-            kem_ss = _pq_decapsulate(self.pq_secret_key, kem_ct)
+            kem_ss = bytearray(_pq_decapsulate(self.pq_secret_key, kem_ct))
 
         ciphertext = payload[offset:]
         if not ciphertext:
@@ -343,11 +352,12 @@ class EncryptionPipeline:
             num_keys = 2 if is_chained else 1
             keys = _derive_keys(kdf, password_bytes, salt, num_keys)
 
-            if is_hybrid and kem_ss:
+            if is_hybrid and kem_ss is not None:
                 old_keys = keys
                 keys = [_combine_with_kem(k, kem_ss, salt) for k in keys]
                 for k in old_keys:
                     secure_zero(k)
+                secure_zero(kem_ss)
 
             if is_chained and secondary:
                 # Decrypt outer layer first, then inner

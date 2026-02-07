@@ -16,7 +16,8 @@ def main():
         run_cli()
     elif len(sys.argv) > 1 and sys.argv[1] in ("-o", "--operation", "-h", "--help",
                                                   "--generate-keypair", "--cipher",
-                                                  "--kdf", "--chain", "--hybrid-pq"):
+                                                  "--kdf", "--chain", "--hybrid-pq",
+                                                  "-f", "--file"):
         # Auto-detect CLI mode from flags
         from .cli import run_cli
         run_cli()
