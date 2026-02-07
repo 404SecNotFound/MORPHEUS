@@ -17,16 +17,19 @@ import ctypes.util
 import sys
 from contextlib import contextmanager
 
+_libc_loaded = False  # Sentinel: distinguishes "not yet attempted" from "attempted and failed"
 _libc = None
 _mlock = None
 _munlock = None
 
 
 def _load_libc():
-    """Lazily load libc for mlock/munlock."""
-    global _libc, _mlock, _munlock
-    if _libc is not None:
+    """Lazily load libc for mlock/munlock. Only attempts once."""
+    global _libc_loaded, _libc, _mlock, _munlock
+    if _libc_loaded:
         return
+
+    _libc_loaded = True  # Mark as attempted regardless of outcome
 
     if sys.platform == "win32":
         # Windows uses VirtualLock but we skip for simplicity
@@ -115,14 +118,17 @@ class SecureBuffer:
 
 
 @contextmanager
-def secure_key(key_bytes: bytes):
+def secure_key(key_bytes: bytes | bytearray):
     """
     Context manager: copies key into a locked bytearray, yields it,
     then zeros and unlocks on exit.
+
+    Yields the mutable bytearray directly (not an immutable bytes copy)
+    so that the only copy of the key material is the one that gets zeroed.
     """
     buf = SecureBuffer(len(key_bytes))
     try:
         buf.data[:] = key_bytes
-        yield bytes(buf.data)
+        yield buf.data
     finally:
         buf.close()

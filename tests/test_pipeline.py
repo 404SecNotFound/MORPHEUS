@@ -216,3 +216,33 @@ class TestCrossCompatibility:
         # Different KDF ID in header, should still parse but derive wrong key
         with pytest.raises(Exception):
             s.decrypt(ct, PASSWORD)
+
+
+class TestPayloadValidation:
+    """Test that truncated/malformed ciphertexts produce clear error messages."""
+
+    def test_truncated_payload_raises_valueerror(self):
+        """A payload too short for salt+nonce should raise ValueError."""
+        import base64
+        import struct
+        from secure_encryption.core.formats import FORMAT_VERSION, HEADER_FORMAT
+        # Build a valid header but truncated payload (only 10 bytes, need 16+12=28)
+        header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, 0x01, 0x02, 0x00, 0)
+        truncated = header + b"\x00" * 10
+        b64 = base64.b64encode(truncated).decode()
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        with pytest.raises(ValueError, match="Truncated ciphertext"):
+            pipeline.decrypt(b64, PASSWORD)
+
+    def test_empty_ciphertext_after_fields_raises(self):
+        """Payload with correct salt+nonce but no ciphertext data."""
+        import base64
+        import struct
+        from secure_encryption.core.formats import FORMAT_VERSION, HEADER_FORMAT
+        header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, 0x01, 0x02, 0x00, 0)
+        # Exactly salt (16) + nonce (12) = 28 bytes, no ciphertext
+        payload = b"\x00" * 28
+        b64 = base64.b64encode(header + payload).decode()
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        with pytest.raises(ValueError, match="no encrypted data"):
+            pipeline.decrypt(b64, PASSWORD)

@@ -69,45 +69,50 @@ def _pq_decapsulate(secret_key: bytes, kem_ciphertext: bytes) -> bytes:
 
 def _derive_keys(
     kdf: KDF,
-    password: str,
+    password_bytes: bytearray,
     salt: bytes,
     num_keys: int = 1,
-) -> list[bytes]:
+) -> list[bytearray]:
     """
     Derive one or more 32-byte keys from a password.
 
-    For a single cipher, returns [key].
+    For a single cipher, returns [key] as bytearray.
     For chained ciphers, returns [key_cipher1, key_cipher2] using HKDF-Expand.
+    All returned keys are mutable bytearrays that can be zeroed by the caller.
     """
-    master = kdf.derive(password, salt, key_length=32)
+    master = kdf.derive(password_bytes, salt, key_length=32)  # returns bytearray
 
     if num_keys == 1:
         return [master]
 
-    keys = []
+    keys: list[bytearray] = []
     for i in range(num_keys):
         expanded = HKDFExpand(
             algorithm=SHA256(),
             length=32,
             info=f"cipher-key-{i}".encode(),
-        ).derive(master)
-        keys.append(expanded)
+        ).derive(bytes(master))
+        keys.append(bytearray(expanded))
 
-    # Zero the master key
-    master_buf = bytearray(master)
-    secure_zero(master_buf)
+    # Zero the master key (now actually zeros the original bytearray)
+    secure_zero(master)
 
     return keys
 
 
-def _combine_with_kem(password_key: bytes, kem_shared_secret: bytes, salt: bytes) -> bytes:
-    """Combine a password-derived key with a KEM shared secret via HKDF."""
-    return HKDF(
+def _combine_with_kem(password_key: bytes | bytearray, kem_shared_secret: bytes, salt: bytes) -> bytearray:
+    """Combine a password-derived key with a KEM shared secret via HKDF.
+
+    Returns a mutable bytearray so callers can zero it after use.
+    """
+    combined = bytes(password_key) + kem_shared_secret
+    result = HKDF(
         algorithm=SHA256(),
         length=32,
         salt=salt,
         info=b"hybrid-pq-v1",
-    ).derive(password_key + kem_shared_secret)
+    ).derive(combined)
+    return bytearray(result)
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +179,9 @@ class EncryptionPipeline:
         data = plaintext.encode("utf-8")
         salt = self.kdf.generate_salt()
 
+        # Encode password to mutable bytearray at the boundary, then zero after use
+        password_bytes = bytearray(password.encode("utf-8"))
+
         # Determine flags and cipher_id
         flags = 0
         if self.chain:
@@ -187,35 +195,50 @@ class EncryptionPipeline:
 
         aad = build_aad(FORMAT_VERSION, cipher_id, self.kdf.kdf_id, flags)
 
-        # Key derivation
-        num_keys = 2 if self.chain else 1
-        keys = _derive_keys(self.kdf, password, salt, num_keys)
+        keys: list[bytearray] = []
+        try:
+            # Key derivation (returns list of bytearray)
+            num_keys = 2 if self.chain else 1
+            keys = _derive_keys(self.kdf, password_bytes, salt, num_keys)
 
-        # Hybrid PQ layer
-        kem_prefix = b""
-        if self.hybrid_pq:
-            if not self.pq_public_key:
-                raise ValueError("Hybrid PQ requires a public key for encryption")
-            kem_ct, kem_ss = _pq_encapsulate(self.pq_public_key)
-            keys = [_combine_with_kem(k, kem_ss, salt) for k in keys]
-            kem_prefix = struct.pack("!H", len(kem_ct)) + kem_ct
+            # Hybrid PQ layer
+            kem_prefix = b""
+            if self.hybrid_pq:
+                if not self.pq_public_key:
+                    raise ValueError("Hybrid PQ requires a public key for encryption")
+                kem_ct, kem_ss = _pq_encapsulate(self.pq_public_key)
+                old_keys = keys
+                keys = [_combine_with_kem(k, kem_ss, salt) for k in keys]
+                # Zero the pre-KEM keys
+                for k in old_keys:
+                    secure_zero(k)
+                # KEM ciphertext length stored as 2-byte unsigned short (!H).
+                # ML-KEM-768 ciphertext is 1088 bytes, well within the 65535 limit.
+                # Future KEMs with larger ciphertexts (e.g., Classic McEliece ~200KB)
+                # would require a format version bump to use a 4-byte length field (!I).
+                if len(kem_ct) > 0xFFFF:
+                    raise ValueError(
+                        f"KEM ciphertext too large ({len(kem_ct)} bytes); "
+                        f"format v2 supports max 65535 bytes"
+                    )
+                kem_prefix = struct.pack("!H", len(kem_ct)) + kem_ct
 
-        # Encrypt with primary cipher
-        nonce1, ct1 = self.cipher.encrypt(keys[0], data, aad)
+            # Encrypt with primary cipher
+            nonce1, ct1 = self.cipher.encrypt(keys[0], data, aad)
 
-        if self.chain:
-            # Second layer: encrypt the first ciphertext
-            nonce2, ct2 = self.chain_cipher.encrypt(keys[1], ct1, aad)
-            payload = salt + nonce1 + nonce2 + kem_prefix + ct2
-        else:
-            payload = salt + nonce1 + kem_prefix + ct1
+            if self.chain:
+                # Second layer: encrypt the first ciphertext
+                nonce2, ct2 = self.chain_cipher.encrypt(keys[1], ct1, aad)
+                payload = salt + nonce1 + nonce2 + kem_prefix + ct2
+            else:
+                payload = salt + nonce1 + kem_prefix + ct1
 
-        # Clean up keys
-        for k in keys:
-            buf = bytearray(k)
-            secure_zero(buf)
-
-        return serialize(cipher_id, self.kdf.kdf_id, flags, payload)
+            return serialize(cipher_id, self.kdf.kdf_id, flags, payload)
+        finally:
+            # Zero all key material (now actually zeros the mutable bytearrays)
+            for k in keys:
+                secure_zero(k)
+            secure_zero(password_bytes)
 
     # ------- DECRYPT -------
 
@@ -224,7 +247,7 @@ class EncryptionPipeline:
         Decrypt a base64-encoded ciphertext string. Returns plaintext.
 
         Raises:
-            ValueError: on format/version errors
+            ValueError: on format/version errors or truncated ciphertext
             cryptography.exceptions.InvalidTag: on wrong password or tampering
         """
         version, cipher_id, kdf_id, flags, payload = deserialize(ciphertext_b64)
@@ -252,8 +275,21 @@ class EncryptionPipeline:
             )
         kdf = self.kdf
 
-        # Parse payload
+        # Encode password to mutable bytearray at the boundary
+        password_bytes = bytearray(password.encode("utf-8"))
+
+        # Parse payload with explicit length validation
+        payload_len = len(payload)
         offset = 0
+
+        min_required = kdf.salt_size + primary.nonce_size
+        if is_chained and secondary:
+            min_required += secondary.nonce_size
+        if payload_len < min_required:
+            raise ValueError(
+                f"Truncated ciphertext: need at least {min_required} bytes, got {payload_len}"
+            )
+
         salt = payload[offset : offset + kdf.salt_size]
         offset += kdf.salt_size
 
@@ -271,24 +307,37 @@ class EncryptionPipeline:
         if is_hybrid:
             if not self.pq_secret_key:
                 raise ValueError("Hybrid PQ ciphertext requires a secret key for decryption")
+            if payload_len < offset + 2:
+                raise ValueError("Truncated ciphertext: missing KEM length field")
             kem_ct_len = struct.unpack("!H", payload[offset : offset + 2])[0]
             offset += 2
+            if payload_len < offset + kem_ct_len:
+                raise ValueError(
+                    f"Truncated ciphertext: KEM ciphertext claims {kem_ct_len} bytes "
+                    f"but only {payload_len - offset} remain"
+                )
             kem_ct = payload[offset : offset + kem_ct_len]
             offset += kem_ct_len
             kem_ss = _pq_decapsulate(self.pq_secret_key, kem_ct)
 
         ciphertext = payload[offset:]
+        if not ciphertext:
+            raise ValueError("Truncated ciphertext: no encrypted data after header fields")
 
         aad = build_aad(version, cipher_id, kdf_id, flags)
 
-        # Derive keys
-        num_keys = 2 if is_chained else 1
-        keys = _derive_keys(kdf, password, salt, num_keys)
-
-        if is_hybrid and kem_ss:
-            keys = [_combine_with_kem(k, kem_ss, salt) for k in keys]
-
+        # Derive keys (returns list of bytearray)
+        keys: list[bytearray] = []
         try:
+            num_keys = 2 if is_chained else 1
+            keys = _derive_keys(kdf, password_bytes, salt, num_keys)
+
+            if is_hybrid and kem_ss:
+                old_keys = keys
+                keys = [_combine_with_kem(k, kem_ss, salt) for k in keys]
+                for k in old_keys:
+                    secure_zero(k)
+
             if is_chained and secondary:
                 # Decrypt outer layer first, then inner
                 ct1 = secondary.decrypt(keys[1], nonce2, ciphertext, aad)
@@ -296,8 +345,9 @@ class EncryptionPipeline:
             else:
                 plaintext_bytes = primary.decrypt(keys[0], nonce1, ciphertext, aad)
         finally:
+            # Zero all key material (now actually zeros the mutable bytearrays)
             for k in keys:
-                buf = bytearray(k)
-                secure_zero(buf)
+                secure_zero(k)
+            secure_zero(password_bytes)
 
         return plaintext_bytes.decode("utf-8")
