@@ -6,39 +6,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [2.0.1] - 2026-02-07
 
 ### Security
-- **CRITICAL**: Fixed key zeroing — `secure_zero()` now operates on actual
-  key material (mutable `bytearray` throughout), not immutable copies
+- **HIGH**: KEM shared secret (`kem_ss`) now wrapped in `bytearray` and zeroed
+  via `secure_zero()` after HKDF combination — previously leaked in memory
+- **HIGH**: `_combine_with_kem()` now uses mutable `bytearray` for the
+  concatenated intermediate and zeros it in a `finally` block
+- **CRITICAL**: `secure_zero()` now operates on actual key material (mutable
+  `bytearray` throughout), not immutable copies
 - **CRITICAL**: Password is now converted to `bytearray` at the API boundary
   and zeroed in `finally` blocks after use
 - Fixed `secure_key` context manager yielding immutable `bytes` copy instead
-  of mutable `bytearray` (the zeroed copy was discarded, not the real key)
+  of mutable `bytearray`
 - Added payload length validation in `decrypt()` — truncated ciphertexts now
   produce clear `ValueError` messages instead of index errors
 - Added KEM ciphertext length=0 rejection to prevent hybrid PQ bypass
 - Added ML-KEM-768 public/secret key size validation in CLI (1184/2400 bytes)
 - Added base64 validation with `validate=True` for PQ key inputs
-- Added `mlock()` failure warning via `logging.warning()` when memory locking
-  fails (previously silent)
+- Reserved header bytes (4-5) now included in AAD and validated on read
+- HKDF info strings now include application-specific domain separation
+  (`SecureDataEncryption-v2-key-{i}` + salt binding)
+- `secure_zero()` now uses `ctypes.memset` with Python fallback
+- Added `mlock()` failure warning via `logging.warning()`
 - Removed deprecated `backend=default_backend()` from Scrypt KDF
 - Added `warnings.warn()` when cipher chaining silently overrides cipher choice
-- Added `_libc_loaded` sentinel to prevent repeated `dlopen` attempts
 
 ### Added
-- Threat Model & Limitations section in README
-- Security Settings Rationale section in README (Argon2id, AES-GCM, ML-KEM-768)
-- Ciphertext binary format documentation in README
-- SECURITY.md with vulnerability disclosure policy
+- File encryption via `-f/--file` flag (any file type, up to 100 MiB)
+- `--output` flag for explicit output file paths
+- JSON envelope format preserving original filenames during file encryption
+- NIST SP 800-38D TC14 test vector for AES-256-GCM
+- RFC 8439 Section 2.8.2 test vector for ChaCha20-Poly1305
+- Ciphertext indistinguishability tests
+- Edge case tests: KEM length=0 bypass, unknown cipher ID, header tampering,
+  payload truncation, format flag combinations, AAD collision resistance
+- File encryption roundtrip tests (text and binary)
+- SECURITY.md with vulnerability disclosure policy and audit history
 - CHANGELOG.md
-- GitHub Actions CI workflow (test matrix: Python 3.10–3.13)
-- NIST/RFC test vectors for AES-256-GCM and ChaCha20-Poly1305
-- Edge case tests: KEM length=0 bypass, PQ key size validation, specific
-  exception types (`InvalidTag` vs `ValueError`), format flag combinations
-- Clipboard history limitation documented in GUI
+- CONTRIBUTING.md
+- GitHub Actions CI workflow (test matrix: Python 3.10-3.13)
+- Full usage guide at docs/USAGE.md
 
 ### Fixed
-- README test count updated from 86 to match actual count
-- README "no disk writes" claim qualified with mlock caveat
-- README hybrid PQ claim clarified as defense-in-depth, not absolute
+- README: Corrected test count, qualified no-disk-writes claim with mlock
+  caveat, clarified hybrid PQ as defense-in-depth
+- README: Complete rewrite with competitive comparison, streamlined structure
+- docs/USAGE.md: Added file encryption section, corrected all test counts,
+  removed stale "not designed for binary files" claim
+
+### Changed
+- Test count: 86 -> 122 (across 7 test files)
+- AAD now authenticates full 6-byte header (was 4 bytes)
+- `build_aad()` returns `struct.pack(HEADER_FORMAT, ...)` instead of
+  partial header
+- Version bumped to 2.0.1
 
 ## [2.0.0] - 2026-02-06
 
@@ -48,7 +67,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Cipher chaining (AES-256-GCM -> ChaCha20-Poly1305) for defense-in-depth
 - Hybrid post-quantum encryption via ML-KEM-768 (FIPS 203)
 - Memory-hard KDFs: Argon2id (default) and Scrypt
-- Self-describing versioned binary ciphertext format
+- Self-describing versioned binary ciphertext format with AAD
 - Textual-based terminal GUI with strength meter, auto-clear, clipboard
 - Full CLI with backward compatibility
 - Secure memory handling: mlock, secure zeroing, SecureBuffer
