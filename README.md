@@ -1,112 +1,186 @@
-# Secure Data Encryption
+# SecureDataEncryption v2.0
 
-Welcome to the **Secure Data Encryption** tool! This Python script allows you to securely encrypt and decrypt data using strong cryptographic practices.
+A modern, quantum-resistant, multi-cipher encryption tool with a terminal GUI.
 
-## Features
+Encrypt and decrypt arbitrary blocks of text — documents, credentials, notes,
+code snippets, configuration files — using military-grade cryptography with an
+intuitive interface. **No data is ever written to disk.** Encrypted output is
+displayed once and then auto-cleared.
 
-- **Strong Encryption:** Utilizes AES-GCM for encryption, providing both confidentiality and integrity.
-- **Secure Key Derivation:** Uses Scrypt KDF with a random salt to derive encryption keys from passwords.
-- **Password Strength Enforcement:** Ensures that passwords meet complexity requirements for enhanced security.
-- **Associated Authenticated Data (AAD):** Incorporates AAD to bind additional context to the ciphertext.
-- **User-Friendly Interface:** Provides clear prompts and messages for easy interaction.
-- **Stylish Interface:** Features an 80s-style ASCII art header and colorful outputs for an engaging user experience.
+## What Makes This Different
 
-## Prerequisites
+| Feature | This Tool | Typical CLI Tools |
+|---------|-----------|-------------------|
+| **Hybrid post-quantum encryption** | ML-KEM-768 + AES/ChaCha via FIPS 203 | Not available |
+| **Cipher chaining** | AES-256-GCM → ChaCha20-Poly1305 (two independent algorithms) | Single cipher |
+| **One-time output** | Auto-clears after 60 seconds, wipes clipboard | Stays in scrollback forever |
+| **Memory protection** | `mlock()` prevents swap, buffers zeroed after use | None |
+| **Modern terminal GUI** | Full TUI with dropdowns, strength meter, dark theme | Plain text prompts |
+| **Self-describing format** | Versioned binary header identifies cipher, KDF, and flags | Ad-hoc formats |
 
-- Python 3.x installed on your system.
-- Required Python packages:
-  - `cryptography`
-  - `colorama`
-  - `pyfiglet`
-
-## Installation
-
-1. **Clone the Repository:**
-
-   ```bash
-   git clone https://github.com/404securitynotfound/SecureDataEncryption.git
-   cd SecureDataEncryption
-   ```
-
-2. **Install Dependencies**
-
-It's recommended to use a virtual environment.
+## Quick Start
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
+# Clone and install
+git clone https://github.com/404securitynotfound/SecureDataEncryption.git
+cd SecureDataEncryption
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
+# Launch the GUI
+python secure_data_encryption.py
+
+# Or use CLI mode
+python secure_data_encryption.py --cli
 ```
-## Usage
-Run the script using Python:
+
+## Encryption Modes
+
+### 1. Single Cipher (Password Only)
+```
+AES-256-GCM   — NIST standard, hardware-accelerated on modern CPUs
+ChaCha20-Poly1305 — Constant-time, ideal when AES-NI is unavailable
+```
+Both are **already quantum-safe** for symmetric encryption (Grover's algorithm
+reduces AES-256 to ~128-bit equivalent security, which remains unbreakable).
+
+### 2. Cipher Chaining (Defense-in-Depth)
+Encrypts with AES-256-GCM **then** ChaCha20-Poly1305 using independent keys.
+If a vulnerability is found in one algorithm, the other still protects your data.
+
+### 3. Hybrid Post-Quantum (ML-KEM-768)
+Layers NIST FIPS 203 ML-KEM-768 key encapsulation on top of password-based
+encryption. The final encryption key combines:
+- Your password (via Argon2id/Scrypt)
+- An ML-KEM-768 shared secret
+
+An attacker must break **both** the password **and** ML-KEM to decrypt.
+
+### 4. Maximum Security (Chained + Hybrid PQ)
+All layers combined: ML-KEM-768 + AES-256-GCM + ChaCha20-Poly1305.
+
+## Key Derivation Functions
+
+| KDF | Default | Description |
+|-----|---------|-------------|
+| **Argon2id** (recommended) | `t=3, m=64MiB, p=4` | OWASP/IETF recommended (RFC 9106). Memory-hard, resists GPU attacks. |
+| **Scrypt** | `n=2^17, r=8, p=1` | RFC 7914. Also memory-hard, well-established. |
+
+## GUI Usage
+
+Launch with no arguments to open the terminal GUI:
 
 ```bash
 python secure_data_encryption.py
 ```
 
-### Command-Line Options
-The tool now supports non-interactive usage. You can specify the operation,
-data, and password directly as arguments:
+The GUI provides:
+- **Mode toggle**: Encrypt / Decrypt
+- **Cipher selection**: AES-256-GCM or ChaCha20-Poly1305
+- **KDF selection**: Argon2id or Scrypt
+- **Chain ciphers checkbox**: Enable defense-in-depth chaining
+- **Hybrid PQ checkbox**: Enable ML-KEM-768 (with key generation)
+- **Multi-line text area**: Paste or type any block of text
+- **Password field**: With real-time strength meter and match indicator
+- **One-time output**: Auto-clears after 60 seconds with countdown
+- **Copy button**: Copies to clipboard (auto-cleared with output)
+
+**Keyboard shortcuts**: `Ctrl+E` Encrypt | `Ctrl+D` Decrypt | `Ctrl+L` Clear | `Ctrl+Q` Quit
+
+## CLI Usage
 
 ```bash
-python secure_data_encryption.py --operation encrypt --data "MySecret" --password "StrongP@ssw0rd"
+# Interactive CLI
+python secure_data_encryption.py --cli
+
+# Encrypt with specific options
+python secure_data_encryption.py -o encrypt --data "sensitive text" --cipher ChaCha20-Poly1305 --kdf Argon2id
+
+# Encrypt with chaining
+python secure_data_encryption.py -o encrypt --data "sensitive text" --chain
+
+# Read from stdin
+echo "my secret document" | python secure_data_encryption.py -o encrypt --data -
+
+# Decrypt
+python secure_data_encryption.py -o decrypt --data "AgEB..."
+
+# Generate ML-KEM-768 keypair
+python secure_data_encryption.py --generate-keypair
+
+# Hybrid PQ encrypt
+python secure_data_encryption.py -o encrypt --data "secret" --hybrid-pq --pq-public-key <base64-pk>
 ```
 
-## Encrypting Data
+**Security note**: Passwords are always entered interactively (never as CLI
+arguments) to prevent leaking via `ps`, shell history, or `/proc`.
 
-- The program will display a stylized header in bright green and prompt you to choose an action.
-- Enter e to select encryption.
-- Input the data you wish to encrypt.
-- Provide a strong password that meets the complexity requirements:
-- At least 12 characters long.
-- Includes uppercase and lowercase letters.
-- Contains digits and special characters.
-- Confirm the password.
-- The script will display the encrypted data in bright yellow text.
+## Running Tests
 
-## Example
+```bash
+pip install pytest
+python -m pytest tests/ -v
+```
 
-## Encryption
+86 tests cover: cipher roundtrips, KDF derivation, format serialization,
+password validation, pipeline chaining, hybrid PQ encryption, memory zeroing,
+cross-compatibility, and negative cases (wrong password, tampered data,
+corrupted format).
 
-- Do you want to encrypt or decrypt? (e/d): e
-- Enter the value to encrypt: MySecretData
-- Enter the password:
-- Confirm the password:
+## Project Structure
 
-Encrypted data:
-<encrypted data displayed in bright yellow>
+```
+SecureDataEncryption/
+├── secure_encryption/
+│   ├── __init__.py          # Package version
+│   ├── __main__.py          # Entry point (auto-detects GUI vs CLI)
+│   ├── gui.py               # Textual TUI application
+│   ├── cli.py               # Command-line interface
+│   └── core/
+│       ├── ciphers.py       # AES-256-GCM, ChaCha20-Poly1305
+│       ├── kdf.py           # Argon2id, Scrypt
+│       ├── pipeline.py      # Encryption orchestration, chaining, hybrid PQ
+│       ├── formats.py       # Versioned binary ciphertext format
+│       ├── memory.py        # mlock, secure zeroing
+│       └── validation.py    # Password strength scoring, input checks
+├── tests/                   # 86 tests
+├── docs/
+│   └── USAGE.md             # Full guide with plain-English explanations
+├── secure_data_encryption.py  # Entry point script
+├── requirements.txt
+├── pyproject.toml
+└── LICENSE
+```
 
-## Decrypting Data
+## Requirements
 
-- Run the script and enter d to select decryption.
-- Paste the base64-encoded encrypted data when prompted.
-- Enter the password used during encryption.
-- If the password is correct, the script will display the decrypted data.
+- Python 3.10+
+- `cryptography` — AES-GCM, ChaCha20-Poly1305, Scrypt, HKDF
+- `argon2-cffi` — Argon2id key derivation
+- `textual` — Terminal GUI framework
+- `pyperclip` — Clipboard access
+- `pqcrypto` — ML-KEM-768 post-quantum key encapsulation (optional)
 
-## Decryption
+## Security Design
 
-- Do you want to encrypt or decrypt? (e/d): d
-- Enter the encrypted data: <paste encrypted data>
-- Enter the password:
-- Decrypted data:
-- MySecretData
-
-## Notes
-
-- Security Reminder: Always keep your passwords secure and do not share them.
-- Dependencies: Ensure all dependencies are up to date to maintain security.
-- Console Compatibility: For the best visual experience, use a console that supports ANSI escape codes and a monospaced font.
+- **No disk writes**: All data lives in memory only. Output auto-clears.
+- **Memory locking**: Sensitive buffers are `mlock`'d to prevent swap.
+- **Secure zeroing**: Key material is overwritten with zeros after use.
+- **Contextual AAD**: The cipher ID, KDF ID, version, and flags are
+  authenticated as Associated Data, preventing ciphertext reuse across contexts.
+- **Versioned format**: Forward-compatible binary header enables future
+  cipher additions without breaking existing ciphertexts.
+- **Password hygiene**: Strong enforcement (12+ chars, mixed classes),
+  interactive-only input, real-time strength feedback.
 
 ## License
 
-- This project is licensed under the MIT License.
+MIT License
 
 ## Contributing
 
-- Contributions are welcome! Please open an issue or submit a pull request for any improvements.
+Contributions welcome. Please open an issue or submit a pull request.
 
 ## Contact
 
-- For any questions or feedback, please contact 404securitynotfound@protonmail.ch
+404securitynotfound@protonmail.ch
