@@ -9,6 +9,7 @@ ML-KEM-768 key encapsulation on top of password-based encryption.
 from __future__ import annotations
 
 import struct
+import warnings
 
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF, HKDFExpand
@@ -154,6 +155,12 @@ class EncryptionPipeline:
         # Chaining always uses AES-256-GCM (primary) → ChaCha20-Poly1305 (secondary).
         # This fixed order avoids ambiguity in the ciphertext format.
         if self.chain:
+            if cipher is not None and not isinstance(cipher, AES256GCM):
+                warnings.warn(
+                    f"Cipher chaining uses a fixed order (AES-256-GCM → ChaCha20-Poly1305); "
+                    f"the selected cipher '{cipher.name}' is overridden when chain=True.",
+                    stacklevel=2,
+                )
             self.cipher = AES256GCM()
             self.chain_cipher: Cipher = ChaCha20Poly1305Cipher()
         else:
@@ -311,6 +318,10 @@ class EncryptionPipeline:
                 raise ValueError("Truncated ciphertext: missing KEM length field")
             kem_ct_len = struct.unpack("!H", payload[offset : offset + 2])[0]
             offset += 2
+            if kem_ct_len == 0:
+                raise ValueError(
+                    "Invalid hybrid PQ ciphertext: KEM ciphertext length is zero"
+                )
             if payload_len < offset + kem_ct_len:
                 raise ValueError(
                     f"Truncated ciphertext: KEM ciphertext claims {kem_ct_len} bytes "
