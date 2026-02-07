@@ -3,8 +3,9 @@
 A modern, quantum-resistant, multi-cipher encryption tool with a terminal GUI.
 
 Encrypt and decrypt arbitrary blocks of text — documents, credentials, notes,
-code snippets, configuration files — using military-grade cryptography with an
-intuitive interface. **No data is ever written to disk.** Encrypted output is
+code snippets, configuration files — using modern, standards-based cryptography with an
+intuitive interface. **No data is intentionally written to disk** (see
+[Threat Model](#threat-model--limitations) for caveats). Encrypted output is
 displayed once and then auto-cleared.
 
 ## What Makes This Different
@@ -14,7 +15,7 @@ displayed once and then auto-cleared.
 | **Hybrid post-quantum encryption** | ML-KEM-768 + AES/ChaCha via FIPS 203 | Not available |
 | **Cipher chaining** | AES-256-GCM → ChaCha20-Poly1305 (two independent algorithms) | Single cipher |
 | **One-time output** | Auto-clears after 60 seconds, wipes clipboard | Stays in scrollback forever |
-| **Memory protection** | `mlock()` prevents swap, buffers zeroed after use | None |
+| **Memory protection** | Best-effort `mlock()` + zeroing (see [limitations](#threat-model--limitations)) | None |
 | **Modern terminal GUI** | Full TUI with dropdowns, strength meter, dark theme | Plain text prompts |
 | **Self-describing format** | Versioned binary header identifies cipher, KDF, and flags | Ad-hoc formats |
 
@@ -55,6 +56,9 @@ encryption. The final encryption key combines:
 - An ML-KEM-768 shared secret
 
 An attacker must break **both** the password **and** ML-KEM to decrypt.
+This provides defense-in-depth against future quantum computers that could
+break the KEM, but overall security is still bounded by password entropy —
+a weak password remains the weakest link regardless of PQ layers.
 
 ### 4. Maximum Security (Chained + Hybrid PQ)
 All layers combined: ML-KEM-768 + AES-256-GCM + ChaCha20-Poly1305.
@@ -122,7 +126,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-93 tests cover: cipher roundtrips, KDF derivation, format serialization,
+119 tests cover: cipher roundtrips, KDF derivation, format serialization,
 password validation, pipeline chaining, hybrid PQ encryption, memory zeroing,
 cross-compatibility, and negative cases (wrong password, tampered data,
 corrupted format).
@@ -143,7 +147,7 @@ SecureDataEncryption/
 │       ├── formats.py       # Versioned binary ciphertext format
 │       ├── memory.py        # mlock, secure zeroing
 │       └── validation.py    # Password strength scoring, input checks
-├── tests/                   # 93 tests
+├── tests/                   # 119 tests
 ├── docs/
 │   └── USAGE.md             # Full guide with plain-English explanations
 ├── secure_data_encryption.py  # Entry point script
@@ -163,8 +167,10 @@ SecureDataEncryption/
 
 ## Security Design
 
-- **No disk writes**: All data lives in memory only. Output auto-clears.
-- **Memory locking**: Sensitive buffers are `mlock`'d to prevent swap.
+- **No intentional disk writes**: All data lives in memory. Output auto-clears.
+  If `mlock()` fails, the OS may swap sensitive pages to disk (see Threat Model).
+- **Memory locking**: Sensitive buffers are `mlock`'d to prevent swap (best-effort;
+  logs a warning if locking fails due to `RLIMIT_MEMLOCK`).
 - **Secure zeroing**: Key material is overwritten with zeros after use.
 - **Contextual AAD**: The cipher ID, KDF ID, version, and flags are
   authenticated as Associated Data, preventing ciphertext reuse across contexts.
