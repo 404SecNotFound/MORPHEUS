@@ -36,8 +36,12 @@ FLAG_HYBRID_PQ = 0x02
 
 
 def build_aad(version: int, cipher_id: int, kdf_id: int, flags: int) -> bytes:
-    """Build contextual AAD from header fields — binds cipher choice to ciphertext."""
-    return struct.pack("!BBBB", version, cipher_id, kdf_id, flags)
+    """Build contextual AAD from the full 6-byte header.
+
+    Authenticates ALL header bytes including the reserved field, preventing
+    an attacker from modifying any header byte without AEAD detection.
+    """
+    return struct.pack(HEADER_FORMAT, version, cipher_id, kdf_id, flags, 0)
 
 
 def serialize(cipher_id: int, kdf_id: int, flags: int, payload: bytes) -> str:
@@ -61,13 +65,18 @@ def deserialize(b64_data: str) -> tuple[int, int, int, int, bytes]:
     if len(raw) < HEADER_SIZE:
         raise ValueError(f"Ciphertext too short ({len(raw)} bytes, need >= {HEADER_SIZE})")
 
-    version, cipher_id, kdf_id, flags, _reserved = struct.unpack(
+    version, cipher_id, kdf_id, flags, reserved = struct.unpack(
         HEADER_FORMAT, raw[:HEADER_SIZE]
     )
 
     if version != FORMAT_VERSION:
         raise ValueError(
             f"Unsupported ciphertext version {version:#04x} (expected {FORMAT_VERSION:#04x})"
+        )
+
+    if reserved != 0:
+        raise ValueError(
+            f"Reserved header bytes must be zero (got {reserved:#06x})"
         )
 
     return version, cipher_id, kdf_id, flags, raw[HEADER_SIZE:]

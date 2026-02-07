@@ -97,10 +97,18 @@ class TestSerializeDeserialize:
         assert raw[3] == 0x00  # flags
 
 
+    def test_nonzero_reserved_bytes_rejected(self):
+        """Reserved bytes must be zero; nonzero values are rejected."""
+        header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, 0x01, 0x02, 0x00, 0xBEEF)
+        b64 = base64.b64encode(header + b"payload").decode()
+        with pytest.raises(ValueError, match="Reserved header bytes must be zero"):
+            deserialize(b64)
+
+
 class TestBuildAAD:
-    def test_aad_is_4_bytes(self):
+    def test_aad_is_full_header(self):
         aad = build_aad(0x02, 0x01, 0x02, 0x00)
-        assert len(aad) == 4
+        assert len(aad) == HEADER_SIZE  # Full 6-byte header
 
     def test_aad_reflects_inputs(self):
         aad1 = build_aad(0x02, 0x01, 0x02, 0x00)

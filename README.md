@@ -17,6 +17,7 @@ displayed once and then auto-cleared.
 | **One-time output** | Auto-clears after 60 seconds, wipes clipboard | Stays in scrollback forever |
 | **Memory protection** | Best-effort `mlock()` + zeroing (see [limitations](#threat-model--limitations)) | None |
 | **Modern terminal GUI** | Full TUI with dropdowns, strength meter, dark theme | Plain text prompts |
+| **File encryption** | Encrypt any file type (text, binary, images, archives) up to 100 MiB | Usually text-only |
 | **Self-describing format** | Versioned binary header identifies cipher, KDF, and flags | Ad-hoc formats |
 
 ## Quick Start
@@ -109,6 +110,17 @@ echo "my secret document" | python secure_data_encryption.py -o encrypt --data -
 # Decrypt
 python secure_data_encryption.py -o decrypt --data "AgEB..."
 
+# Encrypt a file (any format — text, binary, images, archives)
+python secure_data_encryption.py -o encrypt -f secret.pdf
+# -> produces secret.pdf.enc
+
+# Decrypt a file
+python secure_data_encryption.py -o decrypt -f secret.pdf.enc
+# -> restores secret.pdf with original filename
+
+# Encrypt with explicit output path
+python secure_data_encryption.py -o encrypt -f data.csv --output encrypted.dat
+
 # Generate ML-KEM-768 keypair
 python secure_data_encryption.py --generate-keypair
 
@@ -126,10 +138,10 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-119 tests cover: cipher roundtrips, KDF derivation, format serialization,
+122 tests cover: cipher roundtrips, KDF derivation, format serialization,
 password validation, pipeline chaining, hybrid PQ encryption, memory zeroing,
-cross-compatibility, and negative cases (wrong password, tampered data,
-corrupted format).
+cross-compatibility, file encryption, NIST/RFC test vectors, and negative
+cases (wrong password, tampered data, corrupted format).
 
 ## Project Structure
 
@@ -147,7 +159,7 @@ SecureDataEncryption/
 │       ├── formats.py       # Versioned binary ciphertext format
 │       ├── memory.py        # mlock, secure zeroing
 │       └── validation.py    # Password strength scoring, input checks
-├── tests/                   # 119 tests
+├── tests/                   # 122 tests
 ├── docs/
 │   └── USAGE.md             # Full guide with plain-English explanations
 ├── secure_data_encryption.py  # Entry point script
