@@ -56,6 +56,7 @@ The following are **out of scope** (documented in the Threat Model):
 |------------|--------------------------------|---------------------------------------|
 | 2026-02-06 | Full code review (v2.0)        | 17 findings (2 critical, 2 medium, 3 low, 3 info, 7 positive) — all remediated |
 | 2026-02-07 | Cryptographic deep review      | 7 findings (2 high, 3 medium, 2 low) — all remediated |
+| 2026-02-08 | External review + independent audit | 4 external findings + 21 audit findings — remediated in v2.0.2 |
 
 ### Remediation Summary (v2.0.1)
 
@@ -87,6 +88,41 @@ The following are **out of scope** (documented in the Threat Model):
 | ML-KEM-768 | FIPS 203 | `pqcrypto` (optional) |
 
 ## Known Limitations
+
+### Immutable `bytes` copies at library boundaries
+
+The pipeline manages all key material as mutable `bytearray` buffers and
+zeroes them via `ctypes.memset` after use. However, several underlying
+library APIs require immutable `bytes` arguments, creating short-lived
+copies that **cannot be zeroed** by the application:
+
+| Call site | Library API | Copy created |
+|-----------|------------|--------------|
+| `Argon2idKDF.derive()` | `hash_secret_raw(secret=bytes(...))` | Password copy |
+| `ScryptKDF.derive()` | `Scrypt.derive(bytes(...))` | Password copy |
+| `AES256GCM.encrypt/decrypt()` | `AESGCM(bytes(key))` | Key copy |
+| `ChaCha20Poly1305Cipher.encrypt/decrypt()` | `ChaCha20Poly1305(bytes(key))` | Key copy |
+| `_derive_keys()` | `HKDFExpand.derive(bytes(master))` | Master key copy |
+
+These copies persist on the Python heap until garbage collection. This is a
+fundamental limitation of Python and the `cryptography` library's API design.
+For absolute memory safety, a C or Rust implementation operating directly on
+mutable buffers would be required.
+
+### ML-KEM-768 implementation provenance
+
+The ML-KEM-768 post-quantum layer is provided by the `pqcrypto` community
+package, which binds to `liboqs` (Open Quantum Safe). This implementation:
+
+- Has **not** undergone FIPS 140-3 validation
+- Has **not** been independently audited by a third party
+- Is maintained by a small open-source community
+
+The hybrid design ensures that overall security is **never weaker** than the
+password-based symmetric layer alone. ML-KEM-768 is an additional
+defense-in-depth layer, not the sole protection mechanism.
+
+### Additional limitations
 
 See the [Security Design](README.md#security-design) section in the README
 for the full threat model, including what this tool does and does not protect

@@ -1,0 +1,15 @@
+# Pinned dependencies for reproducible installs.
+# Generated from a known-good environment on 2026-02-08.
+# Update carefully — this is a cryptographic tool.
+#
+# To install: pip install -r requirements-lock.txt
+# To update:  pip install -U <package> && pip freeze | grep <package>
+
+cryptography==41.0.7
+argon2-cffi==25.1.0
+argon2-cffi-bindings==25.1.0
+textual==7.5.0
+pyperclip==1.11.0
+
+# Optional: post-quantum support
+pqcrypto==0.4.0
