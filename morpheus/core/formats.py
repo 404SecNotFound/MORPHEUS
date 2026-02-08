@@ -15,9 +15,11 @@ Payload for single cipher:
 Payload for chained (AES -> ChaCha):
   [salt][nonce_aes][nonce_chacha][ciphertext+tag]
 
-When hybrid PQ flag is set, the payload is prefixed with:
-  [2-byte KEM ciphertext length][KEM ciphertext]
-  followed by the standard cipher payload.
+Hybrid PQ single cipher:
+  [salt][nonce][2B KEM-ct length][KEM ciphertext][ciphertext+tag]
+
+Hybrid PQ chained:
+  [salt][nonce_aes][nonce_chacha][2B KEM-ct length][KEM ciphertext][ciphertext+tag]
 
 All outputs are base64-encoded for safe text transport.
 """

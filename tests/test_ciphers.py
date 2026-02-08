@@ -39,11 +39,10 @@ class TestAES256GCM:
         assert len(nonces) == 100
 
     def test_wrong_key_fails(self):
-        _, ciphertext = self.cipher.encrypt(self.key, b"secret", self.aad)
-        nonce, ct = _, ciphertext
+        nonce, ciphertext = self.cipher.encrypt(self.key, b"secret", self.aad)
         wrong_key = os.urandom(32)
         with pytest.raises(InvalidTag):
-            self.cipher.decrypt(wrong_key, nonce, ct, self.aad)
+            self.cipher.decrypt(wrong_key, nonce, ciphertext, self.aad)
 
     def test_wrong_aad_fails(self):
         nonce, ciphertext = self.cipher.encrypt(self.key, b"secret", self.aad)
