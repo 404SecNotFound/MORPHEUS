@@ -291,6 +291,7 @@ class SecureEncryptionApp(App):
     _timer_handle = None
     _pq_public_key: bytearray | None = None
     _pq_secret_key: bytearray | None = None
+    _saved_clipboard: str = ""
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -688,23 +689,27 @@ class SecureEncryptionApp(App):
         output = self.query_one("#output-text", TextArea)
         output.clear()
         self.query_one("#countdown-label", Static).update("")
-        # Clear the system clipboard. Note: this overwrites the current clipboard
-        # contents but clipboard history managers (macOS Universal Clipboard,
-        # Windows Clipboard History, KDE Klipper, etc.) may retain the previous
-        # value in a separate history store. Users with clipboard managers should
-        # disable history during sensitive operations.
+        # Restore the previous clipboard contents instead of blanking.
+        # This avoids leaving an empty string in clipboard history managers
+        # (macOS Universal Clipboard, Windows Clipboard History, KDE Klipper).
         try:
-            pyperclip.copy("")
+            pyperclip.copy(self._saved_clipboard)
         except Exception:
             pass
+        self._saved_clipboard = ""
 
     def _copy_output(self) -> None:
         output = self.query_one("#output-text", TextArea)
         text = output.text
         if text.strip():
             try:
+                # Save current clipboard so we can restore it on clear
+                try:
+                    self._saved_clipboard = pyperclip.paste()
+                except Exception:
+                    self._saved_clipboard = ""
                 pyperclip.copy(text)
-                self.notify("Copied to clipboard (auto-clears with output)", severity="information")
+                self.notify("Copied to clipboard (restored on clear)", severity="information")
             except Exception:
                 self.notify("Clipboard unavailable — select and copy manually", severity="warning")
         else:

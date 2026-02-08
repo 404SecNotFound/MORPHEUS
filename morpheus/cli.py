@@ -42,6 +42,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Explicit output file path (overrides default naming).",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite output file if it already exists.",
+    )
+    parser.add_argument(
         "--cipher",
         choices=list(CIPHER_CHOICES.keys()),
         default="AES-256-GCM",
@@ -80,6 +85,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-p", "--password",
         help=argparse.SUPPRESS,  # Hidden — deprecated, insecure
+    )
+    parser.add_argument(
+        "--no-strength-check",
+        action="store_true",
+        help="Skip password strength validation (use with caution).",
+    )
+    parser.add_argument(
+        "--pad",
+        action="store_true",
+        help="Pad plaintext to hide exact length (privacy protection).",
     )
     return parser
 
@@ -196,14 +211,26 @@ def run_cli(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     if operation == "encrypt":
-        strength = check_password_strength(password)
-        if not strength.is_acceptable:
+        if not getattr(args, "no_strength_check", False):
+            strength = check_password_strength(password)
+            if not strength.is_acceptable:
+                _print_status(
+                    f"Error: password too weak ({strength.label}). "
+                    + "; ".join(strength.feedback),
+                    error=True,
+                )
+                sys.exit(1)
+        else:
             _print_status(
-                f"Error: password too weak ({strength.label}). "
-                + "; ".join(strength.feedback),
+                "Warning: password strength check skipped (--no-strength-check).",
                 error=True,
             )
-            sys.exit(1)
+        # Irrecoverability warning
+        _print_status(
+            "WARNING: There is no password recovery. If you forget your "
+            "password, your data is permanently and irrecoverably lost.",
+            error=True,
+        )
 
     # --- Build pipeline ---
     cipher_cls = CIPHER_CHOICES[args.cipher]
@@ -272,7 +299,7 @@ def run_cli(argv: list[str] | None = None) -> None:
     # --- Text mode ---
     try:
         if operation == "encrypt":
-            result = pipeline.encrypt(data, password)
+            result = pipeline.encrypt(data, password, pad=args.pad)
             print(f"\nEncrypted ({pipeline.description}):")
             print(result)
         else:
@@ -283,14 +310,27 @@ def run_cli(argv: list[str] | None = None) -> None:
         if operation == "decrypt":
             msg = (
                 "Decryption failed: incorrect password or corrupted data.\n"
-                "  Hint: if the password is correct, the KDF parameters "
-                "(time_cost, memory_cost) may not match\n"
-                "  those used during encryption. KDF parameters are not "
-                "stored in the ciphertext format."
+                "  Hint: for v2 ciphertexts, KDF parameters must match those "
+                "used during encryption.\n"
+                "  v3 ciphertexts store KDF params in the header and are "
+                "self-describing."
             )
         else:
             msg = f"Encryption error: {exc}"
         _print_status(msg, error=True)
+        sys.exit(1)
+
+
+def _check_overwrite(path: str, force: bool) -> None:
+    """Abort if output file exists and --force was not given."""
+    import os
+
+    if os.path.exists(path) and not force:
+        _print_status(
+            f"Error: output file already exists: {path}\n"
+            "  Use --force to overwrite, or --output to choose a different path.",
+            error=True,
+        )
         sys.exit(1)
 
 
@@ -318,20 +358,33 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
         with open(file_path, "rb") as f:
             raw_data = f.read()
 
-        # Wrap raw bytes in a transport envelope so decrypt knows it's binary
+        # Wrap raw bytes in a versioned transport envelope
         import json
+
+        ENVELOPE_VERSION = 1
         envelope = json.dumps({
+            "envelope_version": ENVELOPE_VERSION,
             "filename": os.path.basename(file_path),
             "data": base64.b64encode(raw_data).decode(),
         })
 
         try:
-            encrypted = pipeline.encrypt(envelope, password)
+            encrypted = pipeline.encrypt(envelope, password, pad=args.pad)
         except Exception as exc:
             _print_status(f"Encryption error: {exc}", error=True)
             sys.exit(1)
 
-        out_path = args.output or (file_path + ".enc")
+        if args.output:
+            out_path = args.output
+        else:
+            # Randomized output name to avoid leaking original filename on disk
+            import hashlib
+            import time
+            rand_id = hashlib.sha256(
+                f"{file_path}{time.time_ns()}".encode()
+            ).hexdigest()[:12]
+            out_path = f"morpheus_{rand_id}.enc"
+        _check_overwrite(out_path, args.force)
         with open(out_path, "w") as f:
             f.write(encrypted)
 
@@ -349,18 +402,28 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
         except Exception:
             _print_status(
                 "Decryption failed: incorrect password or corrupted file.\n"
-                "  Hint: if the password is correct, the KDF parameters "
-                "(time_cost, memory_cost) may not match\n"
-                "  those used during encryption. KDF parameters are not "
-                "stored in the ciphertext format.",
+                "  Hint: for v2 ciphertexts, KDF parameters must match those "
+                "used during encryption.\n"
+                "  v3 ciphertexts store KDF params in the header and are "
+                "self-describing.",
                 error=True,
             )
             sys.exit(1)
 
-        # Try to parse as file envelope
+        # Try to parse as versioned file envelope
         import json
+
+        ENVELOPE_VERSION = 1
         try:
             envelope = json.loads(decrypted)
+            env_ver = envelope.get("envelope_version", 0)
+            if env_ver > ENVELOPE_VERSION:
+                _print_status(
+                    f"Error: envelope version {env_ver} is newer than supported "
+                    f"(max {ENVELOPE_VERSION}). Update MORPHEUS to decrypt this file.",
+                    error=True,
+                )
+                sys.exit(1)
             if "data" in envelope and "filename" in envelope:
                 raw_data = base64.b64decode(envelope["data"])
                 # Sanitize filename to prevent path traversal attacks
@@ -369,6 +432,7 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
                 if not original_name:
                     original_name = "decrypted_output"
                 out_path = args.output or original_name
+                _check_overwrite(out_path, args.force)
                 with open(out_path, "wb") as f:
                     f.write(raw_data)
                 _print_status(
@@ -380,6 +444,7 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
 
         # Fallback: treat as plain text
         out_path = args.output or file_path.removesuffix(".enc")
+        _check_overwrite(out_path, args.force)
         with open(out_path, "w") as f:
             f.write(decrypted)
         _print_status(f"Decrypted: {file_path} -> {out_path}")

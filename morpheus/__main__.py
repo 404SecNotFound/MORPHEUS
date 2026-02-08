@@ -1,7 +1,7 @@
 """
 Entry point for `python -m morpheus`.
 
-Launches the GUI (TUI) by default, or CLI mode with --cli flag.
+Launches the GUI (TUI) by default, or CLI mode when any flags are given.
 """
 
 from __future__ import annotations
@@ -10,15 +10,9 @@ import sys
 
 
 def main():
-    if "--cli" in sys.argv:
-        sys.argv.remove("--cli")
-        from .cli import run_cli
-        run_cli()
-    elif len(sys.argv) > 1 and sys.argv[1] in ("-o", "--operation", "-h", "--help",
-                                                  "--generate-keypair", "--cipher",
-                                                  "--kdf", "--chain", "--hybrid-pq",
-                                                  "-f", "--file"):
-        # Auto-detect CLI mode from flags
+    # Any command-line argument (beyond the program name) implies CLI mode.
+    # The GUI is only launched for bare `python -m morpheus` / `morpheus`.
+    if len(sys.argv) > 1:
         from .cli import run_cli
         run_cli()
     else:

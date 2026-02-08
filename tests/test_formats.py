@@ -1,4 +1,4 @@
-"""Tests for the versioned ciphertext format."""
+"""Tests for the versioned ciphertext format (v2 and v3)."""
 
 import base64
 import struct
@@ -8,30 +8,38 @@ import pytest
 from morpheus.core.formats import (
     FLAG_CHAINED,
     FLAG_HYBRID_PQ,
+    FLAG_PADDED,
     FORMAT_VERSION,
+    FORMAT_VERSION_3,
     HEADER_FORMAT,
+    HEADER_FORMAT_V3,
     HEADER_SIZE,
+    HEADER_SIZE_V3,
+    KEY_CHECK_SIZE,
     build_aad,
     deserialize,
     serialize,
 )
 
 
-class TestSerializeDeserialize:
+class TestSerializeDeserializeV2:
+    """Tests for v2 (legacy) format serialize/deserialize."""
+
     def test_roundtrip(self):
         payload = b"some-encrypted-data-here"
         b64 = serialize(0x01, 0x02, 0x00, payload)
-        version, cipher_id, kdf_id, flags, out_payload = deserialize(b64)
+        version, cipher_id, kdf_id, flags, out_payload, kdf_params = deserialize(b64)
         assert version == FORMAT_VERSION
         assert cipher_id == 0x01
         assert kdf_id == 0x02
         assert flags == 0x00
         assert out_payload == payload
+        assert kdf_params is None
 
     def test_flags_preserved(self):
         flags = FLAG_CHAINED | FLAG_HYBRID_PQ
         b64 = serialize(0x01, 0x02, flags, b"data")
-        _, _, _, out_flags, _ = deserialize(b64)
+        _, _, _, out_flags, _, _ = deserialize(b64)
         assert out_flags == flags
 
     def test_invalid_base64_raises(self):
@@ -55,14 +63,14 @@ class TestSerializeDeserialize:
     def test_empty_payload_roundtrip(self):
         """Serialize/deserialize with empty payload."""
         b64 = serialize(0x01, 0x02, 0x00, b"")
-        _, _, _, _, out_payload = deserialize(b64)
+        _, _, _, _, out_payload, _ = deserialize(b64)
         assert out_payload == b""
 
     def test_large_payload_roundtrip(self):
         """Serialize/deserialize with 1 MiB payload."""
         payload = b"\xAA" * (1024 * 1024)
         b64 = serialize(0x01, 0x02, 0x00, payload)
-        _, _, _, _, out_payload = deserialize(b64)
+        _, _, _, _, out_payload, _ = deserialize(b64)
         assert out_payload == payload
 
     def test_deterministic_serialization(self):
@@ -75,15 +83,16 @@ class TestSerializeDeserialize:
         """Test each individual flag and both combined."""
         for flags in [0x00, FLAG_CHAINED, FLAG_HYBRID_PQ, FLAG_CHAINED | FLAG_HYBRID_PQ]:
             b64 = serialize(0x01, 0x02, flags, b"x")
-            _, _, _, out_flags, _ = deserialize(b64)
+            _, _, _, out_flags, _, _ = deserialize(b64)
             assert out_flags == flags
 
     def test_exactly_header_no_payload(self):
         """A message that is exactly the header with no payload bytes."""
         header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, 0x01, 0x02, 0x00, 0)
         b64 = base64.b64encode(header).decode()
-        version, cipher_id, kdf_id, flags, payload = deserialize(b64)
+        version, cipher_id, kdf_id, flags, payload, kdf_params = deserialize(b64)
         assert payload == b""
+        assert kdf_params is None
 
     def test_version_byte_is_network_order(self):
         """Verify the format uses big-endian (network byte order)."""
@@ -96,13 +105,92 @@ class TestSerializeDeserialize:
         assert raw[2] == 0x02  # kdf_id
         assert raw[3] == 0x00  # flags
 
-
     def test_nonzero_reserved_bytes_rejected(self):
         """Reserved bytes must be zero; nonzero values are rejected."""
         header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, 0x01, 0x02, 0x00, 0xBEEF)
         b64 = base64.b64encode(header + b"payload").decode()
         with pytest.raises(ValueError, match="Reserved header bytes must be zero"):
             deserialize(b64)
+
+
+class TestFormatV3:
+    """Tests for v3 format with KDF params and key-check support."""
+
+    def test_v3_roundtrip(self):
+        payload = b"some-encrypted-data-here"
+        kdf_params = (3, 65536, 4)
+        b64 = serialize(0x01, 0x02, 0x00, payload,
+                        version=FORMAT_VERSION_3, kdf_params=kdf_params)
+        version, cipher_id, kdf_id, flags, out_payload, out_params = deserialize(b64)
+        assert version == FORMAT_VERSION_3
+        assert cipher_id == 0x01
+        assert kdf_id == 0x02
+        assert flags == 0x00
+        assert out_payload == payload
+        assert out_params == kdf_params
+
+    def test_v3_header_size(self):
+        assert HEADER_SIZE_V3 == 18
+
+    def test_v3_flags_preserved(self):
+        flags = FLAG_CHAINED | FLAG_HYBRID_PQ | FLAG_PADDED
+        kdf_params = (1, 1024, 1)
+        b64 = serialize(0x01, 0x02, flags, b"data",
+                        version=FORMAT_VERSION_3, kdf_params=kdf_params)
+        _, _, _, out_flags, _, _ = deserialize(b64)
+        assert out_flags == flags
+
+    def test_v3_kdf_params_roundtrip(self):
+        """Different KDF params produce different serializations but roundtrip."""
+        for params in [(1, 1024, 1), (3, 65536, 4), (131072, 8, 1)]:
+            b64 = serialize(0x01, 0x02, 0x00, b"x",
+                            version=FORMAT_VERSION_3, kdf_params=params)
+            _, _, _, _, _, out_params = deserialize(b64)
+            assert out_params == params
+
+    def test_v3_too_short_raises(self):
+        """v3 header needs 18 bytes minimum."""
+        raw = struct.pack("!BBBBH", FORMAT_VERSION_3, 0x01, 0x02, 0x00, 0)
+        # Only 6 bytes + 6 padding = 12 bytes, need 18
+        b64 = base64.b64encode(raw + b"\x00" * 6).decode()
+        with pytest.raises(ValueError, match="too short for v3"):
+            deserialize(b64)
+
+    def test_v3_nonzero_reserved_rejected(self):
+        header = struct.pack(HEADER_FORMAT_V3, FORMAT_VERSION_3,
+                             0x01, 0x02, 0x00, 0xBEEF, 3, 65536, 4)
+        b64 = base64.b64encode(header + b"payload").decode()
+        with pytest.raises(ValueError, match="Reserved header bytes must be zero"):
+            deserialize(b64)
+
+    def test_v3_aad_includes_kdf_params(self):
+        """v3 AAD should be 18 bytes (full header including KDF params)."""
+        kdf_params = (3, 65536, 4)
+        aad = build_aad(FORMAT_VERSION_3, 0x01, 0x02, 0x00,
+                        kdf_params=kdf_params)
+        assert len(aad) == HEADER_SIZE_V3
+
+    def test_v3_aad_different_kdf_params(self):
+        """Different KDF params produce different AADs."""
+        aad1 = build_aad(FORMAT_VERSION_3, 0x01, 0x02, 0x00,
+                         kdf_params=(3, 65536, 4))
+        aad2 = build_aad(FORMAT_VERSION_3, 0x01, 0x02, 0x00,
+                         kdf_params=(1, 1024, 1))
+        assert aad1 != aad2
+
+    def test_key_check_size(self):
+        assert KEY_CHECK_SIZE == 8
+
+    def test_padded_flag_value(self):
+        assert FLAG_PADDED == 0x04
+
+    def test_v3_empty_payload_roundtrip(self):
+        kdf_params = (3, 65536, 4)
+        b64 = serialize(0x01, 0x02, 0x00, b"",
+                        version=FORMAT_VERSION_3, kdf_params=kdf_params)
+        _, _, _, _, out_payload, out_params = deserialize(b64)
+        assert out_payload == b""
+        assert out_params == kdf_params
 
 
 class TestBuildAAD:

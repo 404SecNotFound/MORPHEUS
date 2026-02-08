@@ -2,6 +2,8 @@
 
 import os
 
+import pytest
+
 from morpheus.core.kdf import (
     KDF_CHOICES,
     KDF_REGISTRY,
@@ -107,3 +109,32 @@ class TestKDFRegistry:
     def test_kdf_choices_match(self):
         assert "Argon2id" in KDF_CHOICES
         assert "Scrypt" in KDF_CHOICES
+
+
+class TestProductionKDFParams:
+    """Integration tests using production-default KDF parameters.
+
+    These are slow (~1-2s each) but verify that the default configurations
+    actually work end-to-end, catching parameter-related regressions.
+    """
+
+    @pytest.mark.slow
+    def test_argon2id_production_defaults(self):
+        """Argon2id with default params (time=3, mem=64MiB, p=4) produces valid key."""
+        kdf = Argon2idKDF()  # production defaults
+        salt = os.urandom(16)
+        key = kdf.derive(b"T3st!Passw0rd#Str0ng", salt)
+        assert len(key) == 32
+        assert isinstance(key, bytearray)
+        # Same inputs produce same output (determinism)
+        key2 = kdf.derive(b"T3st!Passw0rd#Str0ng", salt)
+        assert key == key2
+
+    @pytest.mark.slow
+    def test_scrypt_production_defaults(self):
+        """Scrypt with default params (n=2^17, r=8, p=1) produces valid key."""
+        kdf = ScryptKDF()  # production defaults
+        salt = os.urandom(16)
+        key = kdf.derive(b"T3st!Passw0rd#Str0ng", salt)
+        assert len(key) == 32
+        assert isinstance(key, bytearray)
