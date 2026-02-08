@@ -265,8 +265,11 @@ Offset  Size  Field
 **Chained payload:**
 `[16B salt][12B AES nonce][12B ChaCha nonce][ciphertext + tags]`
 
-**Hybrid PQ prefix** (before nonces):
-`[2B KEM-ct length, big-endian][KEM ciphertext]`
+**Hybrid PQ single cipher payload:**
+`[16B salt][12B nonce][2B KEM-ct length, big-endian][KEM ciphertext][ciphertext + tag]`
+
+**Hybrid PQ chained payload:**
+`[16B salt][12B AES nonce][12B ChaCha nonce][2B KEM-ct length, big-endian][KEM ciphertext][ciphertext + tags]`
 
 All header bytes are authenticated as AAD — modifying any byte causes
 decryption to fail, preventing algorithm-downgrade attacks.
@@ -280,7 +283,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**122 tests** across 7 test files:
+**123 tests** across 7 test files:
 
 | File | Scope |
 |------|-------|
@@ -290,7 +293,7 @@ python -m pytest tests/ -v
 | `test_pipeline.py` | All mode roundtrips (single/chained/hybrid/both), wrong password (`InvalidTag`), cross-compatibility, payload truncation, KEM length=0 bypass, header tampering |
 | `test_memory.py` | `secure_zero`, `SecureBuffer`, `secure_key` context manager |
 | `test_validation.py` | Password scoring (0-100), minimum requirements, edge cases |
-| `test_cli.py` | File encrypt/decrypt roundtrip (text + binary) |
+| `test_cli.py` | File encrypt/decrypt roundtrip (text + binary), path traversal prevention |
 
 Tests include **NIST SP 800-38D** and **RFC 8439** reference vectors verified
 against the `cryptography` library's validated implementations.
@@ -313,7 +316,7 @@ morpheus/
 │       ├── formats.py         # Versioned binary format with AAD
 │       ├── memory.py          # mlock, ctypes.memset zeroing, SecureBuffer
 │       └── validation.py      # Password scoring, input validation
-├── tests/                     # 122 tests (NIST/RFC vectors included)
+├── tests/                     # 123 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history
