@@ -199,6 +199,7 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--pad` | Pad plaintext to 256-byte blocks (hides exact length) |
 | `--force` | Overwrite existing output files |
 | `--no-strength-check` | Skip password strength validation |
+| `--no-filename` | Omit original filename from encrypted envelope |
 | `--hybrid-pq` | Enable hybrid post-quantum |
 | `--pq-public-key` | Base64 ML-KEM-768 public key |
 | `--pq-secret-key` | Base64 ML-KEM-768 secret key |
@@ -389,7 +390,8 @@ jurisdictions. You are responsible for compliance with all applicable laws.
 - **No data on disk**: Text-mode operations are entirely in-memory. File
   encryption writes only the ciphertext output.
 - **Plaintext length**: Without `--pad`, ciphertext length reveals approximate
-  plaintext length. Use `--pad` for length-hiding when privacy requires it.
+  plaintext length. Use `--pad` for length-hiding (pads to buckets: 256B, 1K,
+  4K, 16K, 64K). Bucket membership is still visible.
 - **Ciphertext is identifiable**: The versioned header (0x02/0x03) makes
   MORPHEUS ciphertexts recognizable. This tool does not provide plausible
   deniability or steganography — it is designed for **confidentiality**, not

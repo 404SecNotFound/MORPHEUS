@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import hmac
 import struct
-import warnings
 
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF, HKDFExpand
@@ -67,8 +66,17 @@ def _pq_encapsulate(public_key: bytes) -> tuple[bytes, bytes]:
 
 
 def _pq_decapsulate(secret_key: bytes, kem_ciphertext: bytes) -> bytes:
-    """KEM decapsulate: returns shared_secret."""
-    return _ml_kem.decrypt(secret_key, kem_ciphertext)
+    """KEM decapsulate: returns shared_secret.
+
+    Raises ValueError with a clear message if decapsulation fails
+    (wrong key or malformed ciphertext).
+    """
+    try:
+        return _ml_kem.decrypt(secret_key, kem_ciphertext)
+    except Exception as exc:
+        raise ValueError(
+            "PQ decapsulation failed: invalid KEM ciphertext or wrong secret key"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -139,21 +147,66 @@ def _compute_key_check(key: bytes | bytearray) -> bytes:
     return hmac.new(bytes(key), b"morpheus-key-check", "sha256").digest()[:KEY_CHECK_SIZE]
 
 
-def _pad_plaintext(data: bytes, block_size: int = 256) -> bytes:
-    """Pad data to a multiple of block_size using PKCS7-style padding.
+# Padding buckets: data is padded to the next bucket boundary.
+# This provides stronger length-hiding than fixed small blocks by
+# quantizing lengths into a few discrete sizes.
+_PAD_BUCKETS = (256, 1024, 4096, 16384, 65536)
 
-    Always adds at least 1 byte of padding so the pad length is unambiguous.
+
+def _pad_plaintext(data: bytes) -> bytes:
+    """Pad data to the next size bucket using PKCS7-style padding.
+
+    Buckets: 256B, 1K, 4K, 16K, 64K. Data larger than 64K is padded
+    to the next 64K boundary. Always adds at least 1 byte.
     """
-    pad_len = block_size - (len(data) % block_size)
+    data_len = len(data)
+    target = _PAD_BUCKETS[-1]  # default: largest bucket
+    for bucket in _PAD_BUCKETS:
+        if data_len < bucket:
+            target = bucket
+            break
+    else:
+        # Larger than biggest bucket — pad to next multiple of largest
+        target = ((data_len // _PAD_BUCKETS[-1]) + 1) * _PAD_BUCKETS[-1]
+
+    pad_len = target - data_len
+    if pad_len == 0:
+        pad_len = _PAD_BUCKETS[0]  # Always add at least one block
+        target += pad_len
+
+    # PKCS7 supports pad_len up to 255; for larger targets use a two-layer scheme
+    if pad_len > 255:
+        # Prepend a 4-byte big-endian original length, then zero-fill
+        length_prefix = struct.pack("!I", data_len)
+        return length_prefix + data + b"\x00" * (target - data_len - 4)
+
     return data + bytes([pad_len] * pad_len)
 
 
 def _unpad_plaintext(data: bytes) -> bytes:
-    """Remove PKCS7-style padding. Raises ValueError on invalid padding."""
+    """Remove padding. Handles both PKCS7 (small pad) and length-prefixed (large pad).
+
+    Raises ValueError on invalid padding.
+    """
     if not data:
         raise ValueError("Cannot unpad empty data")
-    pad_len = data[-1]
-    if pad_len == 0 or pad_len > len(data):
+
+    pad_byte = data[-1]
+    if pad_byte == 0:
+        # Length-prefixed scheme: first 4 bytes are big-endian original length
+        if len(data) < 4:
+            raise ValueError("Invalid padded data: too short for length prefix")
+        original_len = struct.unpack("!I", data[:4])[0]
+        if original_len > len(data) - 4:
+            raise ValueError(
+                f"Invalid padding: claimed length {original_len} "
+                f"exceeds available data {len(data) - 4}"
+            )
+        return data[4 : 4 + original_len]
+
+    # PKCS7-style: last byte is pad length
+    pad_len = pad_byte
+    if pad_len > len(data):
         raise ValueError("Invalid padding length")
     if data[-pad_len:] != bytes([pad_len] * pad_len):
         raise ValueError("Invalid padding bytes")
@@ -169,18 +222,50 @@ def _get_kdf_params(kdf: KDF) -> tuple[int, int, int]:
     return (0, 0, 0)
 
 
+# KDF parameter limits to prevent resource exhaustion from malformed headers.
+# These are generous upper bounds that cover all reasonable use cases.
+_ARGON2_LIMITS = {
+    "time_cost": (1, 100),         # iterations
+    "memory_cost": (1024, 4194304),  # 1 MiB to 4 GiB in KiB
+    "parallelism": (1, 64),
+}
+_SCRYPT_LIMITS = {
+    "n": (2**10, 2**25),  # ~1 MiB to ~1 GiB
+    "r": (1, 64),
+    "p": (1, 64),
+}
+
+
 def _build_kdf_from_params(kdf_id: int, params: tuple[int, int, int]) -> KDF:
-    """Reconstruct a KDF instance from header params."""
+    """Reconstruct a KDF instance from header params.
+
+    Validates parameter bounds to prevent resource exhaustion from
+    malformed or adversarial ciphertext headers.
+    """
     kdf_cls = KDF_REGISTRY.get(kdf_id)
     if not kdf_cls:
         raise ValueError(f"Unknown KDF ID {kdf_id:#04x}")
 
     p1, p2, p3 = params
     if kdf_id == 0x02:  # Argon2id
+        _validate_param("Argon2id time_cost", p1, *_ARGON2_LIMITS["time_cost"])
+        _validate_param("Argon2id memory_cost", p2, *_ARGON2_LIMITS["memory_cost"])
+        _validate_param("Argon2id parallelism", p3, *_ARGON2_LIMITS["parallelism"])
         return kdf_cls(time_cost=p1, memory_cost=p2, parallelism=p3)
     if kdf_id == 0x01:  # Scrypt
+        _validate_param("Scrypt n", p1, *_SCRYPT_LIMITS["n"])
+        _validate_param("Scrypt r", p2, *_SCRYPT_LIMITS["r"])
+        _validate_param("Scrypt p", p3, *_SCRYPT_LIMITS["p"])
         return kdf_cls(n=p1, r=p2, p=p3)
     return kdf_cls()
+
+
+def _validate_param(name: str, value: int, lo: int, hi: int) -> None:
+    """Raise ValueError if a KDF parameter is out of bounds."""
+    if value < lo or value > hi:
+        raise ValueError(
+            f"KDF parameter {name}={value} out of allowed range [{lo}, {hi}]"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -223,10 +308,10 @@ class EncryptionPipeline:
         # This fixed order avoids ambiguity in the ciphertext format.
         if self.chain:
             if cipher is not None and not isinstance(cipher, AES256GCM):
-                warnings.warn(
-                    f"Cipher chaining uses a fixed order (AES-256-GCM → ChaCha20-Poly1305); "
-                    f"the selected cipher '{cipher.name}' is overridden when chain=True.",
-                    stacklevel=2,
+                raise ValueError(
+                    f"Cipher chaining uses a fixed order (AES-256-GCM → ChaCha20-Poly1305). "
+                    f"Cannot combine chain=True with cipher '{cipher.name}'. "
+                    f"Either remove --cipher or remove --chain."
                 )
             self.cipher = AES256GCM()
             self.chain_cipher: Cipher = ChaCha20Poly1305Cipher()

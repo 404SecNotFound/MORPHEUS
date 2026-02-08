@@ -57,6 +57,7 @@ The following are **out of scope** (documented in the Threat Model):
 | 2026-02-06 | Full code review (v2.0)        | 17 findings (2 critical, 2 medium, 3 low, 3 info, 7 positive) — all remediated |
 | 2026-02-07 | Cryptographic deep review      | 7 findings (2 high, 3 medium, 2 low) — all remediated |
 | 2026-02-08 | External review + independent audit | 4 external findings + 21 audit findings — remediated in v2.0.2 |
+| 2026-02-08 | Privacy/crypto/ethics review + security hardening | 12 findings (4 crypto, 5 privacy, 3 ethical) + 6 hardening findings — remediated in v2.0.3 |
 
 ### Remediation Summary (v2.0.1)
 
@@ -121,6 +122,44 @@ package, which binds to `liboqs` (Open Quantum Safe). This implementation:
 The hybrid design ensures that overall security is **never weaker** than the
 password-based symmetric layer alone. ML-KEM-768 is an additional
 defense-in-depth layer, not the sole protection mechanism.
+
+### Key-check oracle (v3 format, intentional design)
+
+Format v3 includes an 8-byte key-check value: `HMAC-SHA256(key, "morpheus-key-check")[:8]`.
+This is verified **before** attempting AEAD decryption, providing a clear
+"incorrect password" error instead of a generic `InvalidTag`.
+
+**Security implications**: The key-check creates a distinguishing oracle —
+an attacker can tell whether a password guess is wrong (key-check mismatch)
+vs. whether the ciphertext is tampered (AEAD failure). This is an intentional
+UX tradeoff:
+
+- **Brute-force impact**: Negligible. The key-check is computed from the
+  KDF-derived key, so an attacker must still complete the full KDF
+  computation for each guess. The key-check adds no shortcut.
+- **Truncation**: 8 bytes (64 bits) provides 2^{-64} false-positive rate —
+  effectively zero for password-checking purposes.
+- **Information leakage**: Reveals only pass/fail, same as any AEAD scheme.
+  The truncated HMAC is a PRF output and does not leak key material.
+
+For deployments requiring indistinguishable error behavior (e.g., plausible
+deniability use cases), v2 format can be used — it returns `InvalidTag`
+for both wrong password and tampering.
+
+### File envelope metadata
+
+When encrypting files, the encrypted envelope includes the original filename
+(basename only) by default. This is encrypted alongside the file data, so it
+is not visible without the password. However, once decrypted, the filename
+is revealed. Use `--no-filename` to omit the original filename from the
+envelope for maximum privacy.
+
+### Padding and length hiding
+
+The `--pad` flag pads plaintext to discrete size buckets (256B, 1K, 4K, 16K,
+64K, then 64K multiples). This hides the exact plaintext length but still
+reveals which bucket the data falls into. For most practical purposes this
+provides strong length hiding, but it is not a constant-size scheme.
 
 ### GCM nonce collision probability
 
