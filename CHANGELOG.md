@@ -44,7 +44,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Added base64 validation with `validate=True` for PQ key inputs
 - Reserved header bytes (4-5) now included in AAD and validated on read
 - HKDF info strings now include application-specific domain separation
-  (`MORPHEUS-v2-key-{i}` + salt binding)
+  (`morpheus-v2-key-{i}` + salt binding)
 - `secure_zero()` now uses `ctypes.memset` with Python fallback
 - Added `mlock()` failure warning via `logging.warning()`
 - Removed deprecated `backend=default_backend()` from Scrypt KDF
