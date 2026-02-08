@@ -7,8 +7,6 @@ import os
 import sys
 import tempfile
 
-import pytest
-
 from morpheus.cli import run_cli
 from morpheus.core.pipeline import EncryptionPipeline
 

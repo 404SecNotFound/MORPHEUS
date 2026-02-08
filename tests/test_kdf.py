@@ -2,8 +2,6 @@
 
 import os
 
-import pytest
-
 from morpheus.core.kdf import (
     KDF_CHOICES,
     KDF_REGISTRY,

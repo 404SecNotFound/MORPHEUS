@@ -1,7 +1,5 @@
 """Tests for password validation and input checking."""
 
-import pytest
-
 from morpheus.core.validation import (
     check_password_strength,
     validate_input_text,
