@@ -11,6 +11,7 @@ from hypothesis import given, settings, strategies as st
 
 from morpheus.core.formats import (
     FORMAT_VERSION,
+    FORMAT_VERSION_3,
     HEADER_FORMAT,
     HEADER_SIZE,
     deserialize,
@@ -28,15 +29,16 @@ class TestDeserializeFuzz:
         b64 = base64.b64encode(data).decode()
         try:
             result = deserialize(b64)
-            # If it succeeds, the result must be a well-formed tuple
+            # If it succeeds, the result must be a well-formed 6-tuple
             assert isinstance(result, tuple)
-            assert len(result) == 5
-            version, cipher_id, kdf_id, flags, payload = result
+            assert len(result) == 6
+            version, cipher_id, kdf_id, flags, payload, kdf_params = result
             assert isinstance(version, int)
             assert isinstance(cipher_id, int)
             assert isinstance(kdf_id, int)
             assert isinstance(flags, int)
             assert isinstance(payload, bytes)
+            assert kdf_params is None or isinstance(kdf_params, tuple)
         except ValueError:
             pass  # Expected for most random inputs
 
@@ -61,12 +63,13 @@ class TestDeserializeFuzz:
     ):
         """Any valid serialize() output must deserialize() back identically."""
         b64 = serialize(cipher_id, kdf_id, flags, payload)
-        version, out_cid, out_kid, out_flags, out_payload = deserialize(b64)
+        version, out_cid, out_kid, out_flags, out_payload, kdf_params = deserialize(b64)
         assert version == FORMAT_VERSION
         assert out_cid == cipher_id
         assert out_kid == kdf_id
         assert out_flags == flags
         assert out_payload == payload
+        assert kdf_params is None
 
     @given(
         cipher_id=st.integers(min_value=0, max_value=255),
@@ -83,7 +86,7 @@ class TestDeserializeFuzz:
         header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, cipher_id, kdf_id, flags, 0)
         raw = header + payload + extra
         b64 = base64.b64encode(raw).decode()
-        _, _, _, _, out_payload = deserialize(b64)
+        _, _, _, _, out_payload, _ = deserialize(b64)
         assert out_payload == payload + extra
 
     @given(reserved=st.integers(min_value=1, max_value=65535))
@@ -98,10 +101,11 @@ class TestDeserializeFuzz:
         except ValueError:
             pass
 
-    @given(version=st.integers(min_value=0, max_value=255).filter(lambda v: v != FORMAT_VERSION))
+    @given(version=st.integers(min_value=0, max_value=255).filter(
+        lambda v: v not in (FORMAT_VERSION, FORMAT_VERSION_3)))
     @settings(max_examples=100)
     def test_wrong_version_always_rejected(self, version: int):
-        """Any version != FORMAT_VERSION must be rejected."""
+        """Any version other than FORMAT_VERSION or FORMAT_VERSION_3 must be rejected."""
         header = struct.pack(HEADER_FORMAT, version, 0x01, 0x02, 0x00, 0)
         b64 = base64.b64encode(header + b"payload").decode()
         try:

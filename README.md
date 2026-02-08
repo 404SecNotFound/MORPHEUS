@@ -196,6 +196,9 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--cipher` | `AES-256-GCM` (default) or `ChaCha20-Poly1305` |
 | `--kdf` | `Argon2id` (default) or `Scrypt` |
 | `--chain` | Enable cipher chaining |
+| `--pad` | Pad plaintext to 256-byte blocks (hides exact length) |
+| `--force` | Overwrite existing output files |
+| `--no-strength-check` | Skip password strength validation |
 | `--hybrid-pq` | Enable hybrid post-quantum |
 | `--pq-public-key` | Base64 ML-KEM-768 public key |
 | `--pq-secret-key` | Base64 ML-KEM-768 secret key |
@@ -217,7 +220,7 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | Single-algorithm compromise | Cipher chaining (two independent algorithms) |
 | Memory forensics | `mlock()` + `ctypes.memset` zeroing of all key material |
 | Ciphertext tampering | AEAD authentication tag (16 bytes) |
-| Algorithm downgrade | Header authenticated as AAD (6-byte binding) |
+| Algorithm downgrade | Header authenticated as AAD (v3: 18-byte binding incl. KDF params) |
 
 ### What We Do Not Protect Against
 
@@ -225,9 +228,8 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 |-----------|-----|
 | Compromised endpoint (malware, keylogger) | No user-space tool can defend against a hostile OS |
 | Python `str` immutability | Password briefly exists as immutable string before `bytearray` conversion; GC timing is unpredictable |
-| Clipboard history managers | We wipe the system clipboard, but history extensions (Klipper, macOS Universal Clipboard) may retain copies |
+| Clipboard history managers | We restore the previous clipboard on clear, but history extensions (Klipper, macOS Universal Clipboard) may retain copies |
 | Swap without `mlock` | If `RLIMIT_MEMLOCK` is insufficient, buffers may be swapped. The tool logs a warning |
-| KDF parameter mismatch | KDF tuning parameters are not stored in the format. Mismatched params cause auth failure, not a clear config error |
 
 ### Why These Defaults?
 
@@ -248,28 +250,42 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 The format is **self-describing** — the header tells the decryptor exactly what
 algorithms were used. No out-of-band configuration needed.
 
+### Format v3 (default for new encryptions)
+
+```
+Offset  Size  Field
+------  ----  ----------------------------------
+0       1     Version        (0x03)
+1       1     Cipher ID      (0x01=AES-256-GCM, 0x02=ChaCha20, 0x03=Chained)
+2       1     KDF ID         (0x01=Scrypt, 0x02=Argon2id)
+3       1     Flags          (bit 0=chained, bit 1=hybrid PQ, bit 2=padded)
+4-5     2     Reserved       (0x0000, validated on read)
+6-9     4     KDF param 1    (Argon2: time_cost, Scrypt: n)
+10-13   4     KDF param 2    (Argon2: memory_cost, Scrypt: r)
+14-17   4     KDF param 3    (Argon2: parallelism, Scrypt: p)
+18+     var   Payload
+```
+
+v3 stores KDF parameters in the header, enabling decryption without
+matching the original pipeline config. It also includes an 8-byte
+key-check value in the payload for clear "wrong password" diagnostics.
+
+**v3 payload:** `[salt][nonce(s)][KEM prefix if hybrid][8B key-check][ciphertext + tag(s)]`
+
+### Format v2 (legacy, still supported for decryption)
+
 ```
 Offset  Size  Field
 ------  ----  ----------------------------------
 0       1     Version        (0x02)
-1       1     Cipher ID      (0x01=AES-256-GCM, 0x02=ChaCha20, 0x03=Chained)
-2       1     KDF ID         (0x01=Scrypt, 0x02=Argon2id)
+1       1     Cipher ID
+2       1     KDF ID
 3       1     Flags          (bit 0=chained, bit 1=hybrid PQ)
-4-5     2     Reserved       (0x0000, validated on read)
+4-5     2     Reserved       (0x0000)
 6+      var   Payload
 ```
 
-**Single cipher payload:**
-`[16B salt][12B nonce][ciphertext + 16B auth tag]`
-
-**Chained payload:**
-`[16B salt][12B AES nonce][12B ChaCha nonce][ciphertext + tags]`
-
-**Hybrid PQ single cipher payload:**
-`[16B salt][12B nonce][2B KEM-ct length, big-endian][KEM ciphertext][ciphertext + tag]`
-
-**Hybrid PQ chained payload:**
-`[16B salt][12B AES nonce][12B ChaCha nonce][2B KEM-ct length, big-endian][KEM ciphertext][ciphertext + tags]`
+**v2 payload:** `[salt][nonce(s)][KEM prefix if hybrid][ciphertext + tag(s)]`
 
 All header bytes are authenticated as AAD — modifying any byte causes
 decryption to fail, preventing algorithm-downgrade attacks.
@@ -350,6 +366,37 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. We welcome:
 - New cipher or KDF implementations
 - Documentation improvements
 - Test coverage expansion
+
+## Disclaimer
+
+MORPHEUS is provided **as-is** for educational and personal use. It has not
+undergone formal FIPS 140-3 validation or independent third-party audit.
+**Do not rely on it as your sole protection** for data subject to legal,
+regulatory, or compliance requirements (HIPAA, GDPR, PCI-DSS, etc.).
+
+The authors are not responsible for data loss, unauthorized disclosure, or
+any damages resulting from the use of this software. **There is no password
+recovery mechanism** — if you forget your password, your data is permanently
+and irrecoverably lost.
+
+Use of cryptographic software may be restricted or regulated in some
+jurisdictions. You are responsible for compliance with all applicable laws.
+
+## Privacy Notes
+
+- **No telemetry or analytics**: MORPHEUS does not phone home, collect usage
+  data, or make any network connections.
+- **No data on disk**: Text-mode operations are entirely in-memory. File
+  encryption writes only the ciphertext output.
+- **Plaintext length**: Without `--pad`, ciphertext length reveals approximate
+  plaintext length. Use `--pad` for length-hiding when privacy requires it.
+- **Ciphertext is identifiable**: The versioned header (0x02/0x03) makes
+  MORPHEUS ciphertexts recognizable. This tool does not provide plausible
+  deniability or steganography — it is designed for **confidentiality**, not
+  **undetectability**.
+- **Password as signal**: A strong password (high entropy) may itself signal
+  security awareness to an observer. This is inherent to password-based
+  encryption.
 
 ## License
 

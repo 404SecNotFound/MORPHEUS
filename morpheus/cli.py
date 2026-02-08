@@ -86,6 +86,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "-p", "--password",
         help=argparse.SUPPRESS,  # Hidden — deprecated, insecure
     )
+    parser.add_argument(
+        "--no-strength-check",
+        action="store_true",
+        help="Skip password strength validation (use with caution).",
+    )
+    parser.add_argument(
+        "--pad",
+        action="store_true",
+        help="Pad plaintext to hide exact length (privacy protection).",
+    )
     return parser
 
 
@@ -201,14 +211,26 @@ def run_cli(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     if operation == "encrypt":
-        strength = check_password_strength(password)
-        if not strength.is_acceptable:
+        if not getattr(args, "no_strength_check", False):
+            strength = check_password_strength(password)
+            if not strength.is_acceptable:
+                _print_status(
+                    f"Error: password too weak ({strength.label}). "
+                    + "; ".join(strength.feedback),
+                    error=True,
+                )
+                sys.exit(1)
+        else:
             _print_status(
-                f"Error: password too weak ({strength.label}). "
-                + "; ".join(strength.feedback),
+                "Warning: password strength check skipped (--no-strength-check).",
                 error=True,
             )
-            sys.exit(1)
+        # Irrecoverability warning
+        _print_status(
+            "WARNING: There is no password recovery. If you forget your "
+            "password, your data is permanently and irrecoverably lost.",
+            error=True,
+        )
 
     # --- Build pipeline ---
     cipher_cls = CIPHER_CHOICES[args.cipher]
@@ -277,7 +299,7 @@ def run_cli(argv: list[str] | None = None) -> None:
     # --- Text mode ---
     try:
         if operation == "encrypt":
-            result = pipeline.encrypt(data, password)
+            result = pipeline.encrypt(data, password, pad=args.pad)
             print(f"\nEncrypted ({pipeline.description}):")
             print(result)
         else:
@@ -288,10 +310,10 @@ def run_cli(argv: list[str] | None = None) -> None:
         if operation == "decrypt":
             msg = (
                 "Decryption failed: incorrect password or corrupted data.\n"
-                "  Hint: if the password is correct, the KDF parameters "
-                "(time_cost, memory_cost) may not match\n"
-                "  those used during encryption. KDF parameters are not "
-                "stored in the ciphertext format."
+                "  Hint: for v2 ciphertexts, KDF parameters must match those "
+                "used during encryption.\n"
+                "  v3 ciphertexts store KDF params in the header and are "
+                "self-describing."
             )
         else:
             msg = f"Encryption error: {exc}"
@@ -347,12 +369,21 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
         })
 
         try:
-            encrypted = pipeline.encrypt(envelope, password)
+            encrypted = pipeline.encrypt(envelope, password, pad=args.pad)
         except Exception as exc:
             _print_status(f"Encryption error: {exc}", error=True)
             sys.exit(1)
 
-        out_path = args.output or (file_path + ".enc")
+        if args.output:
+            out_path = args.output
+        else:
+            # Randomized output name to avoid leaking original filename on disk
+            import hashlib
+            import time
+            rand_id = hashlib.sha256(
+                f"{file_path}{time.time_ns()}".encode()
+            ).hexdigest()[:12]
+            out_path = f"morpheus_{rand_id}.enc"
         _check_overwrite(out_path, args.force)
         with open(out_path, "w") as f:
             f.write(encrypted)
@@ -371,10 +402,10 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
         except Exception:
             _print_status(
                 "Decryption failed: incorrect password or corrupted file.\n"
-                "  Hint: if the password is correct, the KDF parameters "
-                "(time_cost, memory_cost) may not match\n"
-                "  those used during encryption. KDF parameters are not "
-                "stored in the ciphertext format.",
+                "  Hint: for v2 ciphertexts, KDF parameters must match those "
+                "used during encryption.\n"
+                "  v3 ciphertexts store KDF params in the header and are "
+                "self-describing.",
                 error=True,
             )
             sys.exit(1)
