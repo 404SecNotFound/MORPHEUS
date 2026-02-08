@@ -277,7 +277,7 @@ def run_cli(argv: list[str] | None = None) -> None:
             print(result)
         else:
             result = pipeline.decrypt(data, password)
-            print(f"\nDecrypted:")
+            print("\nDecrypted:")
             print(result)
     except Exception as exc:
         if operation == "decrypt":

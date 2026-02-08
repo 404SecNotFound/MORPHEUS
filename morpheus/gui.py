@@ -26,7 +26,6 @@ from textual.widgets import (
     Header,
     Input,
     Label,
-    ProgressBar,
     RadioButton,
     RadioSet,
     Select,

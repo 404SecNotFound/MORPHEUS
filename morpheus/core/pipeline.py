@@ -29,8 +29,8 @@ from .formats import (
     deserialize,
     serialize,
 )
-from .kdf import KDF, KDF_REGISTRY, Argon2idKDF
-from .memory import SecureBuffer, secure_zero
+from .kdf import KDF, Argon2idKDF
+from .memory import secure_zero
 
 # ---------------------------------------------------------------------------
 # Post-quantum KEM support (optional dependency)

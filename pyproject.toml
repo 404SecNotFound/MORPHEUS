@@ -25,3 +25,13 @@ morpheus = "morpheus.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["morpheus"]
+omit = [
+    "morpheus/gui.py",
+    "morpheus/__main__.py",
+]
+
+[tool.coverage.report]
+fail_under = 78
