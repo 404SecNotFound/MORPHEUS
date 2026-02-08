@@ -3,6 +3,27 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.0.2] - 2026-02-08
+
+### Security
+- **HIGH**: Fixed path traversal vulnerability in file decryption — malicious
+  envelope filenames (e.g., `../../.ssh/authorized_keys`) are now sanitized
+  via `os.path.basename()` before writing output
+- **MEDIUM**: Fixed CLI password reading when stdin is consumed by `--data -`.
+  Now uses `getpass.getpass()` which opens `/dev/tty` directly on Unix,
+  preventing empty/missing passwords when piping data
+
+### Fixed
+- Documentation vs. implementation mismatch for hybrid PQ payload layout:
+  docs incorrectly stated KEM prefix appears before nonces; corrected to
+  show actual layout (salt → nonce(s) → KEM prefix → ciphertext)
+- Decryption error messages now hint at KDF parameter mismatch as a possible
+  cause when authentication fails with correct password
+- Test count: 122 -> 123 (added path traversal prevention test)
+
+### Changed
+- Version bumped to 2.0.2
+
 ## [2.0.1] - 2026-02-07
 
 ### Security

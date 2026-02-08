@@ -166,7 +166,7 @@ pip install pqcrypto
 
 ```bash
 python -m pytest tests/ -v
-# You should see: "122 passed"
+# You should see: "123 passed"
 ```
 
 ---
@@ -555,10 +555,16 @@ Bytes 6+:   Payload (varies by mode)
 [16 bytes: salt][12 bytes: nonce_aes][12 bytes: nonce_chacha][ciphertext + tags]
 ```
 
-### Payload Layout — Hybrid PQ
+### Payload Layout — Hybrid PQ (Single Cipher)
 
 ```
-[2 bytes: KEM ciphertext length (big-endian)][KEM ciphertext][standard cipher payload]
+[16 bytes: salt][12 bytes: nonce][2 bytes: KEM-ct length (big-endian)][KEM ciphertext][ciphertext + tag]
+```
+
+### Payload Layout — Hybrid PQ (Chained)
+
+```
+[16 bytes: salt][12 bytes: nonce_aes][12 bytes: nonce_chacha][2 bytes: KEM-ct length (big-endian)][KEM ciphertext][ciphertext + tags]
 ```
 
 ### Why This Matters
@@ -581,7 +587,7 @@ algorithms were used. This means:
 python -m pytest tests/ -v
 ```
 
-Expected output: **122 passed**
+Expected output: **123 passed**
 
 ### What the Tests Cover
 
@@ -593,7 +599,7 @@ Expected output: **122 passed**
 | `test_pipeline.py` | End-to-end roundtrips for all modes (single/chained/hybrid/both), wrong password detection, cross-compatibility, payload truncation, KEM length=0 bypass, header tampering | 35 |
 | `test_memory.py` | Secure zeroing with ctypes.memset, SecureBuffer, secure_key context manager | 7 |
 | `test_validation.py` | Password strength scoring (0-100), minimum requirements, edge cases, input text validation | 17 |
-| `test_cli.py` | File encrypt/decrypt roundtrip (text and binary files) | 2 |
+| `test_cli.py` | File encrypt/decrypt roundtrip (text and binary files), path traversal prevention | 3 |
 
 Tests include **NIST SP 800-38D** (AES-256-GCM) and **RFC 8439** (ChaCha20-Poly1305) reference vectors verified against the `cryptography` library's validated implementations.
 
