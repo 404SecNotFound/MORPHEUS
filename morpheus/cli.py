@@ -19,8 +19,8 @@ from .core.validation import check_password_strength, validate_input_text
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="secure-encrypt",
-        description="SecureDataEncryption v2 — quantum-resistant multi-cipher encryption",
+        prog="morpheus",
+        description="MORPHEUS — quantum-resistant multi-cipher encryption",
     )
     parser.add_argument(
         "-o", "--operation",

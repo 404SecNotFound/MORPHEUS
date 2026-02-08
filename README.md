@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">SecureDataEncryption</h1>
+  <h1 align="center">MORPHEUS</h1>
   <p align="center">
     Quantum-resistant encryption for text and files. No data touches the disk.<br>
     <strong>AES-256-GCM + ChaCha20-Poly1305 + ML-KEM-768 | Argon2id | Terminal GUI</strong>
@@ -15,10 +15,10 @@
 
 ---
 
-## Why SecureDataEncryption?
+## Why MORPHEUS?
 
 Most encryption tools make you choose: easy to use *or* cryptographically
-serious. SecureDataEncryption does both.
+serious. MORPHEUS does both.
 
 It ships **post-quantum protection today** (ML-KEM-768, FIPS 203) so your data
 stays safe even when large-scale quantum computers arrive. It wraps everything
@@ -32,7 +32,7 @@ in a terminal GUI that anyone can operate — no cryptography degree required.
 
 ## At a Glance
 
-| | SecureDataEncryption | age | gpg | openssl enc |
+| | MORPHEUS | age | gpg | openssl enc |
 |---|---|---|---|---|
 | Post-quantum layer | ML-KEM-768 (FIPS 203) | -- | -- | -- |
 | Cipher chaining | AES + ChaCha | -- | -- | -- |
@@ -46,17 +46,17 @@ in a terminal GUI that anyone can operate — no cryptography degree required.
 ## Quick Start
 
 ```bash
-git clone https://github.com/404securitynotfound/SecureDataEncryption.git
-cd SecureDataEncryption && pip install -r requirements.txt
+git clone https://github.com/404securitynotfound/morpheus.git
+cd morpheus && pip install -r requirements.txt
 
 # Launch the GUI
-python secure_data_encryption.py
+python morpheus.py
 
 # Or encrypt from the command line
-python secure_data_encryption.py -o encrypt --data "sensitive text"
+python morpheus.py -o encrypt --data "sensitive text"
 
 # Encrypt a file
-python secure_data_encryption.py -o encrypt -f secret.pdf
+python morpheus.py -o encrypt -f secret.pdf
 ```
 
 > Post-quantum support: `pip install pqcrypto`
@@ -125,7 +125,7 @@ is bounded by the strongest factor, but a weak password remains the weakest link
 Launch with no arguments:
 
 ```bash
-python secure_data_encryption.py
+python morpheus.py
 ```
 
 The terminal GUI provides:
@@ -151,33 +151,33 @@ The terminal GUI provides:
 
 ```bash
 # Interactive mode
-python secure_data_encryption.py --cli
+python morpheus.py --cli
 
 # Encrypt text
-python secure_data_encryption.py -o encrypt --data "sensitive text"
+python morpheus.py -o encrypt --data "sensitive text"
 
 # Encrypt with chaining + Scrypt
-python secure_data_encryption.py -o encrypt --data "text" --chain --kdf Scrypt
+python morpheus.py -o encrypt --data "text" --chain --kdf Scrypt
 
 # Encrypt a file (any type: text, binary, images, archives)
-python secure_data_encryption.py -o encrypt -f document.pdf
+python morpheus.py -o encrypt -f document.pdf
 # -> document.pdf.enc
 
 # Decrypt a file (restores original filename)
-python secure_data_encryption.py -o decrypt -f document.pdf.enc
+python morpheus.py -o decrypt -f document.pdf.enc
 
 # Pipe from stdin
-echo "secret" | python secure_data_encryption.py -o encrypt --data -
+echo "secret" | python morpheus.py -o encrypt --data -
 
 # Generate ML-KEM-768 keypair for hybrid PQ
-python secure_data_encryption.py --generate-keypair
+python morpheus.py --generate-keypair
 
 # Hybrid PQ encrypt
-python secure_data_encryption.py -o encrypt --data "text" \
+python morpheus.py -o encrypt --data "text" \
   --hybrid-pq --pq-public-key <base64-pk>
 
 # Hybrid PQ decrypt
-python secure_data_encryption.py -o decrypt --data "AgEB..." \
+python morpheus.py -o decrypt --data "AgEB..." \
   --hybrid-pq --pq-secret-key <base64-sk>
 ```
 
@@ -300,8 +300,8 @@ against the `cryptography` library's validated implementations.
 ## Project Structure
 
 ```
-SecureDataEncryption/
-├── secure_encryption/
+morpheus/
+├── morpheus/
 │   ├── __init__.py            # Package version
 │   ├── __main__.py            # Entry point (auto-detects GUI vs CLI)
 │   ├── gui.py                 # Textual TUI application
