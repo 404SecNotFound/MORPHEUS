@@ -35,4 +35,4 @@ jobs:
 
       - name: Run tests with coverage
         if: matrix.python-version == '3.12'
-        run: python -m pytest tests/ --cov=secure_encryption --cov-report=term-missing
+        run: python -m pytest tests/ --cov=morpheus --cov-report=term-missing

@@ -1,5 +1,5 @@
 """
-Entry point for `python -m secure_encryption`.
+Entry point for `python -m morpheus`.
 
 Launches the GUI (TUI) by default, or CLI mode with --cli flag.
 """

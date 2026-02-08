@@ -9,14 +9,14 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in SecureDataEncryption, **please
+If you discover a security vulnerability in MORPHEUS, **please
 report it responsibly**. Do not open a public GitHub issue for security bugs.
 
 ### How to Report
 
 1. **Email**: Send a detailed report to
    [404securitynotfound@protonmail.ch](mailto:404securitynotfound@protonmail.ch)
-2. **Subject line**: `[SECURITY] SecureDataEncryption — <brief description>`
+2. **Subject line**: `[SECURITY] MORPHEUS — <brief description>`
 3. **Include**:
    - Description of the vulnerability
    - Steps to reproduce

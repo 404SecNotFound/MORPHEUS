@@ -1,4 +1,4 @@
-# Contributing to SecureDataEncryption
+# Contributing to MORPHEUS
 
 Thank you for your interest in contributing. This document explains how to
 get started, what we expect from contributions, and how to submit your work.
@@ -8,8 +8,8 @@ get started, what we expect from contributions, and how to submit your work.
 ### 1. Fork and Clone
 
 ```bash
-git clone https://github.com/<your-username>/SecureDataEncryption.git
-cd SecureDataEncryption
+git clone https://github.com/<your-username>/MORPHEUS.git
+cd morpheus
 ```
 
 ### 2. Set Up Your Environment
@@ -102,7 +102,7 @@ This is a cryptographic tool. All contributions must:
 Understanding the codebase before contributing:
 
 ```
-secure_encryption/
+morpheus/
 ├── core/
 │   ├── ciphers.py      # Cipher implementations (AES-GCM, ChaCha20)
 │   ├── kdf.py          # Key derivation (Argon2id, Scrypt)

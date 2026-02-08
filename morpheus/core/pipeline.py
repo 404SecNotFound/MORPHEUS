@@ -89,7 +89,7 @@ def _derive_keys(
     keys: list[bytearray] = []
     for i in range(num_keys):
         # Domain-separate each subkey by binding application context and salt
-        info = f"SecureDataEncryption-v2-key-{i}".encode() + salt
+        info = f"morpheus-v2-key-{i}".encode() + salt
         expanded = HKDFExpand(
             algorithm=SHA256(),
             length=32,

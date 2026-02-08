@@ -1,6 +1,6 @@
 """Tests for secure memory handling."""
 
-from secure_encryption.core.memory import SecureBuffer, secure_key, secure_zero
+from morpheus.core.memory import SecureBuffer, secure_key, secure_zero
 
 
 class TestSecureZero:
