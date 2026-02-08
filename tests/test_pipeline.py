@@ -8,7 +8,7 @@ import pytest
 from cryptography.exceptions import InvalidTag
 
 from morpheus.core.ciphers import AES256GCM, ChaCha20Poly1305Cipher
-from morpheus.core.formats import FLAG_CHAINED, FLAG_HYBRID_PQ, FORMAT_VERSION, HEADER_FORMAT
+from morpheus.core.formats import FLAG_CHAINED, FLAG_HYBRID_PQ, FORMAT_VERSION, FORMAT_VERSION_3, HEADER_FORMAT
 from morpheus.core.kdf import Argon2idKDF, ScryptKDF
 from morpheus.core.pipeline import (
     PQ_AVAILABLE,
@@ -57,10 +57,11 @@ class TestSingleCipherRoundtrip:
         decrypted = pipeline.decrypt(encrypted, PASSWORD)
         assert decrypted == text
 
-    def test_wrong_password_fails_with_invalid_tag(self):
+    def test_wrong_password_fails(self):
+        """v3 key-check raises ValueError; v2 would raise InvalidTag."""
         pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
         encrypted = pipeline.encrypt("secret data", PASSWORD)
-        with pytest.raises(InvalidTag):
+        with pytest.raises((InvalidTag, ValueError)):
             pipeline.decrypt(encrypted, "Wr0ng!Password#X")
 
     def test_unique_ciphertexts(self):
@@ -130,7 +131,7 @@ class TestChainedCipher:
             cipher=AES256GCM(), kdf=FAST_ARGON2, chain=True,
         )
         encrypted = pipeline.encrypt("secret", PASSWORD)
-        with pytest.raises(InvalidTag):
+        with pytest.raises((InvalidTag, ValueError)):
             pipeline.decrypt(encrypted, "Wr0ng!Password#X")
 
     def test_chained_description(self):
@@ -190,7 +191,7 @@ class TestHybridPQ:
             hybrid_pq=True, pq_secret_key=self.sk,
         )
         encrypted = enc.encrypt("secret", PASSWORD)
-        with pytest.raises(InvalidTag):
+        with pytest.raises((InvalidTag, ValueError)):
             dec.decrypt(encrypted, "Wr0ng!Password#X")
 
     def test_hybrid_wrong_sk_fails(self):
@@ -245,12 +246,13 @@ class TestCrossCompatibility:
         ct = aes.encrypt("test", PASSWORD)
         assert chacha.decrypt(ct, PASSWORD) == "test"
 
-    def test_argon2_cannot_decrypt_scrypt(self):
+    def test_v3_cross_kdf_decryption(self):
+        """v3 stores KDF params in header, so any pipeline can decrypt regardless of KDF config."""
         a = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
         s = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_SCRYPT)
         ct = a.encrypt("test", PASSWORD)
-        with pytest.raises(ValueError, match="KDF"):
-            s.decrypt(ct, PASSWORD)
+        # v3 rebuilds KDF from header — cross-KDF works
+        assert s.decrypt(ct, PASSWORD) == "test"
 
 
 class TestPayloadValidation:
@@ -359,3 +361,56 @@ class TestFormatFlagCombinations:
         )
         ct = enc.encrypt("test", PASSWORD)
         assert dec.decrypt(ct, PASSWORD) == "test"
+
+
+class TestV3Features:
+    """Tests for format v3 features: padding, key-check, KDF params."""
+
+    def test_padding_roundtrip(self):
+        """Padded encryption produces correct plaintext after unpadding."""
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        encrypted = pipeline.encrypt("short", PASSWORD, pad=True)
+        decrypted = pipeline.decrypt(encrypted, PASSWORD)
+        assert decrypted == "short"
+
+    def test_padding_hides_length(self):
+        """Different length plaintexts produce same-size ciphertexts when padded."""
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        ct_short = pipeline.encrypt("a", PASSWORD, pad=True)
+        ct_longer = pipeline.encrypt("a" * 200, PASSWORD, pad=True)
+        # Both pad to 256-byte blocks, so ciphertexts should be similar size
+        # (short pads to 256, longer also pads to 256 since 200 < 256)
+        raw_short = base64.b64decode(ct_short)
+        raw_longer = base64.b64decode(ct_longer)
+        assert len(raw_short) == len(raw_longer)
+
+    def test_unpadded_vs_padded_different(self):
+        """Padded ciphertext differs from unpadded."""
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        ct_plain = pipeline.encrypt("test", PASSWORD, pad=False)
+        ct_padded = pipeline.encrypt("test", PASSWORD, pad=True)
+        # Padded output should be larger due to padding bytes
+        raw_plain = base64.b64decode(ct_plain)
+        raw_padded = base64.b64decode(ct_padded)
+        assert len(raw_padded) > len(raw_plain)
+
+    def test_wrong_password_clear_error(self):
+        """v3 key-check gives a clear error message for wrong password."""
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        encrypted = pipeline.encrypt("secret", PASSWORD)
+        with pytest.raises(ValueError, match="incorrect password"):
+            pipeline.decrypt(encrypted, "Wr0ng!Password#X")
+
+    def test_v3_format_version_in_output(self):
+        """Pipeline encrypt produces v3 format by default."""
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        ct = pipeline.encrypt("test", PASSWORD)
+        raw = base64.b64decode(ct)
+        assert raw[0] == FORMAT_VERSION_3
+
+    def test_chained_padding_roundtrip(self):
+        """Padding works with cipher chaining."""
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2, chain=True)
+        encrypted = pipeline.encrypt(SAMPLE_TEXT, PASSWORD, pad=True)
+        decrypted = pipeline.decrypt(encrypted, PASSWORD)
+        assert decrypted == SAMPLE_TEXT

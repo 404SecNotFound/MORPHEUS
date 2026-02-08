@@ -7,5 +7,6 @@ build/
 .pytest_cache/
 .coverage
 .ruff_cache/
+.hypothesis/
 venv/
 .env
