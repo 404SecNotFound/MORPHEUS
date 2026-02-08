@@ -42,6 +42,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Explicit output file path (overrides default naming).",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite output file if it already exists.",
+    )
+    parser.add_argument(
         "--cipher",
         choices=list(CIPHER_CHOICES.keys()),
         default="AES-256-GCM",
@@ -294,6 +299,19 @@ def run_cli(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
 
+def _check_overwrite(path: str, force: bool) -> None:
+    """Abort if output file exists and --force was not given."""
+    import os
+
+    if os.path.exists(path) and not force:
+        _print_status(
+            f"Error: output file already exists: {path}\n"
+            "  Use --force to overwrite, or --output to choose a different path.",
+            error=True,
+        )
+        sys.exit(1)
+
+
 def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
     """Encrypt or decrypt a file."""
     import base64
@@ -318,9 +336,12 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
         with open(file_path, "rb") as f:
             raw_data = f.read()
 
-        # Wrap raw bytes in a transport envelope so decrypt knows it's binary
+        # Wrap raw bytes in a versioned transport envelope
         import json
+
+        ENVELOPE_VERSION = 1
         envelope = json.dumps({
+            "envelope_version": ENVELOPE_VERSION,
             "filename": os.path.basename(file_path),
             "data": base64.b64encode(raw_data).decode(),
         })
@@ -332,6 +353,7 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             sys.exit(1)
 
         out_path = args.output or (file_path + ".enc")
+        _check_overwrite(out_path, args.force)
         with open(out_path, "w") as f:
             f.write(encrypted)
 
@@ -357,10 +379,20 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             )
             sys.exit(1)
 
-        # Try to parse as file envelope
+        # Try to parse as versioned file envelope
         import json
+
+        ENVELOPE_VERSION = 1
         try:
             envelope = json.loads(decrypted)
+            env_ver = envelope.get("envelope_version", 0)
+            if env_ver > ENVELOPE_VERSION:
+                _print_status(
+                    f"Error: envelope version {env_ver} is newer than supported "
+                    f"(max {ENVELOPE_VERSION}). Update MORPHEUS to decrypt this file.",
+                    error=True,
+                )
+                sys.exit(1)
             if "data" in envelope and "filename" in envelope:
                 raw_data = base64.b64decode(envelope["data"])
                 # Sanitize filename to prevent path traversal attacks
@@ -369,6 +401,7 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
                 if not original_name:
                     original_name = "decrypted_output"
                 out_path = args.output or original_name
+                _check_overwrite(out_path, args.force)
                 with open(out_path, "wb") as f:
                     f.write(raw_data)
                 _print_status(
@@ -380,6 +413,7 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
 
         # Fallback: treat as plain text
         out_path = args.output or file_path.removesuffix(".enc")
+        _check_overwrite(out_path, args.force)
         with open(out_path, "w") as f:
             f.write(decrypted)
         _print_status(f"Decrypted: {file_path} -> {out_path}")

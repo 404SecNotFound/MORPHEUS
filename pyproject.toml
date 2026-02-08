@@ -18,13 +18,15 @@ dependencies = [
 
 [project.optional-dependencies]
 pq = ["pqcrypto>=0.4.0"]
-dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "pytest-asyncio>=0.21", "hypothesis>=6.0"]
 
 [project.scripts]
 morpheus = "morpheus.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["slow: marks tests as slow (production KDF params)"]
 
 [tool.coverage.run]
 source = ["morpheus"]
