@@ -7,6 +7,8 @@ import os
 import sys
 import tempfile
 
+import pytest
+
 from morpheus.cli import run_cli
 from morpheus.core.pipeline import EncryptionPipeline
 
@@ -131,3 +133,97 @@ class TestFileEncryption:
             # Verify the traversal path was NOT created
             traversal_path = os.path.join(tmpdir, malicious_name)
             assert not os.path.exists(traversal_path)
+
+    def test_file_too_large_rejected(self):
+        """Files exceeding 100 MiB must be rejected."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            big_file = os.path.join(tmpdir, "huge.bin")
+            # Create a sparse file that reports > 100 MiB without using real disk
+            with open(big_file, "wb") as f:
+                f.seek(100 * 1024 * 1024 + 1)
+                f.write(b"\x00")
+
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
+            try:
+                with pytest.raises(SystemExit):
+                    run_cli(["-o", "encrypt", "-f", big_file])
+            finally:
+                sys.stdin = old_stdin
+
+    def test_overwrite_protection(self):
+        """Existing output files must not be silently overwritten."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = os.path.join(tmpdir, "doc.txt")
+            with open(original, "w") as f:
+                f.write("hello")
+
+            encrypted = os.path.join(tmpdir, "doc.txt.enc")
+            # Create a pre-existing file at the output path
+            with open(encrypted, "w") as f:
+                f.write("existing content")
+
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
+            try:
+                with pytest.raises(SystemExit):
+                    run_cli(["-o", "encrypt", "-f", original, "--output", encrypted])
+            finally:
+                sys.stdin = old_stdin
+
+            # Verify original content was NOT overwritten
+            with open(encrypted, "r") as f:
+                assert f.read() == "existing content"
+
+    def test_overwrite_with_force_flag(self):
+        """--force allows overwriting existing output files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = os.path.join(tmpdir, "doc.txt")
+            with open(original, "w") as f:
+                f.write("hello")
+
+            encrypted = os.path.join(tmpdir, "doc.txt.enc")
+            with open(encrypted, "w") as f:
+                f.write("old")
+
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
+            try:
+                run_cli([
+                    "-o", "encrypt", "-f", original,
+                    "--output", encrypted, "--force",
+                ])
+            finally:
+                sys.stdin = old_stdin
+
+            # File was overwritten with new encrypted content
+            with open(encrypted, "r") as f:
+                content = f.read()
+            assert content != "old"
+            assert len(content) > 0
+
+    def test_envelope_version_roundtrip(self):
+        """Encrypted files include envelope_version and decrypt correctly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = os.path.join(tmpdir, "versioned.txt")
+            with open(original, "w") as f:
+                f.write("versioned content")
+
+            encrypted = os.path.join(tmpdir, "versioned.txt.enc")
+
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
+            try:
+                run_cli(["-o", "encrypt", "-f", original, "--output", encrypted])
+            finally:
+                sys.stdin = old_stdin
+
+            # Decrypt and verify the envelope contains version info
+            password = "T3st!Passw0rd#Str0ng"
+            pipeline = EncryptionPipeline()
+            with open(encrypted, "r") as f:
+                enc_data = f.read().strip()
+            decrypted_envelope = pipeline.decrypt(enc_data, password)
+            envelope = json.loads(decrypted_envelope)
+            assert envelope["envelope_version"] == 1
+            assert envelope["filename"] == "versioned.txt"
