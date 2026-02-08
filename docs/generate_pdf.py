@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the SecureDataEncryption technical PDF document."""
+"""Generate the MORPHEUS technical PDF document."""
 
 from fpdf import FPDF
 
@@ -25,6 +25,8 @@ class PDF(FPDF):
         self._section_num = 0
 
     def header(self):
+        # Paint full dark background on EVERY page (fixes auto-break pages)
+        self.dark_page()
         if self.page_no() <= 1:
             return
         self.set_fill_color(*DARK_BG)
@@ -32,7 +34,7 @@ class PDF(FPDF):
         self.set_font("Helvetica", "I", 7)
         self.set_text_color(*LIGHT_GRAY)
         self.set_xy(10, 3)
-        self.cell(0, 5, "SecureDataEncryption v2.0 -- Technical Documentation & Security Audit", align="L")
+        self.cell(0, 5, "MORPHEUS v2.0 -- Technical Documentation & Security Audit", align="L")
         self.set_xy(10, 3)
         self.cell(0, 5, f"Page {self.page_no()}", align="R")
         self.ln(12)
@@ -168,7 +170,7 @@ def build_pdf():
     pdf.ln(50)
     pdf.set_font("Helvetica", "B", 36)
     pdf.set_text_color(*ACCENT)
-    pdf.cell(0, 15, "SecureDataEncryption", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 15, "MORPHEUS", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 16)
     pdf.set_text_color(*WHITE)
     pdf.cell(0, 10, "v2.0 Technical Documentation & Security Audit", align="C", new_x="LMARGIN", new_y="NEXT")
@@ -189,7 +191,7 @@ def build_pdf():
         "Author: 404SecurityNotFound",
         "Security Audit: Independent Code Review",
         "Date: February 2026",
-        "Version: 2.0.0",
+        "Version: 2.0.1",
     ]
     for line in info:
         pdf.cell(0, 5.5, line, align="C", new_x="LMARGIN", new_y="NEXT")
@@ -208,7 +210,7 @@ def build_pdf():
         ("4", "Architecture Deep Dive", "Module structure, data flow, design decisions"),
         ("5", "Cryptographic Internals", "Ciphers, KDFs, chaining, hybrid PQ, format spec"),
         ("6", "Security Audit Report", "15 findings from adversarial code review"),
-        ("7", "Testing & Verification", "86 automated tests plus manual verification procedures"),
+        ("7", "Testing & Verification", "122 automated tests plus manual verification procedures"),
         ("8", "Competitive Comparison", "Feature matrix vs age, gpg, Picocrypt, openssl"),
         ("9", "Deployment & Operations", "Installation, configuration, operational security"),
     ]
@@ -227,7 +229,7 @@ def build_pdf():
     pdf.section_title("Executive Summary")
 
     pdf.body(
-        "SecureDataEncryption v2.0 is a text encryption tool designed for people who need to "
+        "MORPHEUS v2.0 is a text and file encryption tool designed for people who need to "
         "protect sensitive information -- credentials, private notes, configuration secrets, API keys, "
         "or any block of text -- without that data ever touching a disk.\n\n"
         "Unlike general-purpose tools like GPG or age, this tool is purpose-built for a specific "
@@ -333,8 +335,8 @@ def build_pdf():
 
     pdf.sub_title("Module Structure")
     pdf.code_block(
-        "secure_encryption/\n"
-        "  __init__.py        Package version (2.0.0)\n"
+        "morpheus/\n"
+        "  __init__.py        Package version (2.0.1)\n"
         "  __main__.py        Entry point -- auto-detects GUI vs CLI\n"
         "  gui.py             Textual TUI (733 lines)\n"
         "  cli.py             Argparse CLI (224 lines)\n"
@@ -657,19 +659,20 @@ def build_pdf():
     pdf.dark_page()
     pdf.section_title("Testing & Verification")
 
-    pdf.sub_title("Automated Test Suite: 86 Tests")
+    pdf.sub_title("Automated Test Suite: 122 Tests")
     pdf.body(
         "Run with: python -m pytest tests/ -v\n\n"
-        "All tests pass in 1.01 seconds."
+        "All tests pass in ~1.2 seconds."
     )
 
     tests = [
-        ("test_ciphers.py", "18", "AES/ChaCha encrypt-decrypt, wrong key, tampered data, unique nonces, empty/large payloads"),
-        ("test_kdf.py", "12", "Argon2id/Scrypt derivation consistency, cross-password independence, custom key lengths"),
-        ("test_formats.py", "9", "Serialize-deserialize roundtrip, flag preservation, invalid base64, wrong version, truncated input"),
-        ("test_validation.py", "14", "Password scoring (weak/fair/strong/excellent), missing char classes, empty input, Unicode, 10MiB limit"),
-        ("test_pipeline.py", "28", "All cipher+KDF combos, chaining, hybrid PQ, wrong password, wrong KEM key, self-describing format"),
-        ("test_memory.py", "5", "Secure zeroing, SecureBuffer context manager, buffer sizing"),
+        ("test_ciphers.py", "26", "AES/ChaCha roundtrips, NIST SP 800-38D TC14 vector, RFC 8439 vector, indistinguishability"),
+        ("test_kdf.py", "17", "Argon2id/Scrypt derivation, determinism, bytearray returns, salt generation"),
+        ("test_formats.py", "18", "Serialize/deserialize, flag combos, reserved byte validation, AAD collision resistance"),
+        ("test_validation.py", "17", "Password scoring (0-100), missing char classes, edge cases, Unicode, size limits"),
+        ("test_pipeline.py", "35", "All modes, wrong password, KEM length=0 bypass, header tampering, payload truncation"),
+        ("test_memory.py", "7", "Secure zeroing with ctypes.memset, SecureBuffer, secure_key context manager"),
+        ("test_cli.py", "2", "File encrypt/decrypt roundtrip (text and binary files)"),
     ]
 
     pdf.comparison_row(["Test File", "Count", "", "", "", "Coverage"], header=True)
@@ -706,7 +709,7 @@ def build_pdf():
     pdf.dark_page()
     pdf.section_title("Competitive Comparison")
 
-    pdf.body("Feature matrix comparing SecureDataEncryption v2.0 against common alternatives:")
+    pdf.body("Feature matrix comparing MORPHEUS v2.0 against common alternatives:")
     pdf.ln(2)
 
     headers = ["Feature", "This", "age", "GPG", "Pico.", "openssl"]
@@ -750,12 +753,12 @@ def build_pdf():
 
     pdf.sub_title("Installation")
     pdf.code_block(
-        "git clone https://github.com/404securitynotfound/SecureDataEncryption.git\n"
-        "cd SecureDataEncryption\n"
+        "git clone https://github.com/404securitynotfound/morpheus.git\n"
+        "cd morpheus\n"
         "python -m venv venv && source venv/bin/activate\n"
         "pip install -r requirements.txt\n"
-        "python -m pytest tests/ -v       # verify 86 tests pass\n"
-        "python secure_data_encryption.py  # launch GUI"
+        "python -m pytest tests/ -v       # verify 122 tests pass\n"
+        "python morpheus.py  # launch GUI"
     )
 
     pdf.sub_title("Operational Security Recommendations")
@@ -793,7 +796,7 @@ def build_pdf():
     pdf.ln(6)
     pdf.set_font("Helvetica", "", 11)
     pdf.set_text_color(*LIGHT_GRAY)
-    pdf.cell(0, 7, "SecureDataEncryption v2.0", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 7, "MORPHEUS v2.0", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.cell(0, 7, "404SecurityNotFound", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.cell(0, 7, "February 2026", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(20)
@@ -802,14 +805,13 @@ def build_pdf():
     pdf.ln(6)
     pdf.set_font("Helvetica", "I", 9)
     pdf.set_text_color(*ACCENT_DIM)
-    pdf.cell(0, 6, "\"The only truly secure system is one that is powered off,", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 6, "cast in a block of concrete, and sealed in a lead-lined room", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 6, 'with armed guards.\" -- Gene Spafford', align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, "\"Unfortunately, no one can be told what the Matrix is.", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, 'You have to see it for yourself.\" -- Morpheus', align="C", new_x="LMARGIN", new_y="NEXT")
 
     return pdf
 
 
 if __name__ == "__main__":
     pdf = build_pdf()
-    pdf.output("docs/SecureDataEncryption_v2_Technical_Document.pdf")
-    print("PDF generated: docs/SecureDataEncryption_v2_Technical_Document.pdf")
+    pdf.output("docs/MORPHEUS_v2_Technical_Document.pdf")
+    print("PDF generated: docs/MORPHEUS_v2_Technical_Document.pdf")

@@ -2,7 +2,7 @@
 
 import pytest
 
-from secure_encryption.core.validation import (
+from morpheus.core.validation import (
     check_password_strength,
     validate_input_text,
 )

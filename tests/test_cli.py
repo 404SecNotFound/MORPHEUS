@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from secure_encryption.cli import run_cli
+from morpheus.cli import run_cli
 
 
 class TestFileEncryption:

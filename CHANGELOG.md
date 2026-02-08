@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to SecureDataEncryption are documented here.
+All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [2.0.1] - 2026-02-07
@@ -23,7 +23,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Added base64 validation with `validate=True` for PQ key inputs
 - Reserved header bytes (4-5) now included in AAD and validated on read
 - HKDF info strings now include application-specific domain separation
-  (`SecureDataEncryption-v2-key-{i}` + salt binding)
+  (`MORPHEUS-v2-key-{i}` + salt binding)
 - `secure_zero()` now uses `ctypes.memset` with Python fallback
 - Added `mlock()` failure warning via `logging.warning()`
 - Removed deprecated `backend=default_backend()` from Scrypt KDF
@@ -75,7 +75,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - 86 unit tests covering all components
 
 ### Changed
-- Replaced monolithic script with `secure_encryption/` package
+- Replaced monolithic script with `morpheus/` package
 - Passwords entered interactively only (removed insecure CLI argument)
 
 ## [1.0.0] - 2024-01-01
