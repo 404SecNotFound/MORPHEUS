@@ -96,7 +96,12 @@ def _read_password(prompt: str = "Enter password: ", confirm: bool = False) -> s
     except OSError:
         # No TTY available — fall back to reading one line from stdin
         pwd = sys.stdin.readline().rstrip("\n")
-        return pwd  # Cannot confirm without a TTY
+        if confirm:
+            print(
+                "Warning: password confirmation skipped (no terminal available).",
+                file=sys.stderr,
+            )
+        return pwd
 
     if confirm:
         try:

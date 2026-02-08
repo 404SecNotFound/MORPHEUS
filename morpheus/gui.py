@@ -36,6 +36,7 @@ from textual.widgets import (
 
 from .core.ciphers import CIPHER_CHOICES
 from .core.kdf import KDF_CHOICES
+from .core.memory import secure_zero
 from .core.pipeline import PQ_AVAILABLE, EncryptionPipeline, pq_generate_keypair
 from .core.validation import check_password_strength, validate_input_text
 
@@ -289,8 +290,8 @@ class SecureEncryptionApp(App):
 
     _countdown: reactive[int] = reactive(-1)
     _timer_handle = None
-    _pq_public_key: bytes | None = None
-    _pq_secret_key: bytes | None = None
+    _pq_public_key: bytearray | None = None
+    _pq_secret_key: bytearray | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -612,9 +613,12 @@ class SecureEncryptionApp(App):
 
     def _generate_keypair(self) -> None:
         try:
+            # Zero any previously held keys before replacing
+            if self._pq_secret_key is not None:
+                secure_zero(self._pq_secret_key)
             pk, sk = pq_generate_keypair()
-            self._pq_public_key = pk
-            self._pq_secret_key = sk
+            self._pq_public_key = bytearray(pk)
+            self._pq_secret_key = bytearray(sk)
             output = self.query_one("#keygen-output", Static)
             output.update(
                 f"[green]Keypair generated![/green] "
@@ -629,15 +633,28 @@ class SecureEncryptionApp(App):
         import base64
 
         if which == "public" and self._pq_public_key:
-            data = base64.b64encode(self._pq_public_key).decode()
+            data = base64.b64encode(bytes(self._pq_public_key)).decode()
             pyperclip.copy(data)
             self.notify("Public key copied to clipboard", severity="information")
         elif which == "secret" and self._pq_secret_key:
-            data = base64.b64encode(self._pq_secret_key).decode()
+            data = base64.b64encode(bytes(self._pq_secret_key)).decode()
             pyperclip.copy(data)
             self.notify("Secret key copied to clipboard — clear it soon!", severity="warning")
         else:
             self.notify("Generate a keypair first", severity="warning")
+
+    def _zero_pq_keys(self) -> None:
+        """Zero PQ key material in memory."""
+        if self._pq_secret_key is not None:
+            secure_zero(self._pq_secret_key)
+            self._pq_secret_key = None
+        if self._pq_public_key is not None:
+            secure_zero(self._pq_public_key)
+            self._pq_public_key = None
+
+    def on_unmount(self) -> None:
+        """Zero all sensitive key material when the app shuts down."""
+        self._zero_pq_keys()
 
     # ---------- Output management ----------
 
