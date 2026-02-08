@@ -2,7 +2,6 @@
 
 import base64
 import struct
-import warnings
 
 import pytest
 from cryptography.exceptions import InvalidTag
@@ -109,22 +108,16 @@ class TestChainedCipher:
         assert decrypted == SAMPLE_TEXT
 
     def test_chain_always_uses_fixed_order(self):
-        """Chaining always uses AES->ChaCha regardless of cipher param."""
+        """Chaining always uses AES->ChaCha regardless of which pipeline decrypts."""
         p1 = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2, chain=True)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            p2 = EncryptionPipeline(cipher=ChaCha20Poly1305Cipher(), kdf=FAST_ARGON2, chain=True)
+        p2 = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2, chain=True)
         ct = p1.encrypt("test", PASSWORD)
-        # Both pipelines can decrypt because chain forces fixed order
         assert p2.decrypt(ct, PASSWORD) == "test"
 
-    def test_chain_with_chacha_emits_warning(self):
-        """Passing ChaCha as cipher with chain=True should emit a warning."""
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
+    def test_chain_with_chacha_raises_error(self):
+        """Passing ChaCha as cipher with chain=True should raise ValueError."""
+        with pytest.raises(ValueError, match="Cannot combine chain=True"):
             EncryptionPipeline(cipher=ChaCha20Poly1305Cipher(), kdf=FAST_ARGON2, chain=True)
-            assert len(w) == 1
-            assert "overridden" in str(w[0].message).lower()
 
     def test_chained_wrong_password(self):
         pipeline = EncryptionPipeline(
@@ -374,12 +367,11 @@ class TestV3Features:
         assert decrypted == "short"
 
     def test_padding_hides_length(self):
-        """Different length plaintexts produce same-size ciphertexts when padded."""
+        """Different length plaintexts in same bucket produce same-size ciphertexts."""
         pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
         ct_short = pipeline.encrypt("a", PASSWORD, pad=True)
         ct_longer = pipeline.encrypt("a" * 200, PASSWORD, pad=True)
-        # Both pad to 256-byte blocks, so ciphertexts should be similar size
-        # (short pads to 256, longer also pads to 256 since 200 < 256)
+        # Both are under 256 bytes, so pad to the 256B bucket
         raw_short = base64.b64decode(ct_short)
         raw_longer = base64.b64decode(ct_longer)
         assert len(raw_short) == len(raw_longer)
@@ -414,3 +406,45 @@ class TestV3Features:
         encrypted = pipeline.encrypt(SAMPLE_TEXT, PASSWORD, pad=True)
         decrypted = pipeline.decrypt(encrypted, PASSWORD)
         assert decrypted == SAMPLE_TEXT
+
+    def test_larger_text_uses_bigger_bucket(self):
+        """Text >256 bytes pads to next bucket (1024)."""
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        text_300 = "x" * 300  # >256 bytes, should go to 1024 bucket
+        encrypted = pipeline.encrypt(text_300, PASSWORD, pad=True)
+        decrypted = pipeline.decrypt(encrypted, PASSWORD)
+        assert decrypted == text_300
+
+
+class TestKDFBoundsValidation:
+    """Test that out-of-bounds KDF params from headers are rejected."""
+
+    def test_argon2_time_cost_too_high(self):
+        """Argon2 time_cost above limit should raise ValueError."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(ValueError, match="out of allowed range"):
+            _build_kdf_from_params(0x02, (999, 65536, 4))
+
+    def test_argon2_memory_cost_too_low(self):
+        """Argon2 memory_cost below limit should raise ValueError."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(ValueError, match="out of allowed range"):
+            _build_kdf_from_params(0x02, (3, 0, 4))
+
+    def test_scrypt_n_too_high(self):
+        """Scrypt n above limit should raise ValueError."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(ValueError, match="out of allowed range"):
+            _build_kdf_from_params(0x01, (2**30, 8, 1))
+
+    def test_valid_params_accepted(self):
+        """Normal KDF params should be accepted without error."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        kdf = _build_kdf_from_params(0x02, (3, 65536, 4))
+        assert kdf.time_cost == 3
+
+    def test_unknown_kdf_id_rejected(self):
+        """Unknown KDF ID should raise ValueError."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(ValueError, match="Unknown KDF ID"):
+            _build_kdf_from_params(0xFF, (1, 1, 1))

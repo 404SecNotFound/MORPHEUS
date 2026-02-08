@@ -96,6 +96,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Pad plaintext to hide exact length (privacy protection).",
     )
+    parser.add_argument(
+        "--no-filename",
+        action="store_true",
+        help="Omit original filename from encrypted envelope (privacy).",
+    )
     return parser
 
 
@@ -362,11 +367,13 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
         import json
 
         ENVELOPE_VERSION = 1
-        envelope = json.dumps({
+        envelope_dict = {
             "envelope_version": ENVELOPE_VERSION,
-            "filename": os.path.basename(file_path),
             "data": base64.b64encode(raw_data).decode(),
-        })
+        }
+        if not getattr(args, "no_filename", False):
+            envelope_dict["filename"] = os.path.basename(file_path)
+        envelope = json.dumps(envelope_dict)
 
         try:
             encrypted = pipeline.encrypt(envelope, password, pad=args.pad)
