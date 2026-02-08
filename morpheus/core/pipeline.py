@@ -4,10 +4,15 @@ Encryption pipeline — orchestrates cipher, KDF, chaining, and hybrid PQ.
 This is the main API surface for encrypt/decrypt operations. It assembles
 the versioned ciphertext format, derives keys, and optionally layers
 ML-KEM-768 key encapsulation on top of password-based encryption.
+
+Format v3 (default for new encryptions) stores KDF parameters in the
+header and includes a key-check value for better error diagnostics.
+Format v2 ciphertexts can still be decrypted for backward compatibility.
 """
 
 from __future__ import annotations
 
+import hmac
 import struct
 import warnings
 
@@ -24,12 +29,14 @@ from .ciphers import (
 from .formats import (
     FLAG_CHAINED,
     FLAG_HYBRID_PQ,
-    FORMAT_VERSION,
+    FLAG_PADDED,
+    FORMAT_VERSION_3,
+    KEY_CHECK_SIZE,
     build_aad,
     deserialize,
     serialize,
 )
-from .kdf import KDF, Argon2idKDF
+from .kdf import KDF, KDF_REGISTRY, Argon2idKDF
 from .memory import secure_zero
 
 # ---------------------------------------------------------------------------
@@ -122,6 +129,60 @@ def _combine_with_kem(password_key: bytes | bytearray, kem_shared_secret: bytes,
         secure_zero(combined)
 
 
+def _compute_key_check(key: bytes | bytearray) -> bytes:
+    """Compute a truncated HMAC for key verification.
+
+    Returns KEY_CHECK_SIZE bytes. This allows distinguishing "wrong password"
+    from "wrong KDF params" or "corrupted data" without weakening security —
+    HMAC-SHA256 is a PRF, so revealing 8 bytes is safe.
+    """
+    return hmac.new(bytes(key), b"morpheus-key-check", "sha256").digest()[:KEY_CHECK_SIZE]
+
+
+def _pad_plaintext(data: bytes, block_size: int = 256) -> bytes:
+    """Pad data to a multiple of block_size using PKCS7-style padding.
+
+    Always adds at least 1 byte of padding so the pad length is unambiguous.
+    """
+    pad_len = block_size - (len(data) % block_size)
+    return data + bytes([pad_len] * pad_len)
+
+
+def _unpad_plaintext(data: bytes) -> bytes:
+    """Remove PKCS7-style padding. Raises ValueError on invalid padding."""
+    if not data:
+        raise ValueError("Cannot unpad empty data")
+    pad_len = data[-1]
+    if pad_len == 0 or pad_len > len(data):
+        raise ValueError("Invalid padding length")
+    if data[-pad_len:] != bytes([pad_len] * pad_len):
+        raise ValueError("Invalid padding bytes")
+    return data[:-pad_len]
+
+
+def _get_kdf_params(kdf: KDF) -> tuple[int, int, int]:
+    """Extract the 3 tuning parameters from a KDF instance."""
+    if hasattr(kdf, "time_cost"):
+        return (kdf.time_cost, kdf.memory_cost, kdf.parallelism)
+    if hasattr(kdf, "n"):
+        return (kdf.n, kdf.r, kdf.p)
+    return (0, 0, 0)
+
+
+def _build_kdf_from_params(kdf_id: int, params: tuple[int, int, int]) -> KDF:
+    """Reconstruct a KDF instance from header params."""
+    kdf_cls = KDF_REGISTRY.get(kdf_id)
+    if not kdf_cls:
+        raise ValueError(f"Unknown KDF ID {kdf_id:#04x}")
+
+    p1, p2, p3 = params
+    if kdf_id == 0x02:  # Argon2id
+        return kdf_cls(time_cost=p1, memory_cost=p2, parallelism=p3)
+    if kdf_id == 0x01:  # Scrypt
+        return kdf_cls(n=p1, r=p2, p=p3)
+    return kdf_cls()
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -185,11 +246,18 @@ class EncryptionPipeline:
 
     # ------- ENCRYPT -------
 
-    def encrypt(self, plaintext: str, password: str) -> str:
+    def encrypt(self, plaintext: str, password: str, *, pad: bool = False) -> str:
         """
         Encrypt a text block. Returns a base64-encoded ciphertext string.
+
+        Uses format v3 by default (stores KDF params, includes key-check).
+        Set pad=True to hide exact plaintext length.
         """
         data = plaintext.encode("utf-8")
+
+        if pad:
+            data = _pad_plaintext(data)
+
         salt = self.kdf.generate_salt()
 
         # Encode password to mutable bytearray at the boundary, then zero after use
@@ -206,7 +274,14 @@ class EncryptionPipeline:
         if self.hybrid_pq:
             flags |= FLAG_HYBRID_PQ
 
-        aad = build_aad(FORMAT_VERSION, cipher_id, self.kdf.kdf_id, flags)
+        if pad:
+            flags |= FLAG_PADDED
+
+        kdf_params = _get_kdf_params(self.kdf)
+        version = FORMAT_VERSION_3
+
+        aad = build_aad(version, cipher_id, self.kdf.kdf_id, flags,
+                        kdf_params=kdf_params)
 
         keys: list[bytearray] = []
         try:
@@ -224,34 +299,32 @@ class EncryptionPipeline:
                 kem_ss = bytearray(raw_ss)
                 old_keys = keys
                 keys = [_combine_with_kem(k, kem_ss, salt) for k in keys]
-                # Zero the pre-KEM keys and the KEM shared secret
                 for k in old_keys:
                     secure_zero(k)
                 secure_zero(kem_ss)
-                # KEM ciphertext length stored as 2-byte unsigned short (!H).
-                # ML-KEM-768 ciphertext is 1088 bytes, well within the 65535 limit.
-                # Future KEMs with larger ciphertexts (e.g., Classic McEliece ~200KB)
-                # would require a format version bump to use a 4-byte length field (!I).
                 if len(kem_ct) > 0xFFFF:
                     raise ValueError(
                         f"KEM ciphertext too large ({len(kem_ct)} bytes); "
-                        f"format v2 supports max 65535 bytes"
+                        f"format supports max 65535 bytes"
                     )
                 kem_prefix = struct.pack("!H", len(kem_ct)) + kem_ct
+
+            # Key-check value: allows distinguishing wrong password from
+            # wrong KDF params without weakening security
+            key_check = _compute_key_check(keys[0])
 
             # Encrypt with primary cipher
             nonce1, ct1 = self.cipher.encrypt(keys[0], data, aad)
 
             if self.chain:
-                # Second layer: encrypt the first ciphertext
                 nonce2, ct2 = self.chain_cipher.encrypt(keys[1], ct1, aad)
-                payload = salt + nonce1 + nonce2 + kem_prefix + ct2
+                payload = salt + nonce1 + nonce2 + kem_prefix + key_check + ct2
             else:
-                payload = salt + nonce1 + kem_prefix + ct1
+                payload = salt + nonce1 + kem_prefix + key_check + ct1
 
-            return serialize(cipher_id, self.kdf.kdf_id, flags, payload)
+            return serialize(cipher_id, self.kdf.kdf_id, flags, payload,
+                             version=version, kdf_params=kdf_params)
         finally:
-            # Zero all key material (now actually zeros the mutable bytearrays)
             for k in keys:
                 secure_zero(k)
             secure_zero(password_bytes)
@@ -262,14 +335,19 @@ class EncryptionPipeline:
         """
         Decrypt a base64-encoded ciphertext string. Returns plaintext.
 
+        Supports both v2 (legacy) and v3 (extended) formats.
+
         Raises:
-            ValueError: on format/version errors or truncated ciphertext
-            cryptography.exceptions.InvalidTag: on wrong password or tampering
+            ValueError: on format/version errors, truncated ciphertext, or
+                        key verification failure (v3 only — clear error message)
+            cryptography.exceptions.InvalidTag: on wrong password (v2) or tampering
         """
-        version, cipher_id, kdf_id, flags, payload = deserialize(ciphertext_b64)
+        version, cipher_id, kdf_id, flags, payload, kdf_params = deserialize(ciphertext_b64)
 
         is_chained = bool(flags & FLAG_CHAINED)
         is_hybrid = bool(flags & FLAG_HYBRID_PQ)
+        is_padded = bool(flags & FLAG_PADDED)
+        is_v3 = version == FORMAT_VERSION_3
 
         # Resolve cipher(s)
         if is_chained:
@@ -282,19 +360,19 @@ class EncryptionPipeline:
             primary = cipher_cls()
             secondary = None
 
-        # Use the pipeline's own KDF (preserves caller-configured parameters).
-        # Validate that the header's KDF ID matches.
-        if kdf_id != self.kdf.kdf_id:
-            raise ValueError(
-                f"Ciphertext was created with KDF {kdf_id:#04x}, "
-                f"but pipeline is configured with {self.kdf.kdf_id:#04x}"
-            )
-        kdf = self.kdf
+        # Resolve KDF
+        if is_v3 and kdf_params is not None:
+            kdf = _build_kdf_from_params(kdf_id, kdf_params)
+        else:
+            if kdf_id != self.kdf.kdf_id:
+                raise ValueError(
+                    f"Ciphertext was created with KDF {kdf_id:#04x}, "
+                    f"but pipeline is configured with {self.kdf.kdf_id:#04x}"
+                )
+            kdf = self.kdf
 
-        # Encode password to mutable bytearray at the boundary
         password_bytes = bytearray(password.encode("utf-8"))
 
-        # Parse payload with explicit length validation
         payload_len = len(payload)
         offset = 0
 
@@ -340,13 +418,20 @@ class EncryptionPipeline:
             offset += kem_ct_len
             kem_ss = bytearray(_pq_decapsulate(self.pq_secret_key, kem_ct))
 
+        # Key-check value (v3 only)
+        stored_key_check: bytes | None = None
+        if is_v3:
+            if payload_len < offset + KEY_CHECK_SIZE:
+                raise ValueError("Truncated ciphertext: missing key-check value")
+            stored_key_check = payload[offset : offset + KEY_CHECK_SIZE]
+            offset += KEY_CHECK_SIZE
+
         ciphertext = payload[offset:]
         if not ciphertext:
             raise ValueError("Truncated ciphertext: no encrypted data after header fields")
 
-        aad = build_aad(version, cipher_id, kdf_id, flags)
+        aad = build_aad(version, cipher_id, kdf_id, flags, kdf_params=kdf_params)
 
-        # Derive keys (returns list of bytearray)
         keys: list[bytearray] = []
         try:
             num_keys = 2 if is_chained else 1
@@ -359,16 +444,23 @@ class EncryptionPipeline:
                     secure_zero(k)
                 secure_zero(kem_ss)
 
+            # Verify key-check (v3) — clear error before AEAD attempt
+            if stored_key_check is not None:
+                computed = _compute_key_check(keys[0])
+                if not hmac.compare_digest(stored_key_check, computed):
+                    raise ValueError("Key verification failed: incorrect password")
+
             if is_chained and secondary:
-                # Decrypt outer layer first, then inner
                 ct1 = secondary.decrypt(keys[1], nonce2, ciphertext, aad)
                 plaintext_bytes = primary.decrypt(keys[0], nonce1, ct1, aad)
             else:
                 plaintext_bytes = primary.decrypt(keys[0], nonce1, ciphertext, aad)
         finally:
-            # Zero all key material (now actually zeros the mutable bytearrays)
             for k in keys:
                 secure_zero(k)
             secure_zero(password_bytes)
+
+        if is_padded:
+            plaintext_bytes = _unpad_plaintext(plaintext_bytes)
 
         return plaintext_bytes.decode("utf-8")

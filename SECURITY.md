@@ -122,6 +122,21 @@ The hybrid design ensures that overall security is **never weaker** than the
 password-based symmetric layer alone. ML-KEM-768 is an additional
 defense-in-depth layer, not the sole protection mechanism.
 
+### GCM nonce collision probability
+
+AES-256-GCM uses a random 96-bit nonce. Under the birthday bound, the
+probability of a nonce collision reaches 2^{-32} (~1 in 4 billion) after
+approximately 2^{32} encryptions with the same key. Since each encryption
+in MORPHEUS uses a fresh random salt (producing a unique derived key), the
+effective nonce space resets per message. A collision only matters if the
+**same derived key** is reused with the **same nonce**, which requires
+both the same password AND the same salt — a probability of 2^{-128}.
+
+**Bottom line**: For the expected use case (interactive encryption of individual
+messages/files), nonce collision risk is negligible. If you need to encrypt
+more than ~4 billion messages with the same password, use cipher chaining
+or a different nonce scheme.
+
 ### Additional limitations
 
 See the [Security Design](README.md#security-design) section in the README
