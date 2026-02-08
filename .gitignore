@@ -5,5 +5,7 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+.coverage
+.ruff_cache/
 venv/
 .env
