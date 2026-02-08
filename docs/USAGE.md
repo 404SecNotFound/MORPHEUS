@@ -1,4 +1,4 @@
-# SecureDataEncryption — Full Usage Guide
+# MORPHEUS — Full Usage Guide
 
 Everything you need to know: what the tool does, how each feature works,
 how to use it from the GUI and CLI, and how to verify it's working correctly.
@@ -147,8 +147,8 @@ below.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/404securitynotfound/SecureDataEncryption.git
-cd SecureDataEncryption
+git clone https://github.com/404securitynotfound/morpheus.git
+cd morpheus
 
 # 2. Create a virtual environment (recommended)
 python -m venv venv
@@ -176,7 +176,7 @@ python -m pytest tests/ -v
 ### Launching
 
 ```bash
-python secure_data_encryption.py
+python morpheus.py
 ```
 
 This opens the terminal GUI (TUI). It works in any modern terminal — no
@@ -232,7 +232,7 @@ As you type your password, a strength meter shows:
 ### Interactive Mode
 
 ```bash
-python secure_data_encryption.py --cli
+python morpheus.py --cli
 ```
 
 Prompts you step by step for operation, text, and password.
@@ -241,18 +241,18 @@ Prompts you step by step for operation, text, and password.
 
 ```bash
 # Encrypt a short string
-python secure_data_encryption.py -o encrypt --data "my secret text"
+python morpheus.py -o encrypt --data "my secret text"
 # (password entered interactively — never as a flag)
 
 # Encrypt with ChaCha20 and chaining
-python secure_data_encryption.py -o encrypt --data "secret" \
+python morpheus.py -o encrypt --data "secret" \
   --cipher ChaCha20-Poly1305 --chain
 
 # Encrypt from stdin (pipe a file's contents as text)
-cat my_secret_notes.txt | python secure_data_encryption.py -o encrypt --data -
+cat my_secret_notes.txt | python morpheus.py -o encrypt --data -
 
 # Decrypt
-python secure_data_encryption.py -o decrypt --data "AgECAADE3f7a..."
+python morpheus.py -o decrypt --data "AgECAADE3f7a..."
 ```
 
 ### All CLI Flags
@@ -281,7 +281,7 @@ Encrypt any file type — documents, images, binaries, archives — up to 100 Mi
 ### Encrypt a File
 
 ```bash
-python secure_data_encryption.py -o encrypt -f document.pdf
+python morpheus.py -o encrypt -f document.pdf
 # Enter password interactively
 # -> Creates document.pdf.enc
 ```
@@ -289,7 +289,7 @@ python secure_data_encryption.py -o encrypt -f document.pdf
 ### Decrypt a File
 
 ```bash
-python secure_data_encryption.py -o decrypt -f document.pdf.enc
+python morpheus.py -o decrypt -f document.pdf.enc
 # Enter password interactively
 # -> Restores document.pdf (original filename preserved)
 ```
@@ -298,24 +298,24 @@ python secure_data_encryption.py -o decrypt -f document.pdf.enc
 
 ```bash
 # Encrypt to specific location
-python secure_data_encryption.py -o encrypt -f secret.docx --output /tmp/backup.enc
+python morpheus.py -o encrypt -f secret.docx --output /tmp/backup.enc
 
 # Decrypt to specific location
-python secure_data_encryption.py -o decrypt -f /tmp/backup.enc --output ~/restored.docx
+python morpheus.py -o decrypt -f /tmp/backup.enc --output ~/restored.docx
 ```
 
 ### File Encryption with Advanced Modes
 
 ```bash
 # Encrypt a file with cipher chaining
-python secure_data_encryption.py -o encrypt -f database.sqlite --chain
+python morpheus.py -o encrypt -f database.sqlite --chain
 
 # Encrypt a file with hybrid post-quantum
-python secure_data_encryption.py -o encrypt -f classified.pdf \
+python morpheus.py -o encrypt -f classified.pdf \
   --hybrid-pq --pq-public-key <base64-pk>
 
 # Decrypt the hybrid PQ file
-python secure_data_encryption.py -o decrypt -f classified.pdf.enc \
+python morpheus.py -o decrypt -f classified.pdf.enc \
   --hybrid-pq --pq-secret-key <base64-sk>
 ```
 
@@ -455,14 +455,14 @@ ML-KEM shared secret. An attacker needs to break **both** to read your data:
 
 **Step 1: Generate a keypair**
 ```bash
-python secure_data_encryption.py --generate-keypair
+python morpheus.py --generate-keypair
 ```
 This prints a public key and a secret key (base64-encoded). The public key
 is safe to share. The secret key must be kept private.
 
 **Step 2: Encrypt (you or someone else)**
 ```bash
-python secure_data_encryption.py -o encrypt --data "sensitive text" \
+python morpheus.py -o encrypt --data "sensitive text" \
   --hybrid-pq --pq-public-key <base64-pk>
 ```
 The encrypted output includes a KEM ciphertext that can only be decapsulated
@@ -470,7 +470,7 @@ by the corresponding secret key.
 
 **Step 3: Decrypt**
 ```bash
-python secure_data_encryption.py -o decrypt --data "AgEB..." \
+python morpheus.py -o decrypt --data "AgEB..." \
   --hybrid-pq --pq-secret-key <base64-sk>
 ```
 
@@ -601,11 +601,11 @@ Tests include **NIST SP 800-38D** (AES-256-GCM) and **RFC 8439** (ChaCha20-Poly1
 
 ```bash
 # CLI roundtrip test
-python secure_data_encryption.py -o encrypt --data "The quick brown fox"
+python morpheus.py -o encrypt --data "The quick brown fox"
 # Enter a strong password, e.g.: Test!P@ssw0rd#2024
 
 # Copy the encrypted output, then:
-python secure_data_encryption.py -o decrypt --data "<paste encrypted output>"
+python morpheus.py -o decrypt --data "<paste encrypted output>"
 # Enter the same password
 
 # Verify you get back: "The quick brown fox"
@@ -618,21 +618,21 @@ python secure_data_encryption.py -o decrypt --data "<paste encrypted output>"
 echo "Sensitive document content" > /tmp/test.txt
 
 # Encrypt the file
-python secure_data_encryption.py -o encrypt -f /tmp/test.txt
+python morpheus.py -o encrypt -f /tmp/test.txt
 # -> Creates /tmp/test.txt.enc
 
 # Decrypt the file
-python secure_data_encryption.py -o decrypt -f /tmp/test.txt.enc
+python morpheus.py -o decrypt -f /tmp/test.txt.enc
 # -> Restores /tmp/test.txt with original content
 ```
 
 ### Manual Verification — Wrong Password Fails
 
 ```bash
-python secure_data_encryption.py -o encrypt --data "secret"
+python morpheus.py -o encrypt --data "secret"
 # Use password: MyStr0ng!Pass#01
 
-python secure_data_encryption.py -o decrypt --data "<encrypted output>"
+python morpheus.py -o decrypt --data "<encrypted output>"
 # Use WRONG password: MyStr0ng!Pass#02
 
 # Should see: "Decryption failed: incorrect password or corrupted data"
@@ -641,7 +641,7 @@ python secure_data_encryption.py -o decrypt --data "<encrypted output>"
 ### Manual Verification — Tamper Detection
 
 ```bash
-python secure_data_encryption.py -o encrypt --data "secret"
+python morpheus.py -o encrypt --data "secret"
 # Copy the encrypted output
 
 # Change one character in the middle of the encrypted string
@@ -653,10 +653,10 @@ python secure_data_encryption.py -o encrypt --data "secret"
 ### Manual Verification — Chained Mode
 
 ```bash
-python secure_data_encryption.py -o encrypt --data "test chaining" --chain
+python morpheus.py -o encrypt --data "test chaining" --chain
 # Enter password
 
-python secure_data_encryption.py -o decrypt --data "<encrypted output>"
+python morpheus.py -o decrypt --data "<encrypted output>"
 # Enter same password — works because format is self-describing
 ```
 
@@ -664,16 +664,16 @@ python secure_data_encryption.py -o decrypt --data "<encrypted output>"
 
 ```bash
 # Generate keypair
-python secure_data_encryption.py --generate-keypair
+python morpheus.py --generate-keypair
 # Save the public key and secret key
 
 # Encrypt with hybrid PQ
-python secure_data_encryption.py -o encrypt --data "quantum safe data" \
+python morpheus.py -o encrypt --data "quantum safe data" \
   --hybrid-pq --pq-public-key "<public key>"
 # Enter password
 
 # Decrypt with hybrid PQ
-python secure_data_encryption.py -o decrypt --data "<encrypted output>" \
+python morpheus.py -o decrypt --data "<encrypted output>" \
   --hybrid-pq --pq-secret-key "<secret key>"
 # Enter same password
 ```
@@ -682,10 +682,10 @@ python secure_data_encryption.py -o decrypt --data "<encrypted output>" \
 
 ```bash
 # Run the same encryption twice with the same text and password
-python secure_data_encryption.py -o encrypt --data "same text"
+python morpheus.py -o encrypt --data "same text"
 # Password: SameP@ssw0rd!XX
 
-python secure_data_encryption.py -o encrypt --data "same text"
+python morpheus.py -o encrypt --data "same text"
 # Password: SameP@ssw0rd!XX
 
 # The two encrypted outputs should be DIFFERENT

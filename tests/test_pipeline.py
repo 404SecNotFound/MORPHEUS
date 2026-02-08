@@ -7,10 +7,10 @@ import warnings
 import pytest
 from cryptography.exceptions import InvalidTag
 
-from secure_encryption.core.ciphers import AES256GCM, ChaCha20Poly1305Cipher
-from secure_encryption.core.formats import FLAG_CHAINED, FLAG_HYBRID_PQ, FORMAT_VERSION, HEADER_FORMAT
-from secure_encryption.core.kdf import Argon2idKDF, ScryptKDF
-from secure_encryption.core.pipeline import (
+from morpheus.core.ciphers import AES256GCM, ChaCha20Poly1305Cipher
+from morpheus.core.formats import FLAG_CHAINED, FLAG_HYBRID_PQ, FORMAT_VERSION, HEADER_FORMAT
+from morpheus.core.kdf import Argon2idKDF, ScryptKDF
+from morpheus.core.pipeline import (
     PQ_AVAILABLE,
     EncryptionPipeline,
     pq_generate_keypair,

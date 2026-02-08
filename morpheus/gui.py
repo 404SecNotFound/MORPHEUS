@@ -69,7 +69,7 @@ class StrengthBar(Static):
 class SecureEncryptionApp(App):
     """Main application."""
 
-    TITLE = "SecureDataEncryption v2.0"
+    TITLE = "MORPHEUS v2.0"
     SUB_TITLE = "Quantum-Resistant Encryption Tool"
 
     CSS = """
@@ -297,7 +297,7 @@ class SecureEncryptionApp(App):
 
         with Vertical(id="main-container"):
             yield Static(
-                "[bold cyan]SecureDataEncryption[/bold cyan]",
+                "[bold cyan]MORPHEUS[/bold cyan]",
                 id="app-title",
             )
             yield Static(
