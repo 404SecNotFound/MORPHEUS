@@ -85,15 +85,25 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _read_password(prompt: str = "Enter password: ", confirm: bool = False) -> str:
-    """Read password securely from terminal (never from argv)."""
-    if not sys.stdin.isatty():
-        # Piped input — read one line
-        pwd = sys.stdin.readline().rstrip("\n")
-    else:
-        pwd = getpass.getpass(prompt)
+    """Read password securely from terminal (never from argv).
 
-    if confirm and sys.stdin.isatty():
-        pwd2 = getpass.getpass("Confirm password: ")
+    Uses getpass which reads from /dev/tty on Unix, so passwords are entered
+    interactively even when stdin is consumed by --data - or piped input.
+    Falls back to stdin only when no TTY is available at all (headless CI).
+    """
+    try:
+        pwd = getpass.getpass(prompt)
+    except OSError:
+        # No TTY available — fall back to reading one line from stdin
+        pwd = sys.stdin.readline().rstrip("\n")
+        return pwd  # Cannot confirm without a TTY
+
+    if confirm:
+        try:
+            pwd2 = getpass.getpass("Confirm password: ")
+        except OSError:
+            print("Error: cannot confirm password without a terminal.", file=sys.stderr)
+            sys.exit(1)
         if pwd != pwd2:
             print("Error: passwords do not match.", file=sys.stderr)
             sys.exit(1)
@@ -265,12 +275,17 @@ def run_cli(argv: list[str] | None = None) -> None:
             print(f"\nDecrypted:")
             print(result)
     except Exception as exc:
-        _print_status(
-            "Decryption failed: incorrect password or corrupted data"
-            if operation == "decrypt"
-            else f"Encryption error: {exc}",
-            error=True,
-        )
+        if operation == "decrypt":
+            msg = (
+                "Decryption failed: incorrect password or corrupted data.\n"
+                "  Hint: if the password is correct, the KDF parameters "
+                "(time_cost, memory_cost) may not match\n"
+                "  those used during encryption. KDF parameters are not "
+                "stored in the ciphertext format."
+            )
+        else:
+            msg = f"Encryption error: {exc}"
+        _print_status(msg, error=True)
         sys.exit(1)
 
 
@@ -328,7 +343,11 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             decrypted = pipeline.decrypt(encrypted_data, password)
         except Exception:
             _print_status(
-                "Decryption failed: incorrect password or corrupted file",
+                "Decryption failed: incorrect password or corrupted file.\n"
+                "  Hint: if the password is correct, the KDF parameters "
+                "(time_cost, memory_cost) may not match\n"
+                "  those used during encryption. KDF parameters are not "
+                "stored in the ciphertext format.",
                 error=True,
             )
             sys.exit(1)
@@ -339,7 +358,11 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             envelope = json.loads(decrypted)
             if "data" in envelope and "filename" in envelope:
                 raw_data = base64.b64decode(envelope["data"])
-                original_name = envelope["filename"]
+                # Sanitize filename to prevent path traversal attacks
+                # (e.g., "../../.ssh/authorized_keys" -> "authorized_keys")
+                original_name = os.path.basename(envelope["filename"])
+                if not original_name:
+                    original_name = "decrypted_output"
                 out_path = args.output or original_name
                 with open(out_path, "wb") as f:
                     f.write(raw_data)
