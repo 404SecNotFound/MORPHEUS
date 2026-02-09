@@ -159,12 +159,19 @@ def _compute_key_check(key: bytes | bytearray) -> bytes:
 # quantizing lengths into a few discrete sizes.
 _PAD_BUCKETS = (256, 1024, 4096, 16384, 65536)
 
+# Fixed-size target: all ciphertexts padded to this size for maximum privacy.
+_PAD_FIXED_SIZE = _PAD_BUCKETS[-1]  # 64 KiB
 
-def _pad_plaintext(data: bytes) -> bytes:
+
+def _pad_plaintext(data: bytes, *, fixed_size: bool = False) -> bytes:
     """Pad data to the next size bucket to hide plaintext length.
 
     Buckets: 256B, 1K, 4K, 16K, 64K.  Data larger than 64K is padded
     to the next 64K boundary.  Always adds at least 1 byte of padding.
+
+    If fixed_size=True, always pads to _PAD_FIXED_SIZE (64 KiB) regardless
+    of input length.  Inputs larger than 64 KiB minus 4 bytes (length prefix
+    overhead) are rejected — use bucket mode for large data.
 
     Two-layer scheme:
       - pad_len <= 255 -> PKCS7: append *pad_len* copies of the byte *pad_len*.
@@ -184,14 +191,24 @@ def _pad_plaintext(data: bytes) -> bytes:
         Therefore the two modes can never be confused by the decoder.
     """
     data_len = len(data)
-    target = _PAD_BUCKETS[-1]  # default: largest bucket
-    for bucket in _PAD_BUCKETS:
-        if data_len < bucket:
-            target = bucket
-            break
+
+    if fixed_size:
+        max_payload = _PAD_FIXED_SIZE - 4  # 4-byte length prefix
+        if data_len > max_payload:
+            raise PaddingError(
+                f"Data too large for --fixed-size ({data_len} bytes, "
+                f"max {max_payload}). Use --pad instead."
+            )
+        target = _PAD_FIXED_SIZE
     else:
-        # Larger than biggest bucket — pad to next multiple of largest
-        target = ((data_len // _PAD_BUCKETS[-1]) + 1) * _PAD_BUCKETS[-1]
+        target = _PAD_BUCKETS[-1]  # default: largest bucket
+        for bucket in _PAD_BUCKETS:
+            if data_len < bucket:
+                target = bucket
+                break
+        else:
+            # Larger than biggest bucket — pad to next multiple of largest
+            target = ((data_len // _PAD_BUCKETS[-1]) + 1) * _PAD_BUCKETS[-1]
 
     pad_len = target - data_len
     if pad_len == 0:
@@ -355,16 +372,21 @@ class EncryptionPipeline:
 
     # ------- ENCRYPT -------
 
-    def encrypt(self, plaintext: str, password: str, *, pad: bool = False) -> str:
+    def encrypt(self, plaintext: str, password: str, *,
+                pad: bool = False, fixed_size: bool = False) -> str:
         """
         Encrypt a text block. Returns a base64-encoded ciphertext string.
 
         Uses format v3 by default (stores KDF params, includes key-check).
-        Set pad=True to hide exact plaintext length.
+        Set pad=True to hide exact plaintext length (bucket mode).
+        Set fixed_size=True to pad all outputs to 64 KiB (constant-size mode).
         """
         data = plaintext.encode("utf-8")
 
-        if pad:
+        if fixed_size:
+            data = _pad_plaintext(data, fixed_size=True)
+            pad = True  # ensure FLAG_PADDED is set
+        elif pad:
             data = _pad_plaintext(data)
 
         salt = self.kdf.generate_salt()

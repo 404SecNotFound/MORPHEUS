@@ -501,3 +501,43 @@ class TestStructuredErrors:
     def test_wrong_password_is_decryption_error(self):
         from morpheus.core.errors import DecryptionError, WrongPasswordError
         assert issubclass(WrongPasswordError, DecryptionError)
+
+
+class TestFixedSizePadding:
+    """Verify --fixed-size constant-size padding."""
+
+    def test_fixed_size_roundtrip(self):
+        """Small text encrypted with fixed_size should decrypt correctly."""
+        p = EncryptionPipeline()
+        ct = p.encrypt("hello world", "Test-Pass1!", fixed_size=True)
+        assert p.decrypt(ct, "Test-Pass1!") == "hello world"
+
+    def test_fixed_size_constant_output(self):
+        """Different-length inputs produce same-length ciphertexts."""
+        p = EncryptionPipeline()
+        ct_short = p.encrypt("a", "Test-Pass1!", fixed_size=True)
+        ct_long = p.encrypt("a" * 1000, "Test-Pass1!", fixed_size=True)
+        assert len(ct_short) == len(ct_long)
+
+    def test_fixed_size_differs_from_bucket(self):
+        """Fixed-size output is larger than bucket mode for small input."""
+        p = EncryptionPipeline()
+        ct_bucket = p.encrypt("hello", "Test-Pass1!", pad=True)
+        ct_fixed = p.encrypt("hello", "Test-Pass1!", fixed_size=True)
+        assert len(ct_fixed) > len(ct_bucket)
+
+    def test_fixed_size_too_large_rejected(self):
+        """Input larger than 64 KiB - 4 bytes should be rejected."""
+        from morpheus.core.errors import PaddingError
+        p = EncryptionPipeline()
+        big_text = "x" * 65533  # > 65536 - 4
+        with pytest.raises(PaddingError, match="too large for --fixed-size"):
+            p.encrypt(big_text, "Test-Pass1!", fixed_size=True)
+
+    def test_fixed_size_sets_padded_flag(self):
+        """fixed_size=True should set the FLAG_PADDED bit."""
+        from morpheus.core.formats import FLAG_PADDED, deserialize
+        p = EncryptionPipeline()
+        ct = p.encrypt("test", "Test-Pass1!", fixed_size=True)
+        _, _, _, flags, _, _ = deserialize(ct)
+        assert flags & FLAG_PADDED
