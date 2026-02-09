@@ -97,6 +97,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Pad plaintext to hide exact length (privacy protection).",
     )
     parser.add_argument(
+        "--fixed-size",
+        action="store_true",
+        help="Pad all ciphertexts to 64 KiB (constant-size mode, max privacy). "
+             "Implies --pad. Input must be < 64 KiB.",
+    )
+    parser.add_argument(
         "--no-filename",
         action="store_true",
         help="Omit original filename from encrypted envelope (privacy).",
@@ -304,7 +310,8 @@ def run_cli(argv: list[str] | None = None) -> None:
     # --- Text mode ---
     try:
         if operation == "encrypt":
-            result = pipeline.encrypt(data, password, pad=args.pad)
+            result = pipeline.encrypt(data, password, pad=args.pad,
+                                      fixed_size=args.fixed_size)
             print(f"\nEncrypted ({pipeline.description}):")
             print(result)
         else:
@@ -376,7 +383,8 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
         envelope = json.dumps(envelope_dict)
 
         try:
-            encrypted = pipeline.encrypt(envelope, password, pad=args.pad)
+            encrypted = pipeline.encrypt(envelope, password, pad=args.pad,
+                                        fixed_size=args.fixed_size)
         except Exception as exc:
             _print_status(f"Encryption error: {exc}", error=True)
             sys.exit(1)
