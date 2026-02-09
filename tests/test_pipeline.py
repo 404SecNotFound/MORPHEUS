@@ -448,3 +448,56 @@ class TestKDFBoundsValidation:
         from morpheus.core.pipeline import _build_kdf_from_params
         with pytest.raises(ValueError, match="Unknown KDF ID"):
             _build_kdf_from_params(0xFF, (1, 1, 1))
+
+
+class TestStructuredErrors:
+    """Verify specific error types from morpheus.core.errors are raised."""
+
+    def test_wrong_password_raises_wrong_password_error(self):
+        from morpheus.core.errors import WrongPasswordError
+        p = EncryptionPipeline()
+        ct = p.encrypt("test", "correct-Pass1!")
+        with pytest.raises(WrongPasswordError, match="incorrect password"):
+            p.decrypt(ct, "wrong-Pass1!")
+
+    def test_chain_config_raises_configuration_error(self):
+        from morpheus.core.errors import ConfigurationError
+        with pytest.raises(ConfigurationError, match="Cannot combine"):
+            EncryptionPipeline(cipher=ChaCha20Poly1305Cipher(), chain=True)
+
+    def test_kdf_bounds_raises_kdf_parameter_error(self):
+        from morpheus.core.errors import KDFParameterError
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(KDFParameterError, match="out of allowed range"):
+            _build_kdf_from_params(0x02, (999, 65536, 4))
+
+    def test_truncated_ciphertext_raises_decryption_error(self):
+        from morpheus.core.errors import DecryptionError
+        p = EncryptionPipeline()
+        ct = p.encrypt("hello", "Test-Pass1!")
+        # Corrupt by truncating the base64
+        raw = base64.b64decode(ct)
+        truncated = base64.b64encode(raw[:20]).decode()
+        with pytest.raises(DecryptionError, match="Truncated"):
+            p.decrypt(truncated, "Test-Pass1!")
+
+    def test_format_error_on_bad_base64(self):
+        from morpheus.core.errors import FormatError
+        from morpheus.core.formats import deserialize
+        with pytest.raises(FormatError, match="Invalid base64"):
+            deserialize("not-valid-base64!!!")
+
+    def test_all_errors_inherit_from_morpheus_error(self):
+        from morpheus.core.errors import (
+            MorpheusError, FormatError, PaddingError,
+            KDFParameterError, ConfigurationError,
+            DecryptionError, WrongPasswordError,
+        )
+        for cls in (FormatError, PaddingError, KDFParameterError,
+                    ConfigurationError, DecryptionError, WrongPasswordError):
+            assert issubclass(cls, MorpheusError)
+            assert issubclass(cls, ValueError)
+
+    def test_wrong_password_is_decryption_error(self):
+        from morpheus.core.errors import DecryptionError, WrongPasswordError
+        assert issubclass(WrongPasswordError, DecryptionError)
