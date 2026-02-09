@@ -36,6 +36,13 @@ from .formats import (
     serialize,
 )
 from .kdf import KDF, KDF_REGISTRY, Argon2idKDF
+from .errors import (
+    ConfigurationError,
+    DecryptionError,
+    KDFParameterError,
+    PaddingError,
+    WrongPasswordError,
+)
 from .memory import secure_zero
 
 # ---------------------------------------------------------------------------
@@ -68,13 +75,13 @@ def _pq_encapsulate(public_key: bytes) -> tuple[bytes, bytes]:
 def _pq_decapsulate(secret_key: bytes, kem_ciphertext: bytes) -> bytes:
     """KEM decapsulate: returns shared_secret.
 
-    Raises ValueError with a clear message if decapsulation fails
+    Raises DecryptionError with a clear message if decapsulation fails
     (wrong key or malformed ciphertext).
     """
     try:
         return _ml_kem.decrypt(secret_key, kem_ciphertext)
     except Exception as exc:
-        raise ValueError(
+        raise DecryptionError(
             "PQ decapsulation failed: invalid KEM ciphertext or wrong secret key"
         ) from exc
 
@@ -154,10 +161,27 @@ _PAD_BUCKETS = (256, 1024, 4096, 16384, 65536)
 
 
 def _pad_plaintext(data: bytes) -> bytes:
-    """Pad data to the next size bucket using PKCS7-style padding.
+    """Pad data to the next size bucket to hide plaintext length.
 
-    Buckets: 256B, 1K, 4K, 16K, 64K. Data larger than 64K is padded
-    to the next 64K boundary. Always adds at least 1 byte.
+    Buckets: 256B, 1K, 4K, 16K, 64K.  Data larger than 64K is padded
+    to the next 64K boundary.  Always adds at least 1 byte of padding.
+
+    Two-layer scheme:
+      - pad_len <= 255 -> PKCS7: append *pad_len* copies of the byte *pad_len*.
+      - pad_len >  255 -> Length-prefix: prepend 4-byte big-endian original
+        length, then zero-fill to target size.
+
+    Correctness invariant (decoder mode switch):
+        The unpadder inspects the **last byte** of the padded buffer:
+          * 0x00  -> length-prefix mode
+          * 1-255 -> PKCS7 mode
+
+        This is unambiguous because:
+          (a) In length-prefix mode, all fill bytes are 0x00, so the last
+              byte is always 0x00.
+          (b) In PKCS7 mode, pad_len is in [1, 255] and every pad byte
+              equals pad_len, so the last byte is never 0x00.
+        Therefore the two modes can never be confused by the decoder.
     """
     data_len = len(data)
     target = _PAD_BUCKETS[-1]  # default: largest bucket
@@ -189,16 +213,16 @@ def _unpad_plaintext(data: bytes) -> bytes:
     Raises ValueError on invalid padding.
     """
     if not data:
-        raise ValueError("Cannot unpad empty data")
+        raise PaddingError("Cannot unpad empty data")
 
     pad_byte = data[-1]
     if pad_byte == 0:
         # Length-prefixed scheme: first 4 bytes are big-endian original length
         if len(data) < 4:
-            raise ValueError("Invalid padded data: too short for length prefix")
+            raise PaddingError("Invalid padded data: too short for length prefix")
         original_len = struct.unpack("!I", data[:4])[0]
         if original_len > len(data) - 4:
-            raise ValueError(
+            raise PaddingError(
                 f"Invalid padding: claimed length {original_len} "
                 f"exceeds available data {len(data) - 4}"
             )
@@ -207,9 +231,9 @@ def _unpad_plaintext(data: bytes) -> bytes:
     # PKCS7-style: last byte is pad length
     pad_len = pad_byte
     if pad_len > len(data):
-        raise ValueError("Invalid padding length")
+        raise PaddingError("Invalid padding length")
     if data[-pad_len:] != bytes([pad_len] * pad_len):
-        raise ValueError("Invalid padding bytes")
+        raise PaddingError("Invalid padding bytes")
     return data[:-pad_len]
 
 
@@ -244,7 +268,7 @@ def _build_kdf_from_params(kdf_id: int, params: tuple[int, int, int]) -> KDF:
     """
     kdf_cls = KDF_REGISTRY.get(kdf_id)
     if not kdf_cls:
-        raise ValueError(f"Unknown KDF ID {kdf_id:#04x}")
+        raise KDFParameterError(f"Unknown KDF ID {kdf_id:#04x}")
 
     p1, p2, p3 = params
     if kdf_id == 0x02:  # Argon2id
@@ -261,9 +285,9 @@ def _build_kdf_from_params(kdf_id: int, params: tuple[int, int, int]) -> KDF:
 
 
 def _validate_param(name: str, value: int, lo: int, hi: int) -> None:
-    """Raise ValueError if a KDF parameter is out of bounds."""
+    """Raise KDFParameterError if a KDF parameter is out of bounds."""
     if value < lo or value > hi:
-        raise ValueError(
+        raise KDFParameterError(
             f"KDF parameter {name}={value} out of allowed range [{lo}, {hi}]"
         )
 
@@ -308,7 +332,7 @@ class EncryptionPipeline:
         # This fixed order avoids ambiguity in the ciphertext format.
         if self.chain:
             if cipher is not None and not isinstance(cipher, AES256GCM):
-                raise ValueError(
+                raise ConfigurationError(
                     f"Cipher chaining uses a fixed order (AES-256-GCM → ChaCha20-Poly1305). "
                     f"Cannot combine chain=True with cipher '{cipher.name}'. "
                     f"Either remove --cipher or remove --chain."
@@ -379,7 +403,7 @@ class EncryptionPipeline:
             kem_ss: bytearray | None = None
             if self.hybrid_pq:
                 if not self.pq_public_key:
-                    raise ValueError("Hybrid PQ requires a public key for encryption")
+                    raise ConfigurationError("Hybrid PQ requires a public key for encryption")
                 kem_ct, raw_ss = _pq_encapsulate(self.pq_public_key)
                 kem_ss = bytearray(raw_ss)
                 old_keys = keys
@@ -388,7 +412,7 @@ class EncryptionPipeline:
                     secure_zero(k)
                 secure_zero(kem_ss)
                 if len(kem_ct) > 0xFFFF:
-                    raise ValueError(
+                    raise ConfigurationError(
                         f"KEM ciphertext too large ({len(kem_ct)} bytes); "
                         f"format supports max 65535 bytes"
                     )
@@ -423,9 +447,11 @@ class EncryptionPipeline:
         Supports both v2 (legacy) and v3 (extended) formats.
 
         Raises:
-            ValueError: on format/version errors, truncated ciphertext, or
-                        key verification failure (v3 only — clear error message)
-            cryptography.exceptions.InvalidTag: on wrong password (v2) or tampering
+            FormatError: malformed ciphertext header or encoding
+            DecryptionError: truncated ciphertext, unknown cipher/KDF, PQ failure
+            WrongPasswordError: key-check mismatch (v3 — clear error message)
+            ConfigurationError: missing PQ key
+            cryptography.exceptions.InvalidTag: wrong password (v2) or tampering
         """
         version, cipher_id, kdf_id, flags, payload, kdf_params = deserialize(ciphertext_b64)
 
@@ -441,7 +467,7 @@ class EncryptionPipeline:
         else:
             cipher_cls = CIPHER_REGISTRY.get(cipher_id)
             if not cipher_cls:
-                raise ValueError(f"Unknown cipher ID {cipher_id:#04x}")
+                raise DecryptionError(f"Unknown cipher ID {cipher_id:#04x}")
             primary = cipher_cls()
             secondary = None
 
@@ -450,7 +476,7 @@ class EncryptionPipeline:
             kdf = _build_kdf_from_params(kdf_id, kdf_params)
         else:
             if kdf_id != self.kdf.kdf_id:
-                raise ValueError(
+                raise DecryptionError(
                     f"Ciphertext was created with KDF {kdf_id:#04x}, "
                     f"but pipeline is configured with {self.kdf.kdf_id:#04x}"
                 )
@@ -465,7 +491,7 @@ class EncryptionPipeline:
         if is_chained and secondary:
             min_required += secondary.nonce_size
         if payload_len < min_required:
-            raise ValueError(
+            raise DecryptionError(
                 f"Truncated ciphertext: need at least {min_required} bytes, got {payload_len}"
             )
 
@@ -485,17 +511,17 @@ class EncryptionPipeline:
         kem_ss: bytearray | None = None
         if is_hybrid:
             if not self.pq_secret_key:
-                raise ValueError("Hybrid PQ ciphertext requires a secret key for decryption")
+                raise ConfigurationError("Hybrid PQ ciphertext requires a secret key for decryption")
             if payload_len < offset + 2:
-                raise ValueError("Truncated ciphertext: missing KEM length field")
+                raise DecryptionError("Truncated ciphertext: missing KEM length field")
             kem_ct_len = struct.unpack("!H", payload[offset : offset + 2])[0]
             offset += 2
             if kem_ct_len == 0:
-                raise ValueError(
+                raise DecryptionError(
                     "Invalid hybrid PQ ciphertext: KEM ciphertext length is zero"
                 )
             if payload_len < offset + kem_ct_len:
-                raise ValueError(
+                raise DecryptionError(
                     f"Truncated ciphertext: KEM ciphertext claims {kem_ct_len} bytes "
                     f"but only {payload_len - offset} remain"
                 )
@@ -507,13 +533,13 @@ class EncryptionPipeline:
         stored_key_check: bytes | None = None
         if is_v3:
             if payload_len < offset + KEY_CHECK_SIZE:
-                raise ValueError("Truncated ciphertext: missing key-check value")
+                raise DecryptionError("Truncated ciphertext: missing key-check value")
             stored_key_check = payload[offset : offset + KEY_CHECK_SIZE]
             offset += KEY_CHECK_SIZE
 
         ciphertext = payload[offset:]
         if not ciphertext:
-            raise ValueError("Truncated ciphertext: no encrypted data after header fields")
+            raise DecryptionError("Truncated ciphertext: no encrypted data after header fields")
 
         aad = build_aad(version, cipher_id, kdf_id, flags, kdf_params=kdf_params)
 
@@ -533,7 +559,7 @@ class EncryptionPipeline:
             if stored_key_check is not None:
                 computed = _compute_key_check(keys[0])
                 if not hmac.compare_digest(stored_key_check, computed):
-                    raise ValueError("Key verification failed: incorrect password")
+                    raise WrongPasswordError("Key verification failed: incorrect password")
 
             if is_chained and secondary:
                 ct1 = secondary.decrypt(keys[1], nonce2, ciphertext, aad)

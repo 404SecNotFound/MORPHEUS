@@ -35,6 +35,8 @@ from __future__ import annotations
 import base64
 import struct
 
+from .errors import FormatError
+
 FORMAT_VERSION = 0x02      # Legacy default
 FORMAT_VERSION_3 = 0x03    # Extended with KDF params
 
@@ -90,10 +92,10 @@ def deserialize(b64_data: str) -> tuple[int, int, int, int, bytes,
     try:
         raw = base64.b64decode(b64_data, validate=True)
     except Exception as exc:
-        raise ValueError("Invalid base64 encoding") from exc
+        raise FormatError("Invalid base64 encoding") from exc
 
     if len(raw) < HEADER_SIZE:
-        raise ValueError(f"Ciphertext too short ({len(raw)} bytes, need >= {HEADER_SIZE})")
+        raise FormatError(f"Ciphertext too short ({len(raw)} bytes, need >= {HEADER_SIZE})")
 
     # Peek at version byte to determine format
     version = raw[0]
@@ -103,26 +105,26 @@ def deserialize(b64_data: str) -> tuple[int, int, int, int, bytes,
             HEADER_FORMAT, raw[:HEADER_SIZE]
         )
         if reserved != 0:
-            raise ValueError(
+            raise FormatError(
                 f"Reserved header bytes must be zero (got {reserved:#06x})"
             )
         return version, cipher_id, kdf_id, flags, raw[HEADER_SIZE:], None
 
     if version == FORMAT_VERSION_3:
         if len(raw) < HEADER_SIZE_V3:
-            raise ValueError(
+            raise FormatError(
                 f"Ciphertext too short for v3 ({len(raw)} bytes, need >= {HEADER_SIZE_V3})"
             )
         _, cipher_id, kdf_id, flags, reserved, p1, p2, p3 = struct.unpack(
             HEADER_FORMAT_V3, raw[:HEADER_SIZE_V3]
         )
         if reserved != 0:
-            raise ValueError(
+            raise FormatError(
                 f"Reserved header bytes must be zero (got {reserved:#06x})"
             )
         return version, cipher_id, kdf_id, flags, raw[HEADER_SIZE_V3:], (p1, p2, p3)
 
-    raise ValueError(
+    raise FormatError(
         f"Unsupported ciphertext version {version:#04x} "
         f"(supported: {FORMAT_VERSION:#04x}, {FORMAT_VERSION_3:#04x})"
     )
