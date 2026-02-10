@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import subprocess
-
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Static, TextArea
 
+from ..clipboard import clipboard_copy, save_to_file
 from ..state import WizardState
-
-try:
-    import pyperclip as _pyperclip
-except ImportError:
-    _pyperclip = None  # type: ignore[assignment]
 
 AUTO_CLEAR_SECONDS = 60
 
@@ -33,9 +27,10 @@ class OutputStep(Vertical):
         yield Static("", id="output-status")
         yield TextArea(id="output-area", read_only=True)
         with Horizontal(id="output-actions"):
-            yield Button("Copy", id="btn-copy", variant="primary")
-            yield Button("Clear", id="btn-clear", variant="error")
-            yield Button("Stop timer", id="btn-stop-timer", variant="default")
+            yield Button("Copy", id="btn-copy")
+            yield Button("Save to file", id="btn-save")
+            yield Button("Clear", id="btn-clear")
+            yield Button("Stop timer", id="btn-stop-timer")
             yield Static("", id="countdown-label")
 
     def on_mount(self) -> None:
@@ -50,6 +45,8 @@ class OutputStep(Vertical):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-copy":
             self._copy_output()
+        elif event.button.id == "btn-save":
+            self._save_output()
         elif event.button.id == "btn-clear":
             self._clear_output()
         elif event.button.id == "btn-stop-timer":
@@ -63,40 +60,40 @@ class OutputStep(Vertical):
         if not text.strip():
             self.app.notify("Nothing to copy", severity="warning")
             return
-        # Try Textual OSC 52 first, then pyperclip, then subprocess
+
+        # 1. Try verifiable clipboard backends first
+        ok, method = clipboard_copy(text)
+        if ok:
+            self.app.notify(
+                f"Copied to clipboard ({method})", severity="information",
+            )
+            return
+
+        # 2. Fall back to Textual OSC-52 (unverifiable — works in modern terminals)
         try:
             self.app.copy_to_clipboard(text)
-            self.app.notify("Copied to clipboard", severity="information")
+            self.app.notify(
+                "Copied via terminal (may not work in all terminals)",
+                severity="information",
+            )
             return
         except Exception:
             pass
-        if _pyperclip is not None:
-            try:
-                _pyperclip.copy(text)
-                self.app.notify("Copied to clipboard", severity="information")
-                return
-            except Exception:
-                pass
-        for cmd in (
-            ["xclip", "-selection", "clipboard"],
-            ["xsel", "--clipboard", "--input"],
-            ["wl-copy"],
-        ):
-            try:
-                proc = subprocess.Popen(
-                    cmd, stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-                proc.communicate(text.encode("utf-8"), timeout=3)
-                if proc.returncode == 0:
-                    self.app.notify("Copied to clipboard", severity="information")
-                    return
-            except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
-                continue
+
+        # 3. Last resort — save to file
+        path = save_to_file(text, prefix="morpheus_output")
         self.app.notify(
-            "Clipboard unavailable — select text and use Ctrl+Shift+C",
+            f"Clipboard unavailable — saved to {path}",
             severity="warning",
         )
+
+    def _save_output(self) -> None:
+        text = self.query_one("#output-area", TextArea).text
+        if not text.strip():
+            self.app.notify("Nothing to save", severity="warning")
+            return
+        path = save_to_file(text, prefix="morpheus_output")
+        self.app.notify(f"Saved to {path}", severity="information")
 
     def _clear_output(self) -> None:
         self._stop_countdown()
