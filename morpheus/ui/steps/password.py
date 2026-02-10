@@ -2,46 +2,17 @@
 
 from __future__ import annotations
 
-import subprocess
-
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Checkbox, Input, Label, Static
 
 from ...core.validation import check_password_strength
+from ..clipboard import clipboard_copy, clipboard_paste
 from ..state import Mode, WizardState
-
-try:
-    import pyperclip as _pyperclip
-except ImportError:
-    _pyperclip = None  # type: ignore[assignment]
-
-
-def _clipboard_paste() -> str | None:
-    """Read clipboard using pyperclip or subprocess fallback."""
-    if _pyperclip is not None:
-        try:
-            text = _pyperclip.paste()
-            if text:
-                return text
-        except Exception:
-            pass
-    for cmd in (
-        ["xclip", "-selection", "clipboard", "-o"],
-        ["xsel", "--clipboard", "--output"],
-        ["wl-paste", "--no-newline"],
-    ):
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
-            if result.returncode == 0:
-                return result.stdout
-        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
-            continue
-    return None
 
 
 class StrengthBar(Static):
-    """5-step discrete password strength indicator."""
+    """5-step discrete password strength indicator — Matrix palette."""
 
     score: reactive[int] = reactive(0)
 
@@ -49,20 +20,20 @@ class StrengthBar(Static):
         filled = self.score // 10
         empty = 10 - filled
         if self.score >= 80:
-            color, label = "#6BCB77", "Excellent"
+            color, label = "#00FF41", "Excellent"
         elif self.score >= 60:
-            color, label = "#5B8CFF", "Strong"
+            color, label = "#00CC33", "Strong"
         elif self.score >= 40:
-            color, label = "#E2B93B", "Fair"
+            color, label = "#FFD700", "Fair"
         elif self.score >= 20:
-            color, label = "#E09050", "Weak"
+            color, label = "#FF8800", "Weak"
         else:
-            color, label = "#E05C5C", "Very weak"
+            color, label = "#FF3333", "Very weak"
         return f"[{color}]{'█' * filled}{'░' * empty}[/] {label}"
 
 
 class PasswordStep(Vertical):
-    """Password + confirm + strength meter + paste."""
+    """Password + confirm + strength meter + copy/paste."""
 
     def __init__(self, state: WizardState, **kw) -> None:
         super().__init__(**kw)
@@ -84,7 +55,8 @@ class PasswordStep(Vertical):
                 id="pwd-input",
                 classes="password-field",
             )
-            yield Button("Paste", id="paste-pwd", variant="default")
+            yield Button("Paste", id="paste-pwd", classes="pwd-action-btn")
+            yield Button("Copy", id="copy-pwd", classes="pwd-action-btn")
 
         with Horizontal(classes="field-row"):
             yield Label("", classes="field-label")  # spacer
@@ -102,7 +74,7 @@ class PasswordStep(Vertical):
                 id="pwd-confirm",
                 classes="password-field",
             )
-            yield Button("Paste", id="paste-confirm", variant="default")
+            yield Button("Paste", id="paste-confirm", classes="pwd-action-btn")
 
         yield Checkbox("Show password", id="show-pwd-check", value=False)
 
@@ -130,6 +102,8 @@ class PasswordStep(Vertical):
             self._paste_into("pwd-input")
         elif event.button.id == "paste-confirm":
             self._paste_into("pwd-confirm")
+        elif event.button.id == "copy-pwd":
+            self._copy_password()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id == "show-pwd-check":
@@ -140,16 +114,38 @@ class PasswordStep(Vertical):
                 pass
 
     def _paste_into(self, input_id: str) -> None:
-        text = _clipboard_paste()
+        text = clipboard_paste()
         if text:
             text = text.strip().replace("\n", "").replace("\r", "")
             self.query_one(f"#{input_id}", Input).value = text
             self.app.notify("Pasted from clipboard", severity="information")
         else:
             self.app.notify(
-                "Clipboard empty or unavailable — try Ctrl+Shift+V",
+                "Clipboard empty or unavailable — use Ctrl+Shift+V",
                 severity="warning",
             )
+
+    def _copy_password(self) -> None:
+        pwd = self._state.password
+        if not pwd:
+            self.app.notify("No password to copy", severity="warning")
+            return
+        ok, method = clipboard_copy(pwd)
+        if ok:
+            self.app.notify("Password copied to clipboard", severity="information")
+        else:
+            # Fall back to Textual OSC-52 (unverifiable but often works)
+            try:
+                self.app.copy_to_clipboard(pwd)
+                self.app.notify(
+                    "Copied via terminal (may not work in all terminals)",
+                    severity="information",
+                )
+            except Exception:
+                self.app.notify(
+                    "Clipboard unavailable — select text with Ctrl+Shift+C",
+                    severity="warning",
+                )
 
     def _update_strength(self) -> None:
         pwd = self._state.password
@@ -173,8 +169,8 @@ class PasswordStep(Vertical):
         confirm = self._state.password_confirm
         indicator = self.query_one("#match-indicator", Static)
         if confirm and pwd == confirm:
-            indicator.update("[#6BCB77]Match[/#6BCB77]")
+            indicator.update("[#00FF41]Match[/#00FF41]")
         elif confirm:
-            indicator.update("[#E05C5C]No match[/#E05C5C]")
+            indicator.update("[#FF3333]No match[/#FF3333]")
         else:
             indicator.update("")

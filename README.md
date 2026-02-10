@@ -128,22 +128,29 @@ Launch with no arguments:
 python morpheus.py
 ```
 
-The terminal GUI provides:
+The wizard walks you through six steps:
 
-- **Encrypt / Decrypt** toggle
-- **Cipher** and **KDF** dropdowns
-- **Chain ciphers** and **Hybrid PQ** checkboxes
-- **Multi-line text area** for input
-- **Password field** with real-time strength meter
-- **Auto-clearing output** with 60-second countdown
-- **One-click copy** to clipboard (wiped on clear)
+| Step | What you do |
+|------|-------------|
+| **1 Mode** | Choose Encrypt or Decrypt |
+| **2 Settings** | Cipher, KDF, chaining, hybrid PQ, advanced padding options |
+| **3 Input** | Enter text or select a file |
+| **4 Password** | Password + confirm, strength meter, paste-from-clipboard |
+| **5 Review** | Summary of all settings, warnings, then Run |
+| **6 Output** | Read-only result, copy button, 60-second auto-clear countdown |
+
+The sidebar tracks progress — completed steps show `✓`, the current step is
+highlighted, and locked steps stay dim until prerequisites are met.
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl+E` | Encrypt |
-| `Ctrl+D` | Decrypt |
-| `Ctrl+L` | Clear all |
+| `Ctrl+E` | Quick Encrypt (sets mode + advances) |
+| `Ctrl+D` | Quick Decrypt |
+| `Ctrl+L` | Clear all and restart |
 | `Ctrl+Q` | Quit |
+| `←` / `→` | Switch steps |
+| `Esc` | Back to sidebar |
+| `F1` | Show help |
 
 ---
 
@@ -319,7 +326,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**241 tests** across 10 test files:
+**266 tests** across 12 test files:
 
 | File | Scope |
 |------|-------|
@@ -330,6 +337,8 @@ python -m pytest tests/ -v
 | `test_memory.py` | `secure_zero`, `SecureBuffer`, `secure_key` context manager |
 | `test_validation.py` | Password scoring (0-100), minimum requirements, edge cases |
 | `test_cli.py` | File encrypt/decrypt roundtrip (text + binary), path traversal prevention |
+| `test_gui.py` | Wizard mount, step navigation, shortcuts, encrypt/decrypt roundtrip, clipboard fallbacks |
+| `test_wizard_state.py` | State validation per step, step unlocking rules, edge cases |
 
 Tests include **NIST SP 800-38D** and **RFC 8439** reference vectors verified
 against the `cryptography` library's validated implementations.
@@ -343,8 +352,20 @@ morpheus/
 ├── morpheus/
 │   ├── __init__.py            # Package version
 │   ├── __main__.py            # Entry point (auto-detects GUI vs CLI)
-│   ├── gui.py                 # Textual TUI application
+│   ├── gui.py                 # Thin shim → ui/app.py
 │   ├── cli.py                 # CLI with file encryption support
+│   ├── ui/                    # Wizard GUI (Textual)
+│   │   ├── app.py             # MorpheusWizard — 2-pane shell, navigation, workers
+│   │   ├── theme.py           # Colour tokens + CSS
+│   │   ├── state.py           # WizardState dataclass + per-step validation
+│   │   ├── sidebar.py         # Left pane step list (✓/▸/dim)
+│   │   └── steps/
+│   │       ├── mode.py        # Step 1 — Encrypt / Decrypt
+│   │       ├── settings.py    # Step 2 — Cipher, KDF, options
+│   │       ├── input.py       # Step 3 — Text editor / file path
+│   │       ├── password.py    # Step 4 — Password + strength + paste
+│   │       ├── review.py      # Step 5 — Summary + Run
+│   │       └── output.py      # Step 6 — Result + copy + countdown
 │   └── core/
 │       ├── ciphers.py         # AES-256-GCM, ChaCha20-Poly1305
 │       ├── kdf.py             # Argon2id, Scrypt
@@ -353,7 +374,7 @@ morpheus/
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # mlock, ctypes.memset zeroing, SecureBuffer
 │       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 241 tests (NIST/RFC vectors included)
+├── tests/                     # 266 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

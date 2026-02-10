@@ -33,7 +33,7 @@ class ReviewStep(Vertical):
         s = self._state
         yield Static("Review", classes="step-title")
         yield Static(
-            "Confirm your settings, then press Run.",
+            "Confirm your settings, then press Execute.",
             classes="step-subtitle",
         )
 
