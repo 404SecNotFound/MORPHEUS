@@ -3,6 +3,28 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.0.4] - 2026-02-10
+
+### Added
+- **`--benchmark` command**: Times cipher and KDF performance on current hardware,
+  recommends optimal cipher (AES-256-GCM vs ChaCha20-Poly1305 based on AES-NI
+  availability) and KDF tuning (Argon2id time_cost guidance)
+- **`--fixed-size` flag**: Constant-size 64 KiB padding for maximum privacy —
+  all ciphertexts are identical length regardless of input size
+- **Rich decryption error context**: Failed decryptions now display parsed
+  ciphertext header details (format version, cipher, KDF with params, flags)
+  in both CLI and GUI, replacing generic "incorrect password" messages
+- **Structured error types** (`morpheus.core.errors`): `FormatError`,
+  `PaddingError`, `KDFParameterError`, `ConfigurationError`, `DecryptionError`,
+  `WrongPasswordError` — all inherit from `ValueError` for backward compat
+- Formal padding invariant proof documented in `_pad_plaintext()` docstring
+- Test count: 185 -> 191
+
+### Changed
+- Padding bucket mode now uses exponential buckets (256B, 1K, 4K, 16K, 64K)
+  instead of fixed 256-byte blocks for stronger length hiding
+- `--pad` flag description updated to reflect bucket mode behavior
+
 ## [2.0.2] - 2026-02-08
 
 ### Security
