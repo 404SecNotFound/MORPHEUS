@@ -179,6 +179,19 @@ python morpheus.py -o encrypt --data "text" \
 # Hybrid PQ decrypt
 python morpheus.py -o decrypt --data "AgEB..." \
   --hybrid-pq --pq-secret-key <base64-sk>
+
+# Use passphrase mode (no digits/specials required)
+python morpheus.py -o encrypt --data "text" --passphrase
+
+# Check password against breach databases before encrypting
+python morpheus.py -o encrypt --data "text" --check-leaks
+
+# Save your preferred settings for future sessions
+python morpheus.py --save-config --cipher ChaCha20-Poly1305 --chain --pad
+
+# Inspect a ciphertext without decrypting (no password needed)
+python morpheus.py --inspect --data "AwEB..."
+python morpheus.py --inspect -f secret.enc
 ```
 
 Passwords are always entered interactively — never passed as arguments —
@@ -205,6 +218,10 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--pq-public-key` | Base64 ML-KEM-768 public key |
 | `--pq-secret-key` | Base64 ML-KEM-768 secret key |
 | `--generate-keypair` | Generate and print an ML-KEM-768 keypair |
+| `--passphrase` | Use passphrase-mode strength check (word-based, no digit/special requirement). Requires 4+ words and 20+ chars |
+| `--check-leaks` | Check password against Have I Been Pwned breach database (k-anonymity, only 5 chars of SHA-1 sent). Requires network |
+| `--save-config` | Save current cipher/KDF/flag preferences to `~/.morpheus/config.toml` for future sessions |
+| `--inspect` | Inspect a ciphertext header without decrypting (no password needed). Shows format, cipher, KDF, flags, sizes |
 | `--benchmark` | Benchmark cipher and KDF performance, recommend optimal config |
 | `--cli` | Force CLI mode (skip GUI) |
 
@@ -302,7 +319,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**123 tests** across 7 test files:
+**241 tests** across 10 test files:
 
 | File | Scope |
 |------|-------|
@@ -333,9 +350,10 @@ morpheus/
 │       ├── kdf.py             # Argon2id, Scrypt
 │       ├── pipeline.py        # Orchestration: chaining, hybrid PQ, key lifecycle
 │       ├── formats.py         # Versioned binary format with AAD
+│       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # mlock, ctypes.memset zeroing, SecureBuffer
-│       └── validation.py      # Password scoring, input validation
-├── tests/                     # 123 tests (NIST/RFC vectors included)
+│       └── validation.py      # Password scoring, passphrase mode, breach detection
+├── tests/                     # 241 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history
@@ -387,8 +405,9 @@ jurisdictions. You are responsible for compliance with all applicable laws.
 
 ## Privacy Notes
 
-- **No telemetry or analytics**: MORPHEUS does not phone home, collect usage
-  data, or make any network connections.
+- **No telemetry or analytics**: MORPHEUS does not phone home or collect usage
+  data. The only network connection is opt-in breach checking (`--check-leaks`),
+  which uses k-anonymity and never sends your actual password.
 - **No data on disk**: Text-mode operations are entirely in-memory. File
   encryption writes only the ciphertext output.
 - **Plaintext length**: Without `--pad`, ciphertext length reveals approximate
