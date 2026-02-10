@@ -3,6 +3,40 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.0.6] - 2026-02-10
+
+### Added
+- **`--inspect` command**: Examine ciphertext metadata without decrypting —
+  shows format version, cipher, KDF (with params), flags, payload/overhead
+  sizes, and actionable notes. No password required. Works with `--data` or
+  `--file` input
+- **Progress feedback**: KDF derivation and encrypt/decrypt now print status
+  messages to stderr (e.g., "Deriving key (Argon2id)...") so users know
+  the tool is working during slow KDF computation
+- **Intelligent error diagnosis**: Decryption failures now include actionable
+  suggestions based on error type — wrong password hints, truncation advice,
+  PQ key requirements, format mismatch guidance
+- **Padding advisor**: After encryption, a one-line hint recommends `--pad`
+  or `--fixed-size` if no padding was used; when padding is active, shows
+  which size bucket was selected
+- Test count: 222 -> 241
+
+## [2.0.5] - 2026-02-10
+
+### Added
+- **`--passphrase` mode**: Word-based password validation that evaluates
+  passphrases by word count (4+) and total length (20+) instead of requiring
+  digits/uppercase/special characters. Accepts `correct horse battery staple`
+  style passwords that the standard checker would reject
+- **`--check-leaks` flag**: Opt-in breach detection via Have I Been Pwned
+  k-anonymity API. Only the first 5 characters of the SHA-1 hash are sent;
+  the full password never leaves the machine. Blocks encryption if the
+  password appears in known breaches; gracefully degrades on network failure
+- **`--save-config` and persistent preferences**: Saves preferred cipher, KDF,
+  and flag settings to `~/.morpheus/config.toml` (mode 0600). Loaded
+  automatically on startup; CLI arguments always override saved preferences
+- Test count: 191 -> 222
+
 ## [2.0.4] - 2026-02-10
 
 ### Added

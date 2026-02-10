@@ -165,6 +165,49 @@ For maximum privacy, the `--fixed-size` flag pads all ciphertexts to exactly
 analysis entirely — all messages are indistinguishable by size. Inputs larger
 than ~64 KiB cannot use fixed-size mode (use `--pad` instead).
 
+### Breach detection (`--check-leaks`)
+
+The `--check-leaks` flag uses the [Have I Been Pwned](https://haveibeenpwned.com/)
+Pwned Passwords API with **k-anonymity**:
+
+1. Your password is SHA-1 hashed locally
+2. Only the **first 5 characters** of the hash (out of 40) are sent to the API
+3. The API returns all hash suffixes matching that prefix (~500 results)
+4. Your client checks locally whether your full hash is in the returned set
+
+**Privacy**: The actual password never leaves your machine. The 5-character
+prefix maps to ~10 million possible passwords, providing strong k-anonymity.
+The API operator cannot determine which password you checked.
+
+**Network**: This is the only feature that makes network connections. It is
+strictly **opt-in** — never enabled by default. If the network is unavailable,
+encryption proceeds with a warning.
+
+### Passphrase mode (`--passphrase`)
+
+Standard password validation requires mixed character classes (uppercase,
+lowercase, digits, special characters). The `--passphrase` flag switches
+to word-based validation instead:
+
+- Requires at least **4 words** separated by spaces, hyphens, or underscores
+- Requires at least **20 characters** total length
+- Does **not** require digits, uppercase, or special characters
+- Scores based on word count, uniqueness, and average word length
+
+This accepts high-entropy passwords like `correct horse battery staple` that
+the standard checker would reject. The entropy of a 4-word passphrase from
+a 7776-word diceware list is ~51 bits; 6 words yields ~77 bits.
+
+### Persistent preferences (`~/.morpheus/config.toml`)
+
+The `--save-config` flag writes user preferences to `~/.morpheus/config.toml`
+with file permissions `0600` (owner read/write only). The config file stores
+only non-sensitive settings (cipher choice, KDF choice, boolean flags). It
+never stores passwords, keys, or ciphertext.
+
+CLI arguments always override saved preferences. The config is loaded at
+startup and applied as defaults only for unset arguments.
+
 ### GCM nonce collision probability
 
 AES-256-GCM uses a random 96-bit nonce. Under the birthday bound, the
