@@ -3,6 +3,27 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.1.0] - 2026-02-10
+
+### Changed
+- **Wizard GUI overhaul**: Replaced the single-page scrollable form with a
+  6-step guided wizard (Mode → Settings → Input → Password → Review → Output).
+  2-pane layout: left sidebar with step completion markers (✓ done, ▸ current,
+  dim locked) and right panel for the active step
+- **Professional dark theme**: New palette — `#0F1115` background, `#5B8CFF`
+  accent, muted greens/ambers/reds. Replaces the neon color scheme
+- **Clipboard robustness**: Copy now uses Textual OSC 52 (terminal-native) as
+  primary method, with pyperclip and subprocess (xclip/xsel/wl-copy) fallbacks.
+  Paste buttons added to both password fields for password-manager workflows
+- **Step validation**: Next button disabled until the current step is valid;
+  Review step summarises all choices and shows password-strength warnings before
+  the Run action
+- **New shortcuts**: `←/→` switch steps, `Esc` returns to sidebar, `F1` shows
+  help overlay. Existing `Ctrl+E/D/L/Q` shortcuts preserved
+- **New `ui/` package**: `theme.py`, `state.py`, `sidebar.py`, `app.py`,
+  `steps/` — decoupled from crypto core
+- Test count: 241 → 266 (25 state-validation + 10 wizard integration tests)
+
 ## [2.0.6] - 2026-02-10
 
 ### Added
