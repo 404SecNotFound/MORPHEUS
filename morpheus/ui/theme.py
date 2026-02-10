@@ -1,19 +1,27 @@
-"""Theme tokens and CSS for the MORPHEUS wizard UI."""
+"""Theme tokens and CSS for the MORPHEUS wizard UI — Matrix Edition."""
 
 from __future__ import annotations
 
-# -- Colour palette ----------------------------------------------------------
-BG = "#0F1115"
-SURFACE = "#151A21"
-ELEVATED = "#1B2230"
-BORDER = "#2A3442"
-TEXT_PRIMARY = "#E6EAF2"
-TEXT_SECONDARY = "#A9B1C3"
-DISABLED = "#5B6476"
-ACCENT = "#5B8CFF"
-SUCCESS = "#6BCB77"
-WARNING = "#E2B93B"
-ERROR = "#E05C5C"
+# -- Matrix colour palette ---------------------------------------------------
+BG              = "#030303"    # Near-black
+SURFACE         = "#080C08"    # Green-black surface
+ELEVATED        = "#0C140C"    # Elevated card background
+BORDER          = "#0D3B0D"    # Green border
+BORDER_BRIGHT   = "#00AA28"    # Bright green border (focus / active)
+
+TEXT_PRIMARY     = "#00FF41"   # Classic Matrix phosphor green
+TEXT_BODY        = "#00DD36"   # Readable body text
+TEXT_SECONDARY   = "#00AA28"   # Labels / secondary info
+TEXT_DIM         = "#007018"   # Dim hints
+DISABLED         = "#0A2A0A"   # Barely visible
+
+ACCENT          = "#00FF41"    # Bright Matrix green
+ACCENT_HOVER    = "#33FF66"    # Hover state
+ACCENT_DIM      = "#00CC33"    # Muted accent
+
+SUCCESS         = "#39FF14"    # Neon green
+WARNING         = "#FFD700"    # Gold (stands out intentionally)
+ERROR           = "#FF3333"    # Red
 
 WIZARD_CSS = """
 Screen {
@@ -30,14 +38,15 @@ Footer {
     color: """ + TEXT_SECONDARY + """;
 }
 
-/* ── Top bar ─────────────────────────────────────────────────── */
+/* ── Top bar ────────────────────────────────────────────────────── */
 
 #top-bar {
     dock: top;
-    height: 1;
+    height: 3;
     background: """ + SURFACE + """;
     color: """ + TEXT_SECONDARY + """;
-    padding: 0 2;
+    padding: 1 2;
+    border-bottom: solid """ + BORDER + """;
 }
 
 #top-title {
@@ -51,35 +60,36 @@ Footer {
     color: """ + TEXT_SECONDARY + """;
 }
 
-/* ── Sidebar ─────────────────────────────────────────────────── */
+/* ── Sidebar ────────────────────────────────────────────────────── */
 
 #sidebar {
-    width: 18;
+    width: 22;
     background: """ + SURFACE + """;
-    border-right: tall """ + BORDER + """;
+    border-right: solid """ + BORDER + """;
     padding: 1 0;
 }
 
 .sidebar-item {
     height: 1;
     padding: 0 1;
-    color: """ + TEXT_SECONDARY + """;
+    color: """ + TEXT_DIM + """;
 }
 
 .sidebar-item.--current {
     color: """ + ACCENT + """;
     text-style: bold;
+    background: """ + ELEVATED + """;
 }
 
 .sidebar-item.--completed {
-    color: """ + SUCCESS + """;
+    color: """ + ACCENT_DIM + """;
 }
 
 .sidebar-item.--locked {
     color: """ + DISABLED + """;
 }
 
-/* ── Step panel (right pane) ─────────────────────────────────── */
+/* ── Step panel (right pane) ────────────────────────────────────── */
 
 #step-container {
     width: 1fr;
@@ -115,7 +125,7 @@ Footer {
     margin: 0 0 0 0;
 }
 
-/* ── Navigation buttons ──────────────────────────────────────── */
+/* ── Navigation buttons ─────────────────────────────────────────── */
 
 #nav-bar {
     height: 3;
@@ -123,7 +133,8 @@ Footer {
     align: center middle;
     padding: 0 2;
     dock: bottom;
-    background: """ + BG + """;
+    background: """ + SURFACE + """;
+    border-top: solid """ + BORDER + """;
 }
 
 #nav-bar Button {
@@ -139,32 +150,38 @@ Footer {
 
 #btn-back:hover {
     background: """ + BORDER + """;
+    color: """ + ACCENT + """;
 }
 
 #btn-next {
     background: """ + ACCENT + """;
     color: """ + BG + """;
+    text-style: bold;
+    border: tall """ + ACCENT_DIM + """;
 }
 
 #btn-next:hover {
-    background: #7BA3FF;
+    background: """ + ACCENT_HOVER + """;
 }
 
 #btn-next:disabled {
-    background: """ + BORDER + """;
-    color: """ + DISABLED + """;
+    background: """ + DISABLED + """;
+    color: """ + TEXT_DIM + """;
+    border: tall """ + DISABLED + """;
 }
 
 #btn-run {
-    background: """ + SUCCESS + """;
+    background: """ + ACCENT + """;
     color: """ + BG + """;
+    text-style: bold;
+    border: tall """ + ACCENT_DIM + """;
 }
 
 #btn-run:hover {
-    background: #85D88F;
+    background: """ + ACCENT_HOVER + """;
 }
 
-/* ── Shared widget styles ────────────────────────────────────── */
+/* ── Shared widget styles ───────────────────────────────────────── */
 
 Input {
     background: """ + ELEVATED + """;
@@ -176,40 +193,115 @@ Input:focus {
     border: tall """ + ACCENT + """;
 }
 
+Input.-invalid {
+    border: tall """ + ERROR + """;
+}
+
 TextArea {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_PRIMARY + """;
-}
-
-Select {
-    background: """ + ELEVATED + """;
-}
-
-Checkbox {
-    background: transparent;
-    color: """ + TEXT_PRIMARY + """;
-}
-
-RadioButton {
-    background: transparent;
-    color: """ + TEXT_PRIMARY + """;
-}
-
-RadioSet {
-    background: transparent;
-}
-
-Button {
     background: """ + ELEVATED + """;
     color: """ + TEXT_PRIMARY + """;
     border: tall """ + BORDER + """;
 }
 
-/* ── Step-specific ───────────────────────────────────────────── */
+TextArea:focus {
+    border: tall """ + ACCENT + """;
+}
+
+Select {
+    background: """ + ELEVATED + """;
+    border: tall """ + BORDER + """;
+    color: """ + TEXT_PRIMARY + """;
+}
+
+Select:focus {
+    border: tall """ + ACCENT + """;
+}
+
+SelectOverlay {
+    background: """ + ELEVATED + """;
+    color: """ + TEXT_PRIMARY + """;
+    border: solid """ + BORDER + """;
+}
+
+SelectCurrent {
+    color: """ + TEXT_PRIMARY + """;
+}
+
+Checkbox {
+    background: transparent;
+    color: """ + TEXT_BODY + """;
+    padding: 0 0 0 0;
+}
+
+Checkbox:focus {
+    color: """ + ACCENT + """;
+}
+
+RadioButton {
+    background: transparent;
+    color: """ + TEXT_BODY + """;
+}
+
+RadioButton:focus {
+    color: """ + ACCENT + """;
+}
+
+RadioSet {
+    background: transparent;
+    border: none;
+}
+
+Button {
+    background: """ + ELEVATED + """;
+    color: """ + TEXT_BODY + """;
+    border: tall """ + BORDER + """;
+}
+
+Button:hover {
+    background: """ + BORDER + """;
+    color: """ + ACCENT + """;
+}
+
+Button:focus {
+    border: tall """ + ACCENT + """;
+}
+
+Collapsible {
+    background: transparent;
+    border: none;
+    padding: 0 0 0 0;
+}
+
+CollapsibleTitle {
+    color: """ + TEXT_SECONDARY + """;
+    background: transparent;
+    padding: 1 0 0 0;
+}
+
+CollapsibleTitle:hover {
+    color: """ + ACCENT + """;
+}
+
+CollapsibleTitle:focus {
+    color: """ + ACCENT + """;
+}
+
+/* ── Step-specific ──────────────────────────────────────────────── */
 
 .mode-choice {
     height: auto;
     padding: 1 0;
+}
+
+#mode-radio {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+#mode-radio RadioButton {
+    padding: 0 0 0 0;
+    margin: 0 0 1 0;
 }
 
 .settings-section {
@@ -220,6 +312,8 @@ Button {
 #input-tabs {
     height: auto;
     padding: 0 0 1 0;
+    background: transparent;
+    border: none;
 }
 
 #input-editor {
@@ -247,7 +341,7 @@ Button {
 }
 
 #match-indicator {
-    color: """ + SUCCESS + """;
+    color: """ + ACCENT + """;
     padding: 0 0 0 2;
 }
 
@@ -297,10 +391,69 @@ Button {
     margin: 0 1 0 0;
 }
 
+#btn-copy {
+    background: """ + ACCENT + """;
+    color: """ + BG + """;
+    text-style: bold;
+    border: tall """ + ACCENT_DIM + """;
+}
+
+#btn-copy:hover {
+    background: """ + ACCENT_HOVER + """;
+}
+
+#btn-clear {
+    background: """ + ELEVATED + """;
+    color: """ + ERROR + """;
+    border: tall """ + BORDER + """;
+}
+
+#btn-clear:hover {
+    background: """ + BORDER + """;
+}
+
+#btn-stop-timer {
+    background: """ + ELEVATED + """;
+    color: """ + TEXT_SECONDARY + """;
+    border: tall """ + BORDER + """;
+}
+
 #countdown-label {
     color: """ + WARNING + """;
     text-style: bold;
     width: auto;
     padding: 0 0 0 2;
+}
+
+/* ── Password step buttons ──────────────────────────────────────── */
+
+.pwd-action-btn {
+    min-width: 8;
+    margin: 0 0 0 1;
+}
+
+#copy-pwd {
+    background: """ + ELEVATED + """;
+    color: """ + ACCENT_DIM + """;
+    border: tall """ + BORDER + """;
+}
+
+#copy-pwd:hover {
+    color: """ + ACCENT + """;
+    background: """ + BORDER + """;
+}
+
+#pwd-feedback {
+    color: """ + TEXT_DIM + """;
+    height: auto;
+    padding: 0 0 0 0;
+}
+
+/* ── Section dividers ───────────────────────────────────────────── */
+
+.section-divider {
+    height: 1;
+    color: """ + BORDER + """;
+    margin: 1 0;
 }
 """

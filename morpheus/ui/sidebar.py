@@ -10,7 +10,7 @@ from .state import STEP_LABELS, TOTAL_STEPS, WizardState
 
 
 class SidebarItem(Static):
-    """Single sidebar entry like '✓ Mode' or '▸ Input'."""
+    """Single sidebar entry like '[ ] Mode' or '[>] Input'."""
 
 
 class Sidebar(Vertical):
@@ -25,7 +25,7 @@ class Sidebar(Vertical):
     def compose(self):
         for i, label in enumerate(STEP_LABELS):
             yield SidebarItem(
-                f"  {i + 1} {label}",
+                f"  [{i + 1}] {label}",
                 id=f"sb-{i}",
                 classes="sidebar-item",
             )
@@ -38,13 +38,13 @@ class Sidebar(Vertical):
             item.remove_class("--current", "--completed", "--locked")
 
             if i == current:
-                item.update(f"  ▸ {label}")
+                item.update(f"  [>] {label}")
                 item.add_class("--current")
             elif i in self._state.completed_steps:
-                item.update(f"  ✓ {label}")
+                item.update(f"  [+] {label}")
                 item.add_class("--completed")
             elif self._state.is_step_unlocked(i):
-                item.update(f"  {i + 1} {label}")
+                item.update(f"  [{i + 1}] {label}")
             else:
-                item.update(f"  {i + 1} {label}")
+                item.update(f"  [ ] {label}")
                 item.add_class("--locked")
