@@ -188,6 +188,10 @@ python morpheus.py -o encrypt --data "text" --check-leaks
 
 # Save your preferred settings for future sessions
 python morpheus.py --save-config --cipher ChaCha20-Poly1305 --chain --pad
+
+# Inspect a ciphertext without decrypting (no password needed)
+python morpheus.py --inspect --data "AwEB..."
+python morpheus.py --inspect -f secret.enc
 ```
 
 Passwords are always entered interactively — never passed as arguments —
@@ -217,6 +221,7 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--passphrase` | Use passphrase-mode strength check (word-based, no digit/special requirement). Requires 4+ words and 20+ chars |
 | `--check-leaks` | Check password against Have I Been Pwned breach database (k-anonymity, only 5 chars of SHA-1 sent). Requires network |
 | `--save-config` | Save current cipher/KDF/flag preferences to `~/.morpheus/config.toml` for future sessions |
+| `--inspect` | Inspect a ciphertext header without decrypting (no password needed). Shows format, cipher, KDF, flags, sizes |
 | `--benchmark` | Benchmark cipher and KDF performance, recommend optimal config |
 | `--cli` | Force CLI mode (skip GUI) |
 
@@ -314,7 +319,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**222 tests** across 10 test files:
+**241 tests** across 10 test files:
 
 | File | Scope |
 |------|-------|
@@ -348,7 +353,7 @@ morpheus/
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # mlock, ctypes.memset zeroing, SecureBuffer
 │       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 222 tests (NIST/RFC vectors included)
+├── tests/                     # 241 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

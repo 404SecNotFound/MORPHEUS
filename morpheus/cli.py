@@ -13,12 +13,19 @@ import sys
 
 from .core.ciphers import CIPHER_CHOICES, CIPHER_REGISTRY
 from .core.config import apply_config_defaults, load_config, save_config
+from .core.errors import (
+    ConfigurationError,
+    DecryptionError,
+    FormatError,
+    WrongPasswordError,
+)
 from .core.formats import (
     FORMAT_VERSION_3, FLAG_CHAINED, FLAG_HYBRID_PQ, FLAG_PADDED,
+    HEADER_SIZE, HEADER_SIZE_V3, KEY_CHECK_SIZE,
     deserialize,
 )
 from .core.kdf import KDF_CHOICES, KDF_REGISTRY
-from .core.pipeline import PQ_AVAILABLE, EncryptionPipeline
+from .core.pipeline import PQ_AVAILABLE, EncryptionPipeline, _PAD_BUCKETS
 from .core.validation import (
     check_passphrase_strength,
     check_password_leaked,
@@ -144,6 +151,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Save current cipher/KDF/flag preferences to "
              "~/.morpheus/config.toml for future sessions.",
     )
+    parser.add_argument(
+        "--inspect",
+        action="store_true",
+        help="Inspect a ciphertext header without decrypting. "
+             "Shows format version, cipher, KDF, flags, and size info. "
+             "No password required. Use with --data or --file.",
+    )
     return parser
 
 
@@ -230,6 +244,157 @@ def _diagnose_ciphertext(b64_data: str) -> str:
         f"  KDF:     {kdf_str}{params_str}\n"
         f"{flags_str}"
     )
+
+
+def _progress(msg: str) -> None:
+    """Print a progress/status message to stderr (doesn't mix with output)."""
+    print(msg, file=sys.stderr, flush=True)
+
+
+def _suggest_fix(exc: Exception, ciphertext: str = "") -> str:
+    """Return actionable suggestions based on the exception type."""
+    suggestions: list[str] = []
+
+    if isinstance(exc, WrongPasswordError):
+        suggestions.append("Double-check your password (Caps Lock? Typo?)")
+        suggestions.append("If this was encrypted with --passphrase, the same password still works for decryption")
+    elif isinstance(exc, FormatError):
+        suggestions.append("This doesn't look like MORPHEUS ciphertext")
+        suggestions.append("Check that the input is complete and unmodified base64")
+        suggestions.append("Was this encrypted with a different tool?")
+    elif isinstance(exc, ConfigurationError):
+        exc_msg = str(exc).lower()
+        if "pq" in exc_msg or "secret key" in exc_msg:
+            suggestions.append("This ciphertext requires --hybrid-pq and --pq-secret-key to decrypt")
+            suggestions.append("Use the secret key from the keypair used during encryption")
+    elif isinstance(exc, DecryptionError):
+        exc_msg = str(exc).lower()
+        if "truncated" in exc_msg:
+            suggestions.append("The ciphertext appears incomplete — was it fully copied?")
+            suggestions.append("Check for line-break corruption in the base64 string")
+        elif "unknown cipher" in exc_msg or "unknown kdf" in exc_msg:
+            suggestions.append("This ciphertext uses a cipher/KDF not supported by this version")
+            suggestions.append("Update MORPHEUS to the latest version")
+        else:
+            suggestions.append("Check your password and try again")
+    else:
+        # cryptography.exceptions.InvalidTag or other
+        exc_cls = type(exc).__name__.lower()
+        exc_msg = str(exc).lower()
+        if "tag" in exc_msg or "tag" in exc_cls:
+            suggestions.append("Wrong password, or the ciphertext has been tampered with")
+            suggestions.append("If you're sure the password is correct, the data may be corrupted")
+        else:
+            suggestions.append("An unexpected error occurred during decryption")
+
+    if not suggestions:
+        return ""
+    return "\n  Suggestions:\n" + "\n".join(f"    - {s}" for s in suggestions)
+
+
+def _run_inspect(b64_data: str) -> None:
+    """Inspect a ciphertext header without decrypting — no password needed."""
+    import base64
+
+    # Try to parse header
+    try:
+        version, cipher_id, kdf_id, flags, payload, kdf_params = deserialize(b64_data)
+    except Exception as exc:
+        _print_status(f"Error: cannot parse ciphertext header: {exc}", error=True)
+        _print_status("  Make sure the input is valid MORPHEUS ciphertext (base64).", error=True)
+        sys.exit(1)
+
+    try:
+        raw = base64.b64decode(b64_data, validate=True)
+    except Exception:
+        raw = b""
+
+    is_v3 = version == FORMAT_VERSION_3
+    is_chained = bool(flags & FLAG_CHAINED)
+    is_hybrid = bool(flags & FLAG_HYBRID_PQ)
+    is_padded = bool(flags & FLAG_PADDED)
+
+    # Version
+    ver_str = "v3 (self-describing)" if is_v3 else "v2 (legacy)"
+
+    # Cipher
+    if is_chained:
+        cipher_str = "AES-256-GCM + ChaCha20-Poly1305 (chained)"
+        nonce_count = 2
+    else:
+        cipher_cls = CIPHER_REGISTRY.get(cipher_id)
+        cipher_str = cipher_cls.name if cipher_cls else f"unknown ({cipher_id:#04x})"
+        nonce_count = 1
+
+    # KDF
+    kdf_cls = KDF_REGISTRY.get(kdf_id)
+    kdf_str = kdf_cls.name if kdf_cls else f"unknown ({kdf_id:#04x})"
+    params_str = ""
+    if kdf_params and is_v3:
+        if kdf_id == 0x02:  # Argon2id
+            mem_mib = kdf_params[1] / 1024
+            params_str = f" (t={kdf_params[0]}, m={mem_mib:.0f} MiB, p={kdf_params[2]})"
+        elif kdf_id == 0x01:  # Scrypt
+            params_str = f" (n={kdf_params[0]}, r={kdf_params[1]}, p={kdf_params[2]})"
+
+    # Flags
+    flag_parts = []
+    if is_chained:
+        flag_parts.append("chained")
+    if is_hybrid:
+        flag_parts.append("hybrid PQ")
+    if is_padded:
+        flag_parts.append("padded")
+    flags_str = ", ".join(flag_parts) if flag_parts else "none"
+
+    # Size breakdown
+    header_size = HEADER_SIZE_V3 if is_v3 else HEADER_SIZE
+    salt_size = 16
+    nonce_size = 12 * nonce_count
+    tag_size = 16 * (2 if is_chained else 1)
+    key_check_size = KEY_CHECK_SIZE if is_v3 else 0
+    overhead = header_size + salt_size + nonce_size + tag_size + key_check_size
+    payload_size = len(payload)
+    estimated_ct = max(0, payload_size - salt_size - nonce_size - key_check_size)
+
+    print("MORPHEUS Ciphertext Inspection")
+    print("=" * 44)
+    print(f"  Format:     {ver_str}")
+    print(f"  Cipher:     {cipher_str}")
+    print(f"  KDF:        {kdf_str}{params_str}")
+    print(f"  Flags:      {flags_str}")
+    print(f"  Total size: {len(raw)} bytes ({len(b64_data)} base64 chars)")
+    print(f"  Header:     {header_size} bytes")
+    print(f"  Payload:    {payload_size} bytes")
+    print(f"  Overhead:   ~{overhead} bytes (header+salt+nonce+tag+key-check)")
+    print(f"  Encrypted:  ~{estimated_ct} bytes (ciphertext + AEAD tag)")
+    if is_padded:
+        print("  Note:       Plaintext was padded before encryption (exact length hidden)")
+    if is_hybrid:
+        print("  Note:       Requires --hybrid-pq --pq-secret-key to decrypt")
+    if not is_v3:
+        print("  Note:       v2 format — decrypter must match KDF parameters manually")
+    print("=" * 44)
+
+
+def _padding_hint(data_len: int, used_pad: bool, used_fixed: bool) -> str:
+    """Return a one-line padding hint for the user after encryption."""
+    if used_fixed:
+        return ""  # already using max privacy
+    if used_pad:
+        # Show which bucket the data fell into
+        bucket = _PAD_BUCKETS[-1]
+        for b in _PAD_BUCKETS:
+            if data_len < b:
+                bucket = b
+                break
+        if bucket < 1024:
+            bucket_str = f"{bucket}B"
+        else:
+            bucket_str = f"{bucket // 1024}K"
+        return f"Tip: Padded to {bucket_str} bucket. Use --fixed-size for constant 64K output."
+    # No padding at all
+    return "Tip: Ciphertext length reveals approximate message size. Use --pad or --fixed-size for privacy."
 
 
 def _run_benchmark() -> None:
@@ -336,6 +501,22 @@ def run_cli(argv: list[str] | None = None) -> None:
                 settings[flag] = True
         path = save_config(settings)
         _print_status(f"Preferences saved to {path}")
+        return
+
+    # --- Inspect ---
+    if args.inspect:
+        if args.file:
+            import os
+            if not os.path.isfile(args.file):
+                _print_status(f"Error: file not found: {args.file}", error=True)
+                sys.exit(1)
+            with open(args.file, "r") as f:
+                inspect_data = f.read().strip()
+        elif args.data:
+            inspect_data = args.data
+        else:
+            inspect_data = input("Enter ciphertext to inspect: ").strip()
+        _run_inspect(inspect_data)
         return
 
     # --- Benchmark ---
@@ -525,20 +706,28 @@ def run_cli(argv: list[str] | None = None) -> None:
     # --- Text mode ---
     try:
         if operation == "encrypt":
+            _progress(f"Deriving key ({pipeline.kdf.name})...")
             result = pipeline.encrypt(data, password, pad=args.pad,
                                       fixed_size=args.fixed_size)
             print(f"\nEncrypted ({pipeline.description}):")
             print(result)
+            hint = _padding_hint(len(data.encode("utf-8")), args.pad, args.fixed_size)
+            if hint:
+                _progress(hint)
         else:
+            _progress("Deriving key and decrypting...")
             result = pipeline.decrypt(data, password)
             print("\nDecrypted:")
             print(result)
     except Exception as exc:
         if operation == "decrypt":
             diag = _diagnose_ciphertext(data)
+            suggestion = _suggest_fix(exc, data)
             msg = f"Decryption failed: {exc}\n"
             if diag:
                 msg += f"\nCiphertext details:\n{diag}"
+            if suggestion:
+                msg += suggestion
         else:
             msg = f"Encryption error: {exc}"
         _print_status(msg, error=True)
@@ -594,6 +783,7 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             envelope_dict["filename"] = os.path.basename(file_path)
         envelope = json.dumps(envelope_dict)
 
+        _progress(f"Deriving key ({pipeline.kdf.name}) for {file_size} byte file...")
         try:
             encrypted = pipeline.encrypt(envelope, password, pad=args.pad,
                                         fixed_size=args.fixed_size)
@@ -619,18 +809,25 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             f"Encrypted ({pipeline.description}): {file_path} -> {out_path} "
             f"({file_size} bytes -> {len(encrypted)} chars)"
         )
+        hint = _padding_hint(file_size, args.pad, args.fixed_size)
+        if hint:
+            _progress(hint)
 
     else:
         with open(file_path, "r") as f:
             encrypted_data = f.read().strip()
 
+        _progress(f"Deriving key and decrypting {file_path}...")
         try:
             decrypted = pipeline.decrypt(encrypted_data, password)
         except Exception as exc:
             diag = _diagnose_ciphertext(encrypted_data)
+            suggestion = _suggest_fix(exc, encrypted_data)
             msg = f"Decryption failed: {exc}\n"
             if diag:
                 msg += f"\nCiphertext details:\n{diag}"
+            if suggestion:
+                msg += suggestion
             _print_status(msg, error=True)
             sys.exit(1)
 

@@ -11,7 +11,18 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from morpheus.cli import run_cli, _diagnose_ciphertext
+from morpheus.cli import (
+    run_cli,
+    _diagnose_ciphertext,
+    _suggest_fix,
+    _padding_hint,
+)
+from morpheus.core.errors import (
+    ConfigurationError,
+    DecryptionError,
+    FormatError,
+    WrongPasswordError,
+)
 from morpheus.core.pipeline import EncryptionPipeline
 
 
@@ -406,3 +417,160 @@ class TestCheckLeaks:
             assert "breach check failed" in captured.err
         finally:
             sys.stdin = old_stdin
+
+
+class TestInspect:
+    """Test --inspect command for ciphertext triage."""
+
+    def test_inspect_v3_aes(self, capsys):
+        """Inspecting a v3 AES ciphertext shows all header details."""
+        p = EncryptionPipeline()
+        ct = p.encrypt("hello world", "Test-Pass1!")
+        run_cli(["--inspect", "--data", ct])
+        out = capsys.readouterr().out
+        assert "MORPHEUS Ciphertext Inspection" in out
+        assert "v3" in out
+        assert "AES-256-GCM" in out
+        assert "Argon2id" in out
+        assert "Total size" in out
+        assert "Payload" in out
+
+    def test_inspect_chained_padded(self, capsys):
+        """Inspecting a chained+padded ciphertext shows flags."""
+        p = EncryptionPipeline(chain=True)
+        ct = p.encrypt("data", "Test-Pass1!", pad=True)
+        run_cli(["--inspect", "--data", ct])
+        out = capsys.readouterr().out
+        assert "chained" in out.lower()
+        assert "padded" in out.lower()
+
+    def test_inspect_from_file(self, capsys):
+        """--inspect with --file reads from a file."""
+        p = EncryptionPipeline()
+        ct = p.encrypt("test", "Test-Pass1!")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".enc", delete=False) as f:
+            f.write(ct)
+            f.flush()
+            try:
+                run_cli(["--inspect", "-f", f.name])
+                out = capsys.readouterr().out
+                assert "AES-256-GCM" in out
+            finally:
+                os.unlink(f.name)
+
+    def test_inspect_invalid_data_exits(self):
+        """Invalid ciphertext should cause --inspect to exit with error."""
+        with pytest.raises(SystemExit):
+            run_cli(["--inspect", "--data", "not-valid-base64!!!"])
+
+    def test_inspect_no_password_needed(self, capsys):
+        """--inspect should work without any password interaction."""
+        p = EncryptionPipeline()
+        ct = p.encrypt("test", "Test-Pass1!")
+        # No stdin manipulation needed — inspect doesn't ask for password
+        run_cli(["--inspect", "--data", ct])
+        out = capsys.readouterr().out
+        assert "Inspection" in out
+
+
+class TestSuggestFix:
+    """Test the error diagnosis suggestion helper."""
+
+    def test_wrong_password_suggestion(self):
+        exc = WrongPasswordError("Key verification failed")
+        result = _suggest_fix(exc)
+        assert "password" in result.lower()
+        assert "caps lock" in result.lower()
+
+    def test_format_error_suggestion(self):
+        exc = FormatError("Invalid base64")
+        result = _suggest_fix(exc)
+        assert "doesn't look like MORPHEUS" in result
+
+    def test_config_error_pq_suggestion(self):
+        exc = ConfigurationError("Hybrid PQ requires a secret key")
+        result = _suggest_fix(exc)
+        assert "--hybrid-pq" in result
+        assert "--pq-secret-key" in result
+
+    def test_truncated_suggestion(self):
+        exc = DecryptionError("Truncated ciphertext: need 28 bytes")
+        result = _suggest_fix(exc)
+        assert "incomplete" in result.lower()
+
+    def test_unknown_cipher_suggestion(self):
+        exc = DecryptionError("Unknown cipher ID 0xff")
+        result = _suggest_fix(exc)
+        assert "update" in result.lower()
+
+    def test_invalid_tag_suggestion(self):
+        from cryptography.exceptions import InvalidTag
+        exc = InvalidTag()
+        result = _suggest_fix(exc)
+        assert "wrong password" in result.lower() or "tampered" in result.lower()
+
+
+class TestPaddingHint:
+    """Test the padding advisor hint."""
+
+    def test_no_padding_shows_hint(self):
+        hint = _padding_hint(100, used_pad=False, used_fixed=False)
+        assert "--pad" in hint
+        assert "--fixed-size" in hint
+
+    def test_pad_shows_bucket_info(self):
+        hint = _padding_hint(100, used_pad=True, used_fixed=False)
+        assert "bucket" in hint.lower()
+        assert "256B" in hint
+
+    def test_pad_larger_data_shows_bigger_bucket(self):
+        hint = _padding_hint(500, used_pad=True, used_fixed=False)
+        assert "1K" in hint
+
+    def test_fixed_size_no_hint(self):
+        hint = _padding_hint(100, used_pad=False, used_fixed=True)
+        assert hint == ""
+
+    def test_pad_16k_bucket(self):
+        hint = _padding_hint(5000, used_pad=True, used_fixed=False)
+        assert "16K" in hint
+
+
+class TestProgressFeedback:
+    """Test that progress messages appear during encrypt/decrypt."""
+
+    def test_encrypt_shows_progress(self, capsys):
+        """Encryption should show KDF progress on stderr."""
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
+        try:
+            run_cli(["-o", "encrypt", "--data", "test message"])
+        finally:
+            sys.stdin = old_stdin
+        captured = capsys.readouterr()
+        assert "Deriving key" in captured.err
+        assert "Argon2id" in captured.err
+
+    def test_decrypt_shows_progress(self, capsys):
+        """Decryption should show progress on stderr."""
+        p = EncryptionPipeline()
+        ct = p.encrypt("test message", "T3st!Passw0rd#Str0ng")
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\n")
+        try:
+            run_cli(["-o", "decrypt", "--data", ct])
+        finally:
+            sys.stdin = old_stdin
+        captured = capsys.readouterr()
+        assert "Deriving key" in captured.err or "decrypting" in captured.err.lower()
+
+    def test_encrypt_no_pad_shows_hint(self, capsys):
+        """Encryption without --pad should show a padding hint."""
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
+        try:
+            run_cli(["-o", "encrypt", "--data", "test message"])
+        finally:
+            sys.stdin = old_stdin
+        captured = capsys.readouterr()
+        assert "--pad" in captured.err or "--fixed-size" in captured.err
