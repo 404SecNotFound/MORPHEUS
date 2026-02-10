@@ -6,6 +6,8 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -275,3 +277,132 @@ class TestBenchmark:
         assert "Recommended" in captured.out
         assert "Argon2id" in captured.out
         assert "AES-256-GCM" in captured.out
+
+
+class TestPassphraseMode:
+    """Test --passphrase flag for word-based password validation."""
+
+    def test_passphrase_mode_accepts_word_based(self):
+        """A strong passphrase without digits/specials should be accepted."""
+        old_stdin = sys.stdin
+        passphrase = "correct horse battery staple"
+        sys.stdin = io.StringIO(f"{passphrase}\n{passphrase}\n")
+        try:
+            run_cli([
+                "-o", "encrypt",
+                "--data", "test message",
+                "--passphrase",
+            ])
+        finally:
+            sys.stdin = old_stdin
+
+    def test_passphrase_mode_rejects_short(self):
+        """A passphrase with too few words should be rejected."""
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("two words\ntwo words\n")
+        try:
+            with pytest.raises(SystemExit):
+                run_cli([
+                    "-o", "encrypt",
+                    "--data", "test message",
+                    "--passphrase",
+                ])
+        finally:
+            sys.stdin = old_stdin
+
+    def test_normal_mode_rejects_passphrase(self):
+        """Without --passphrase, a word-only password fails standard check."""
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(
+            "correct horse battery staple\ncorrect horse battery staple\n"
+        )
+        try:
+            with pytest.raises(SystemExit):
+                run_cli([
+                    "-o", "encrypt",
+                    "--data", "test message",
+                ])
+        finally:
+            sys.stdin = old_stdin
+
+
+class TestSaveConfig:
+    """Test --save-config flag."""
+
+    def test_save_config_creates_file(self, capsys):
+        """--save-config should write config.toml."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_file = Path(tmpdir) / "config.toml"
+            with patch("morpheus.cli.save_config") as mock_save:
+                mock_save.return_value = cfg_file
+                run_cli(["--save-config", "--cipher", "ChaCha20-Poly1305", "--chain"])
+            mock_save.assert_called_once()
+            call_args = mock_save.call_args[0][0]
+            assert call_args["cipher"] == "ChaCha20-Poly1305"
+            assert call_args["chain"] is True
+
+
+class TestCheckLeaks:
+    """Test --check-leaks flag (mocked network)."""
+
+    def test_leaked_password_blocks_encrypt(self):
+        """A known-breached password should block encryption."""
+        fake_response = MagicMock()
+        # SHA-1("T3st!Passw0rd#Str0ng") — we mock the response to contain its suffix
+        import hashlib
+        sha1 = hashlib.sha1(b"T3st!Passw0rd#Str0ng").hexdigest().upper()
+        suffix = sha1[5:]
+        fake_response.read.return_value = f"{suffix}:42\r\n".encode()
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
+        try:
+            with patch("morpheus.core.validation.urllib.request.urlopen",
+                        return_value=fake_response):
+                with pytest.raises(SystemExit):
+                    run_cli([
+                        "-o", "encrypt",
+                        "--data", "test message",
+                        "--check-leaks",
+                    ])
+        finally:
+            sys.stdin = old_stdin
+
+    def test_safe_password_proceeds(self):
+        """A non-breached password should allow encryption to proceed."""
+        fake_response = MagicMock()
+        fake_response.read.return_value = b"0000000000000000000000000000000000A:1\r\n"
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
+        try:
+            with patch("morpheus.core.validation.urllib.request.urlopen",
+                        return_value=fake_response):
+                run_cli([
+                    "-o", "encrypt",
+                    "--data", "test message",
+                    "--check-leaks",
+                ])
+        finally:
+            sys.stdin = old_stdin
+
+    def test_network_error_proceeds_with_warning(self, capsys):
+        """Network failure should warn but not block encryption."""
+        import urllib.error
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
+        try:
+            with patch(
+                "morpheus.core.validation.urllib.request.urlopen",
+                side_effect=urllib.error.URLError("no network"),
+            ):
+                run_cli([
+                    "-o", "encrypt",
+                    "--data", "test message",
+                    "--check-leaks",
+                ])
+            captured = capsys.readouterr()
+            assert "breach check failed" in captured.err
+        finally:
+            sys.stdin = old_stdin

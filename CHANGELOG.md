@@ -3,6 +3,22 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.0.5] - 2026-02-10
+
+### Added
+- **`--passphrase` mode**: Word-based password validation that evaluates
+  passphrases by word count (4+) and total length (20+) instead of requiring
+  digits/uppercase/special characters. Accepts `correct horse battery staple`
+  style passwords that the standard checker would reject
+- **`--check-leaks` flag**: Opt-in breach detection via Have I Been Pwned
+  k-anonymity API. Only the first 5 characters of the SHA-1 hash are sent;
+  the full password never leaves the machine. Blocks encryption if the
+  password appears in known breaches; gracefully degrades on network failure
+- **`--save-config` and persistent preferences**: Saves preferred cipher, KDF,
+  and flag settings to `~/.morpheus/config.toml` (mode 0600). Loaded
+  automatically on startup; CLI arguments always override saved preferences
+- Test count: 191 -> 222
+
 ## [2.0.4] - 2026-02-10
 
 ### Added
