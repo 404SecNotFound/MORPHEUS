@@ -489,7 +489,7 @@ def run_cli(argv: list[str] | None = None) -> None:
     # --- Load persistent preferences (CLI args override) ---
     saved = load_config()
     if saved:
-        apply_config_defaults(args, saved)
+        apply_config_defaults(args, saved, raw_argv=argv)
 
     # --- Save config ---
     if args.save_config:
@@ -814,6 +814,12 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             _progress(hint)
 
     else:
+        if file_size > max_size:
+            _print_status(
+                f"Error: file too large ({file_size / 1024 / 1024:.1f} MiB, max 100 MiB)",
+                error=True,
+            )
+            sys.exit(1)
         with open(file_path, "r") as f:
             encrypted_data = f.read().strip()
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "morpheus"
-version = "2.0.2"
+version = "2.1.0"
 description = "Quantum-resistant multi-cipher encryption tool with a terminal GUI"
 readme = "README.md"
 license = {text = "MIT"}
@@ -36,4 +36,4 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 78
+fail_under = 85

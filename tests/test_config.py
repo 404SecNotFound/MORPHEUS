@@ -113,7 +113,9 @@ class TestApplyConfigDefaults:
             pad=False,
         )
         config = {"cipher": "AES-256-GCM", "chain": False, "pad": True}
-        apply_config_defaults(args, config)
+        # Simulate the user having typed --cipher and --chain on the command line
+        raw_argv = ["--cipher", "ChaCha20-Poly1305", "--chain"]
+        apply_config_defaults(args, config, raw_argv=raw_argv)
         # cipher was explicitly set to non-default, so it stays
         assert args.cipher == "ChaCha20-Poly1305"
         # chain was explicitly set to True, so config's False doesn't override

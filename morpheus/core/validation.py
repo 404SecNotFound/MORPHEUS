@@ -14,7 +14,8 @@ import urllib.request
 import urllib.error
 from dataclasses import dataclass
 
-SPECIAL_CHARS = r"""!@#$%^&*(),.?":{}|<>~`\[\]\-_=+;'/\\"""
+# Maximum password length to prevent resource exhaustion in KDF
+MAX_PASSWORD_LENGTH = 1024
 
 # Scoring weights
 _SCORE_LENGTH_BASE = 12
@@ -44,6 +45,13 @@ def check_password_strength(password: str) -> PasswordStrength:
     score = 0
     feedback: list[str] = []
     length = len(password)
+
+    if length > MAX_PASSWORD_LENGTH:
+        return PasswordStrength(
+            score=0, label="Weak",
+            feedback=[f"Password too long (max {MAX_PASSWORD_LENGTH} characters)"],
+            is_acceptable=False,
+        )
 
     if length == 0:
         return PasswordStrength(
@@ -246,13 +254,13 @@ def check_password_leaked(password: str, *, timeout: float = 5.0) -> tuple[bool,
     Returns (is_leaked, breach_count).
     Raises urllib.error.URLError on network failure.
     """
-    sha1 = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
+    sha1 = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()  # nosec B324 — SHA-1 required by HIBP API
     prefix = sha1[:5]
     suffix = sha1[5:]
 
     url = f"https://api.pwnedpasswords.com/range/{prefix}"
     req = urllib.request.Request(url, headers={"User-Agent": "MORPHEUS-EncryptionTool"})
-    resp = urllib.request.urlopen(req, timeout=timeout)
+    resp = urllib.request.urlopen(req, timeout=timeout)  # nosec B310 — URL is hardcoded HTTPS
     body = resp.read().decode("utf-8")
 
     for line in body.splitlines():

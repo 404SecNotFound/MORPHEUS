@@ -6,7 +6,31 @@ dist/
 build/
 .pytest_cache/
 .coverage
+htmlcov/
 .ruff_cache/
 .hypothesis/
 venv/
+.venv/
+*.log
+
+# Secrets and credentials
 .env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+*.der
+*.secret
+credentials*
+secrets.*
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Legacy directory (removed in v2.1.0)
+secure_encryption/

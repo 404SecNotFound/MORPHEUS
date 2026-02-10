@@ -79,8 +79,23 @@ def clipboard_paste() -> str | None:
 
 
 def save_to_file(text: str, prefix: str = "morpheus") -> str:
-    """Save *text* to a temp file as a clipboard fallback.  Returns path."""
+    """Save *text* to a temp file as a clipboard fallback.  Returns path.
+
+    The file is created with mode 0600 (user-only via mkstemp) and
+    registered for cleanup when the process exits.
+    """
+    import atexit
+
     fd, path = tempfile.mkstemp(prefix=f"{prefix}_", suffix=".txt")
     with os.fdopen(fd, "w") as fh:
         fh.write(text)
+
+    # Schedule cleanup on process exit so sensitive data doesn't linger
+    def _cleanup():
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    atexit.register(_cleanup)
     return path
