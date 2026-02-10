@@ -9,7 +9,7 @@ import tempfile
 
 import pytest
 
-from morpheus.cli import run_cli
+from morpheus.cli import run_cli, _diagnose_ciphertext
 from morpheus.core.pipeline import EncryptionPipeline
 
 
@@ -227,3 +227,51 @@ class TestFileEncryption:
             envelope = json.loads(decrypted_envelope)
             assert envelope["envelope_version"] == 1
             assert envelope["filename"] == "versioned.txt"
+
+
+class TestDiagnoseCiphertext:
+    """Test the ciphertext diagnosis helper for error context."""
+
+    def test_v3_aes_argon2(self):
+        """Diagnose a standard v3 AES+Argon2 ciphertext."""
+        p = EncryptionPipeline()
+        ct = p.encrypt("test", "Test-Pass1!")
+        diag = _diagnose_ciphertext(ct)
+        assert "v3" in diag
+        assert "AES-256-GCM" in diag
+        assert "Argon2id" in diag
+        assert "t=3" in diag
+
+    def test_v3_chained(self):
+        """Diagnose a chained ciphertext."""
+        p = EncryptionPipeline(chain=True)
+        ct = p.encrypt("test", "Test-Pass1!")
+        diag = _diagnose_ciphertext(ct)
+        assert "chained" in diag.lower()
+
+    def test_v3_padded_flag(self):
+        """Diagnose a padded ciphertext shows the flag."""
+        p = EncryptionPipeline()
+        ct = p.encrypt("test", "Test-Pass1!", pad=True)
+        diag = _diagnose_ciphertext(ct)
+        assert "padded" in diag.lower()
+
+    def test_invalid_input_returns_empty(self):
+        """Invalid base64 should return empty string, not crash."""
+        assert _diagnose_ciphertext("not-valid!!!") == ""
+
+    def test_empty_input_returns_empty(self):
+        assert _diagnose_ciphertext("") == ""
+
+
+class TestBenchmark:
+    """Test the --benchmark command runs without error."""
+
+    def test_benchmark_runs(self, capsys):
+        """--benchmark should produce output and exit cleanly."""
+        run_cli(["--benchmark"])
+        captured = capsys.readouterr()
+        assert "MORPHEUS Hardware Benchmark" in captured.out
+        assert "Recommended" in captured.out
+        assert "Argon2id" in captured.out
+        assert "AES-256-GCM" in captured.out

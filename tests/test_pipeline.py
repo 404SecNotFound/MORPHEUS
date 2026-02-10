@@ -2,7 +2,6 @@
 
 import base64
 import struct
-import warnings
 
 import pytest
 from cryptography.exceptions import InvalidTag
@@ -109,22 +108,16 @@ class TestChainedCipher:
         assert decrypted == SAMPLE_TEXT
 
     def test_chain_always_uses_fixed_order(self):
-        """Chaining always uses AES->ChaCha regardless of cipher param."""
+        """Chaining always uses AES->ChaCha regardless of which pipeline decrypts."""
         p1 = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2, chain=True)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            p2 = EncryptionPipeline(cipher=ChaCha20Poly1305Cipher(), kdf=FAST_ARGON2, chain=True)
+        p2 = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2, chain=True)
         ct = p1.encrypt("test", PASSWORD)
-        # Both pipelines can decrypt because chain forces fixed order
         assert p2.decrypt(ct, PASSWORD) == "test"
 
-    def test_chain_with_chacha_emits_warning(self):
-        """Passing ChaCha as cipher with chain=True should emit a warning."""
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
+    def test_chain_with_chacha_raises_error(self):
+        """Passing ChaCha as cipher with chain=True should raise ValueError."""
+        with pytest.raises(ValueError, match="Cannot combine chain=True"):
             EncryptionPipeline(cipher=ChaCha20Poly1305Cipher(), kdf=FAST_ARGON2, chain=True)
-            assert len(w) == 1
-            assert "overridden" in str(w[0].message).lower()
 
     def test_chained_wrong_password(self):
         pipeline = EncryptionPipeline(
@@ -374,12 +367,11 @@ class TestV3Features:
         assert decrypted == "short"
 
     def test_padding_hides_length(self):
-        """Different length plaintexts produce same-size ciphertexts when padded."""
+        """Different length plaintexts in same bucket produce same-size ciphertexts."""
         pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
         ct_short = pipeline.encrypt("a", PASSWORD, pad=True)
         ct_longer = pipeline.encrypt("a" * 200, PASSWORD, pad=True)
-        # Both pad to 256-byte blocks, so ciphertexts should be similar size
-        # (short pads to 256, longer also pads to 256 since 200 < 256)
+        # Both are under 256 bytes, so pad to the 256B bucket
         raw_short = base64.b64decode(ct_short)
         raw_longer = base64.b64decode(ct_longer)
         assert len(raw_short) == len(raw_longer)
@@ -414,3 +406,138 @@ class TestV3Features:
         encrypted = pipeline.encrypt(SAMPLE_TEXT, PASSWORD, pad=True)
         decrypted = pipeline.decrypt(encrypted, PASSWORD)
         assert decrypted == SAMPLE_TEXT
+
+    def test_larger_text_uses_bigger_bucket(self):
+        """Text >256 bytes pads to next bucket (1024)."""
+        pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        text_300 = "x" * 300  # >256 bytes, should go to 1024 bucket
+        encrypted = pipeline.encrypt(text_300, PASSWORD, pad=True)
+        decrypted = pipeline.decrypt(encrypted, PASSWORD)
+        assert decrypted == text_300
+
+
+class TestKDFBoundsValidation:
+    """Test that out-of-bounds KDF params from headers are rejected."""
+
+    def test_argon2_time_cost_too_high(self):
+        """Argon2 time_cost above limit should raise ValueError."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(ValueError, match="out of allowed range"):
+            _build_kdf_from_params(0x02, (999, 65536, 4))
+
+    def test_argon2_memory_cost_too_low(self):
+        """Argon2 memory_cost below limit should raise ValueError."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(ValueError, match="out of allowed range"):
+            _build_kdf_from_params(0x02, (3, 0, 4))
+
+    def test_scrypt_n_too_high(self):
+        """Scrypt n above limit should raise ValueError."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(ValueError, match="out of allowed range"):
+            _build_kdf_from_params(0x01, (2**30, 8, 1))
+
+    def test_valid_params_accepted(self):
+        """Normal KDF params should be accepted without error."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        kdf = _build_kdf_from_params(0x02, (3, 65536, 4))
+        assert kdf.time_cost == 3
+
+    def test_unknown_kdf_id_rejected(self):
+        """Unknown KDF ID should raise ValueError."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(ValueError, match="Unknown KDF ID"):
+            _build_kdf_from_params(0xFF, (1, 1, 1))
+
+
+class TestStructuredErrors:
+    """Verify specific error types from morpheus.core.errors are raised."""
+
+    def test_wrong_password_raises_wrong_password_error(self):
+        from morpheus.core.errors import WrongPasswordError
+        p = EncryptionPipeline()
+        ct = p.encrypt("test", "correct-Pass1!")
+        with pytest.raises(WrongPasswordError, match="incorrect password"):
+            p.decrypt(ct, "wrong-Pass1!")
+
+    def test_chain_config_raises_configuration_error(self):
+        from morpheus.core.errors import ConfigurationError
+        with pytest.raises(ConfigurationError, match="Cannot combine"):
+            EncryptionPipeline(cipher=ChaCha20Poly1305Cipher(), chain=True)
+
+    def test_kdf_bounds_raises_kdf_parameter_error(self):
+        from morpheus.core.errors import KDFParameterError
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(KDFParameterError, match="out of allowed range"):
+            _build_kdf_from_params(0x02, (999, 65536, 4))
+
+    def test_truncated_ciphertext_raises_decryption_error(self):
+        from morpheus.core.errors import DecryptionError
+        p = EncryptionPipeline()
+        ct = p.encrypt("hello", "Test-Pass1!")
+        # Corrupt by truncating the base64
+        raw = base64.b64decode(ct)
+        truncated = base64.b64encode(raw[:20]).decode()
+        with pytest.raises(DecryptionError, match="Truncated"):
+            p.decrypt(truncated, "Test-Pass1!")
+
+    def test_format_error_on_bad_base64(self):
+        from morpheus.core.errors import FormatError
+        from morpheus.core.formats import deserialize
+        with pytest.raises(FormatError, match="Invalid base64"):
+            deserialize("not-valid-base64!!!")
+
+    def test_all_errors_inherit_from_morpheus_error(self):
+        from morpheus.core.errors import (
+            MorpheusError, FormatError, PaddingError,
+            KDFParameterError, ConfigurationError,
+            DecryptionError, WrongPasswordError,
+        )
+        for cls in (FormatError, PaddingError, KDFParameterError,
+                    ConfigurationError, DecryptionError, WrongPasswordError):
+            assert issubclass(cls, MorpheusError)
+            assert issubclass(cls, ValueError)
+
+    def test_wrong_password_is_decryption_error(self):
+        from morpheus.core.errors import DecryptionError, WrongPasswordError
+        assert issubclass(WrongPasswordError, DecryptionError)
+
+
+class TestFixedSizePadding:
+    """Verify --fixed-size constant-size padding."""
+
+    def test_fixed_size_roundtrip(self):
+        """Small text encrypted with fixed_size should decrypt correctly."""
+        p = EncryptionPipeline()
+        ct = p.encrypt("hello world", "Test-Pass1!", fixed_size=True)
+        assert p.decrypt(ct, "Test-Pass1!") == "hello world"
+
+    def test_fixed_size_constant_output(self):
+        """Different-length inputs produce same-length ciphertexts."""
+        p = EncryptionPipeline()
+        ct_short = p.encrypt("a", "Test-Pass1!", fixed_size=True)
+        ct_long = p.encrypt("a" * 1000, "Test-Pass1!", fixed_size=True)
+        assert len(ct_short) == len(ct_long)
+
+    def test_fixed_size_differs_from_bucket(self):
+        """Fixed-size output is larger than bucket mode for small input."""
+        p = EncryptionPipeline()
+        ct_bucket = p.encrypt("hello", "Test-Pass1!", pad=True)
+        ct_fixed = p.encrypt("hello", "Test-Pass1!", fixed_size=True)
+        assert len(ct_fixed) > len(ct_bucket)
+
+    def test_fixed_size_too_large_rejected(self):
+        """Input larger than 64 KiB - 4 bytes should be rejected."""
+        from morpheus.core.errors import PaddingError
+        p = EncryptionPipeline()
+        big_text = "x" * 65533  # > 65536 - 4
+        with pytest.raises(PaddingError, match="too large for --fixed-size"):
+            p.encrypt(big_text, "Test-Pass1!", fixed_size=True)
+
+    def test_fixed_size_sets_padded_flag(self):
+        """fixed_size=True should set the FLAG_PADDED bit."""
+        from morpheus.core.formats import FLAG_PADDED, deserialize
+        p = EncryptionPipeline()
+        ct = p.encrypt("test", "Test-Pass1!", fixed_size=True)
+        _, _, _, flags, _, _ = deserialize(ct)
+        assert flags & FLAG_PADDED
