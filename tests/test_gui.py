@@ -205,6 +205,14 @@ class TestClipboardPaste:
             mock_run.side_effect = FileNotFoundError
             assert clipboard_paste() is None
 
+    def test_tkinter_fallback(self):
+        with patch("morpheus.ui.clipboard._pyperclip", None), \
+             patch("morpheus.ui.clipboard.subprocess.run", side_effect=FileNotFoundError), \
+             patch("morpheus.ui.clipboard.tk.Tk") as mock_tk:
+            tk_root = mock_tk.return_value
+            tk_root.clipboard_get.return_value = "from-tkinter"
+            assert clipboard_paste() == "from-tkinter"
+
 
 class TestClipboardCopy:
     """Test the clipboard copy fallback chain."""
@@ -222,3 +230,13 @@ class TestClipboardCopy:
             mock_popen.side_effect = FileNotFoundError
             ok, method = clipboard_copy("test")
             assert ok is False
+
+    def test_tkinter_fallback(self):
+        with patch("morpheus.ui.clipboard._pyperclip", None), \
+             patch("morpheus.ui.clipboard.subprocess.Popen", side_effect=FileNotFoundError), \
+             patch("morpheus.ui.clipboard.tk.Tk") as mock_tk:
+            ok, method = clipboard_copy("test")
+            assert ok is True
+            assert method == "tkinter"
+            tk_root = mock_tk.return_value
+            tk_root.clipboard_append.assert_called_once_with("test")
