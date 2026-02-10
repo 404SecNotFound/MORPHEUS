@@ -196,7 +196,8 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--cipher` | `AES-256-GCM` (default) or `ChaCha20-Poly1305` |
 | `--kdf` | `Argon2id` (default) or `Scrypt` |
 | `--chain` | Enable cipher chaining |
-| `--pad` | Pad plaintext to 256-byte blocks (hides exact length) |
+| `--pad` | Pad plaintext to hide exact length (bucket mode: 256B/1K/4K/16K/64K) |
+| `--fixed-size` | Pad all ciphertexts to 64 KiB (constant-size, max privacy). Implies `--pad` |
 | `--force` | Overwrite existing output files |
 | `--no-strength-check` | Skip password strength validation |
 | `--no-filename` | Omit original filename from encrypted envelope |
@@ -204,6 +205,7 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--pq-public-key` | Base64 ML-KEM-768 public key |
 | `--pq-secret-key` | Base64 ML-KEM-768 secret key |
 | `--generate-keypair` | Generate and print an ML-KEM-768 keypair |
+| `--benchmark` | Benchmark cipher and KDF performance, recommend optimal config |
 | `--cli` | Force CLI mode (skip GUI) |
 
 </details>

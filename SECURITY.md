@@ -158,8 +158,12 @@ envelope for maximum privacy.
 
 The `--pad` flag pads plaintext to discrete size buckets (256B, 1K, 4K, 16K,
 64K, then 64K multiples). This hides the exact plaintext length but still
-reveals which bucket the data falls into. For most practical purposes this
-provides strong length hiding, but it is not a constant-size scheme.
+reveals which bucket the data falls into.
+
+For maximum privacy, the `--fixed-size` flag pads all ciphertexts to exactly
+64 KiB regardless of input length. This eliminates length-based traffic
+analysis entirely — all messages are indistinguishable by size. Inputs larger
+than ~64 KiB cannot use fixed-size mode (use `--pad` instead).
 
 ### GCM nonce collision probability
 
