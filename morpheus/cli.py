@@ -11,8 +11,12 @@ import argparse
 import getpass
 import sys
 
-from .core.ciphers import CIPHER_CHOICES
-from .core.kdf import KDF_CHOICES
+from .core.ciphers import CIPHER_CHOICES, CIPHER_REGISTRY
+from .core.formats import (
+    FORMAT_VERSION_3, FLAG_CHAINED, FLAG_HYBRID_PQ, FLAG_PADDED,
+    deserialize,
+)
+from .core.kdf import KDF_CHOICES, KDF_REGISTRY
 from .core.pipeline import PQ_AVAILABLE, EncryptionPipeline
 from .core.validation import check_password_strength, validate_input_text
 
@@ -107,6 +111,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Omit original filename from encrypted envelope (privacy).",
     )
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="Benchmark KDF and cipher performance on this hardware, "
+             "then print recommended configuration.",
+    )
     return parser
 
 
@@ -147,10 +157,147 @@ def _print_status(msg: str, error: bool = False) -> None:
     print(msg, file=stream)
 
 
+def _diagnose_ciphertext(b64_data: str) -> str:
+    """Parse a ciphertext header and return a human-readable diagnosis.
+
+    Returns an empty string if the header cannot be parsed.
+    """
+    try:
+        version, cipher_id, kdf_id, flags, _, kdf_params = deserialize(b64_data)
+    except Exception:
+        return ""
+
+    # Version
+    ver_str = "v3 (self-describing)" if version == FORMAT_VERSION_3 else "v2 (legacy)"
+
+    # Cipher
+    if flags & FLAG_CHAINED:
+        cipher_str = "AES-256-GCM + ChaCha20-Poly1305 (chained)"
+    else:
+        cipher_cls = CIPHER_REGISTRY.get(cipher_id)
+        cipher_str = cipher_cls.name if cipher_cls else f"unknown ({cipher_id:#04x})"
+
+    # KDF
+    kdf_cls = KDF_REGISTRY.get(kdf_id)
+    kdf_str = kdf_cls.name if kdf_cls else f"unknown ({kdf_id:#04x})"
+
+    # KDF params
+    params_str = ""
+    if kdf_params and version == FORMAT_VERSION_3:
+        if kdf_id == 0x02:  # Argon2id
+            params_str = f" (t={kdf_params[0]}, m={kdf_params[1]} KiB, p={kdf_params[2]})"
+        elif kdf_id == 0x01:  # Scrypt
+            params_str = f" (n={kdf_params[0]}, r={kdf_params[1]}, p={kdf_params[2]})"
+
+    # Flags
+    flag_parts = []
+    if flags & FLAG_HYBRID_PQ:
+        flag_parts.append("hybrid PQ")
+    if flags & FLAG_PADDED:
+        flag_parts.append("padded")
+    flags_str = f"  Flags:   {', '.join(flag_parts)}\n" if flag_parts else ""
+
+    return (
+        f"  Format:  {ver_str}\n"
+        f"  Cipher:  {cipher_str}\n"
+        f"  KDF:     {kdf_str}{params_str}\n"
+        f"{flags_str}"
+    )
+
+
+def _run_benchmark() -> None:
+    """Benchmark KDF and cipher performance, print recommendations."""
+    import os
+    import time
+
+    from .core.ciphers import AES256GCM, ChaCha20Poly1305Cipher
+    from .core.kdf import Argon2idKDF, ScryptKDF
+
+    print("MORPHEUS Hardware Benchmark")
+    print("=" * 50)
+
+    # --- Cipher benchmark ---
+    print("\nCipher performance (1 MiB payload, 3 runs):")
+    sample = os.urandom(1024 * 1024)  # 1 MiB
+    key = os.urandom(32)
+    aad = b"benchmark"
+
+    for cipher_cls in (AES256GCM, ChaCha20Poly1305Cipher):
+        c = cipher_cls()
+        times = []
+        for _ in range(3):
+            t0 = time.perf_counter()
+            nonce, ct = c.encrypt(key, sample, aad)
+            c.decrypt(key, nonce, ct, aad)
+            times.append(time.perf_counter() - t0)
+        avg = sum(times) / len(times)
+        throughput = (2 * len(sample)) / avg / (1024 * 1024)  # encrypt + decrypt
+        print(f"  {c.name:<24s}  {avg*1000:6.1f} ms  ({throughput:.0f} MiB/s)")
+
+    # Recommend cipher
+    aes = AES256GCM()
+    chacha = ChaCha20Poly1305Cipher()
+    t_aes = min(_bench_cipher(aes, sample, key, aad) for _ in range(3))
+    t_chacha = min(_bench_cipher(chacha, sample, key, aad) for _ in range(3))
+    if t_aes <= t_chacha:
+        ratio = t_chacha / t_aes if t_aes > 0 else 1
+        print(f"\n  -> Recommended: AES-256-GCM ({ratio:.1f}x faster, AES-NI likely available)")
+    else:
+        ratio = t_aes / t_chacha if t_chacha > 0 else 1
+        print(f"\n  -> Recommended: ChaCha20-Poly1305 ({ratio:.1f}x faster on this hardware)")
+
+    # --- KDF benchmark ---
+    print("\nKDF performance (single derivation):")
+    test_password = bytearray(b"benchmark-password")
+
+    kdf_configs = [
+        ("Argon2id (default: t=3, m=64M)", Argon2idKDF(time_cost=3, memory_cost=65536, parallelism=4)),
+        ("Argon2id (light:   t=1, m=64M)", Argon2idKDF(time_cost=1, memory_cost=65536, parallelism=4)),
+        ("Argon2id (strong:  t=5, m=64M)", Argon2idKDF(time_cost=5, memory_cost=65536, parallelism=4)),
+        ("Scrypt   (default: n=2^17)",     ScryptKDF(n=2**17, r=8, p=1)),
+    ]
+
+    results = []
+    for label, kdf in kdf_configs:
+        salt = kdf.generate_salt()
+        t0 = time.perf_counter()
+        kdf.derive(test_password, salt)
+        elapsed = time.perf_counter() - t0
+        results.append((label, elapsed))
+        print(f"  {label:<38s}  {elapsed*1000:7.0f} ms")
+
+    # Recommend KDF config
+    default_time = results[0][1]
+    print(f"\n  -> Default Argon2id takes {default_time*1000:.0f} ms on this system.")
+    if default_time < 0.5:
+        print("     Consider increasing time_cost for stronger protection.")
+    elif default_time > 3.0:
+        print("     Consider reducing time_cost for better responsiveness.")
+    else:
+        print("     Current defaults are well-suited for this hardware.")
+
+    print(f"\n{'=' * 50}")
+    print("Benchmark complete.")
+
+
+def _bench_cipher(cipher, data, key, aad):
+    """Time one encrypt+decrypt cycle."""
+    import time
+    t0 = time.perf_counter()
+    nonce, ct = cipher.encrypt(key, data, aad)
+    cipher.decrypt(key, nonce, ct, aad)
+    return time.perf_counter() - t0
+
+
 def run_cli(argv: list[str] | None = None) -> None:
     """Run the CLI interface."""
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    # --- Benchmark ---
+    if args.benchmark:
+        _run_benchmark()
+        return
 
     # --- Generate keypair ---
     if args.generate_keypair:
@@ -320,13 +467,10 @@ def run_cli(argv: list[str] | None = None) -> None:
             print(result)
     except Exception as exc:
         if operation == "decrypt":
-            msg = (
-                "Decryption failed: incorrect password or corrupted data.\n"
-                "  Hint: for v2 ciphertexts, KDF parameters must match those "
-                "used during encryption.\n"
-                "  v3 ciphertexts store KDF params in the header and are "
-                "self-describing."
-            )
+            diag = _diagnose_ciphertext(data)
+            msg = f"Decryption failed: {exc}\n"
+            if diag:
+                msg += f"\nCiphertext details:\n{diag}"
         else:
             msg = f"Encryption error: {exc}"
         _print_status(msg, error=True)
@@ -414,15 +558,12 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
 
         try:
             decrypted = pipeline.decrypt(encrypted_data, password)
-        except Exception:
-            _print_status(
-                "Decryption failed: incorrect password or corrupted file.\n"
-                "  Hint: for v2 ciphertexts, KDF parameters must match those "
-                "used during encryption.\n"
-                "  v3 ciphertexts store KDF params in the header and are "
-                "self-describing.",
-                error=True,
-            )
+        except Exception as exc:
+            diag = _diagnose_ciphertext(encrypted_data)
+            msg = f"Decryption failed: {exc}\n"
+            if diag:
+                msg += f"\nCiphertext details:\n{diag}"
+            _print_status(msg, error=True)
             sys.exit(1)
 
         # Try to parse as versioned file envelope

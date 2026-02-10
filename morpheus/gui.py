@@ -33,8 +33,12 @@ from textual.widgets import (
     TextArea,
 )
 
-from .core.ciphers import CIPHER_CHOICES
-from .core.kdf import KDF_CHOICES
+from .core.ciphers import CIPHER_CHOICES, CIPHER_REGISTRY
+from .core.formats import (
+    FORMAT_VERSION_3, FLAG_CHAINED, FLAG_HYBRID_PQ, FLAG_PADDED,
+    deserialize,
+)
+from .core.kdf import KDF_CHOICES, KDF_REGISTRY
 from .core.memory import secure_zero
 from .core.pipeline import PQ_AVAILABLE, EncryptionPipeline, pq_generate_keypair
 from .core.validation import check_password_strength, validate_input_text
@@ -585,11 +589,12 @@ class SecureEncryptionApp(App):
             pipeline = self._build_pipeline()
             result = pipeline.decrypt(ciphertext, password)
             self.call_from_thread(self._show_output, result)
-        except Exception:
-            self.call_from_thread(
-                self._show_error,
-                "Decryption failed: incorrect password or corrupted data",
-            )
+        except Exception as exc:
+            diag = self._diagnose_ciphertext(ciphertext)
+            msg = f"Decryption failed: {exc}"
+            if diag:
+                msg += f"\n\n{diag}"
+            self.call_from_thread(self._show_error, msg)
 
     def _build_pipeline(self) -> EncryptionPipeline:
         cipher_name = self.query_one("#cipher-select", Select).value
@@ -608,6 +613,36 @@ class SecureEncryptionApp(App):
             pq_public_key=self._pq_public_key,
             pq_secret_key=self._pq_secret_key,
         )
+
+    @staticmethod
+    def _diagnose_ciphertext(b64_data: str) -> str:
+        """Parse ciphertext header and return human-readable details."""
+        try:
+            version, cipher_id, kdf_id, flags, _, kdf_params = deserialize(b64_data)
+        except Exception:
+            return ""
+
+        ver = "v3" if version == FORMAT_VERSION_3 else "v2"
+        if flags & FLAG_CHAINED:
+            cipher = "AES-256-GCM + ChaCha20 (chained)"
+        else:
+            cls = CIPHER_REGISTRY.get(cipher_id)
+            cipher = cls.name if cls else f"unknown ({cipher_id:#04x})"
+        kdf_cls = KDF_REGISTRY.get(kdf_id)
+        kdf = kdf_cls.name if kdf_cls else f"unknown ({kdf_id:#04x})"
+        params = ""
+        if kdf_params and version == FORMAT_VERSION_3:
+            if kdf_id == 0x02:
+                params = f" (t={kdf_params[0]}, m={kdf_params[1]} KiB, p={kdf_params[2]})"
+            elif kdf_id == 0x01:
+                params = f" (n={kdf_params[0]}, r={kdf_params[1]}, p={kdf_params[2]})"
+        extras = []
+        if flags & FLAG_HYBRID_PQ:
+            extras.append("hybrid PQ")
+        if flags & FLAG_PADDED:
+            extras.append("padded")
+        extra_str = f" | {', '.join(extras)}" if extras else ""
+        return f"[{ver}] {cipher} | {kdf}{params}{extra_str}"
 
     # ---------- PQ Key management ----------
 
