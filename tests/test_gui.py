@@ -1,14 +1,20 @@
-"""Tests for the Textual GUI application.
+"""Tests for the MORPHEUS wizard GUI.
 
 Uses Textual's built-in testing framework (app.run_test()) to verify
 widget interactions without a real terminal.
 """
 
+from unittest.mock import patch
+
 import pytest
-from textual.widgets import Button, Checkbox, Input, RadioButton, Select, Static, TextArea
+from textual.widgets import Button, RadioButton, Static
 
-from morpheus.gui import SecureEncryptionApp, StrengthBar
+from morpheus.ui.app import MorpheusWizard
+from morpheus.ui.state import Mode
+from morpheus.ui.steps.password import StrengthBar, _clipboard_paste
 
+
+# ── StrengthBar unit tests ──────────────────────────────────────
 
 class TestStrengthBar:
     """Unit tests for the password strength indicator widget."""
@@ -17,192 +23,183 @@ class TestStrengthBar:
         bar = StrengthBar()
         bar.score = 20
         rendered = bar.render()
-        assert "red" in rendered
+        assert "#E09050" in rendered
         assert "Weak" in rendered
 
-    def test_fair_renders_yellow(self):
+    def test_fair_renders_amber(self):
         bar = StrengthBar()
         bar.score = 40
         rendered = bar.render()
-        assert "yellow" in rendered
+        assert "#E2B93B" in rendered
         assert "Fair" in rendered
 
-    def test_strong_renders_cyan(self):
+    def test_strong_renders_blue(self):
         bar = StrengthBar()
         bar.score = 60
         rendered = bar.render()
-        assert "cyan" in rendered
+        assert "#5B8CFF" in rendered
         assert "Strong" in rendered
 
     def test_excellent_renders_green(self):
         bar = StrengthBar()
         bar.score = 80
         rendered = bar.render()
-        assert "green" in rendered
+        assert "#6BCB77" in rendered
         assert "Excellent" in rendered
 
     def test_zero_score(self):
         bar = StrengthBar()
         bar.score = 0
         rendered = bar.render()
-        assert "Weak" in rendered
+        assert "Very weak" in rendered
 
 
-class TestGUIApp:
+# ── Wizard app integration tests ────────────────────────────────
+
+class TestWizardApp:
     """Integration tests using Textual's async test harness."""
 
     @pytest.mark.asyncio
-    async def test_app_mounts(self):
-        """App mounts without errors and key widgets are present."""
-        app = SecureEncryptionApp()
+    async def test_app_mounts_with_sidebar(self):
+        """App mounts with sidebar and step container."""
+        app = MorpheusWizard()
         async with app.run_test(size=(120, 50)) as pilot:  # noqa: F841
-            assert app.query_one("#input-text", TextArea) is not None
-            assert app.query_one("#password-input", Input) is not None
-            assert app.query_one("#password-confirm", Input) is not None
-            assert app.query_one("#action-btn", Button) is not None
-            assert app.query_one("#cipher-select", Select) is not None
-            assert app.query_one("#kdf-select", Select) is not None
+            assert app.query_one("#sidebar") is not None
+            assert app.query_one("#step-container") is not None
+            assert app.query_one("#btn-back", Button) is not None
+            assert app.query_one("#btn-next", Button) is not None
 
     @pytest.mark.asyncio
-    async def test_mode_toggle_changes_button(self):
-        """Switching to Decrypt mode changes the action button label."""
-        app = SecureEncryptionApp()
-        async with app.run_test(size=(120, 50)) as pilot:
-            btn = app.query_one("#action-btn", Button)
-            assert str(btn.label) == "ENCRYPT"
-
-            # Set decrypt radio value directly (click may not target correctly)
-            decrypt_radio = app.query_one("#mode-decrypt", RadioButton)
-            decrypt_radio.value = True
-            await pilot.pause()
-
-            assert str(btn.label) == "DECRYPT"
+    async def test_initial_step_is_mode(self):
+        """App starts on the Mode step."""
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:  # noqa: F841
+            step_label = app.query_one("#top-step", Static)
+            rendered = str(step_label.render())
+            assert "Mode" in rendered
 
     @pytest.mark.asyncio
-    async def test_encrypt_empty_input_no_output(self):
-        """Encrypting with empty input does not produce output."""
-        app = SecureEncryptionApp()
+    async def test_navigation_next_and_back(self):
+        """Next goes to Settings, Back returns to Mode."""
+        app = MorpheusWizard()
         async with app.run_test(size=(120, 50)) as pilot:
-            app.query_one("#password-input", Input).value = "T3st!Passw0rd#Str0ng"
-            app.query_one("#password-confirm", Input).value = "T3st!Passw0rd#Str0ng"
-
-            app._do_encrypt()
-            await app.workers.wait_for_complete()
+            # Select Encrypt mode first
+            encrypt_radio = app.query_one("#radio-encrypt", RadioButton)
+            encrypt_radio.value = True
             await pilot.pause()
 
-            output = app.query_one("#output-text", TextArea).text.strip()
-            assert output == ""
+            # Next
+            app.action_next_step()
+            await pilot.pause()
+            step_label = str(app.query_one("#top-step", Static).render())
+            assert "Settings" in step_label
+
+            # Back
+            app.action_prev_step()
+            await pilot.pause()
+            step_label = str(app.query_one("#top-step", Static).render())
+            assert "Mode" in step_label
 
     @pytest.mark.asyncio
-    async def test_encrypt_empty_password_no_output(self):
-        """Encrypting with empty password does not produce output."""
-        app = SecureEncryptionApp()
-        async with app.run_test(size=(120, 50)) as pilot:
-            app.query_one("#input-text", TextArea).insert("Hello world")
+    async def test_next_blocked_without_mode(self):
+        """Cannot advance past Mode without selecting Encrypt or Decrypt."""
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:  # noqa: F841
+            btn = app.query_one("#btn-next", Button)
+            assert btn.disabled
 
-            app._do_encrypt()
-            await app.workers.wait_for_complete()
+    @pytest.mark.asyncio
+    async def test_quick_encrypt_shortcut(self):
+        """Ctrl+E sets mode to Encrypt and advances to Settings."""
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app.action_quick_encrypt()
+            await pilot.pause()
+            assert app._state.mode == Mode.ENCRYPT
+            step_label = str(app.query_one("#top-step", Static).render())
+            assert "Settings" in step_label
+
+    @pytest.mark.asyncio
+    async def test_quick_decrypt_shortcut(self):
+        """Ctrl+D sets mode to Decrypt and advances to Settings."""
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app.action_quick_decrypt()
+            await pilot.pause()
+            assert app._state.mode == Mode.DECRYPT
+            step_label = str(app.query_one("#top-step", Static).render())
+            assert "Settings" in step_label
+
+    @pytest.mark.asyncio
+    async def test_clear_all_resets_to_mode(self):
+        """Ctrl+L resets state and goes back to Mode step."""
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            # Advance to settings
+            app.action_quick_encrypt()
             await pilot.pause()
 
-            output = app.query_one("#output-text", TextArea).text.strip()
-            assert output == ""
+            # Clear all
+            app.action_clear_all()
+            await pilot.pause()
+            assert app._state.mode is None
+            step_label = str(app.query_one("#top-step", Static).render())
+            assert "Mode" in step_label
 
     @pytest.mark.asyncio
     async def test_encrypt_decrypt_roundtrip(self):
-        """Full encrypt/decrypt cycle through the GUI."""
-        app = SecureEncryptionApp()
+        """Full encrypt then decrypt through the wizard state model."""
+        app = MorpheusWizard()
         async with app.run_test(size=(120, 50)) as pilot:
-            plaintext = "Secret message for GUI test"
+            plaintext = "Secret message for wizard test"
             password = "T3st!Passw0rd#Str0ng"
 
-            input_area = app.query_one("#input-text", TextArea)
-            input_area.insert(plaintext)
-            app.query_one("#password-input", Input).value = password
-            app.query_one("#password-confirm", Input).value = password
+            # Set state directly for speed
+            app._state.mode = Mode.ENCRYPT
+            app._state.input_text = plaintext
+            app._state.password = password
+            app._state.password_confirm = password
 
-            # Encrypt via action method
+            # Run encryption
             app._do_encrypt()
-            # Wait for the threaded worker to complete
             await app.workers.wait_for_complete()
             await pilot.pause()
 
-            output_area = app.query_one("#output-text", TextArea)
-            encrypted = output_area.text.strip()
+            encrypted = app._state.output
             assert len(encrypted) > 0
 
-            # Switch to decrypt
-            app.query_one("#mode-decrypt", RadioButton).value = True
-            await pilot.pause()
-
-            # Clear and paste encrypted text
-            input_area.clear()
-            input_area.insert(encrypted)
-
             # Decrypt
+            app._state.mode = Mode.DECRYPT
+            app._state.input_text = encrypted
+            app._state.password = password
+            app._state.output = ""
+
             app._do_decrypt()
             await app.workers.wait_for_complete()
             await pilot.pause()
 
-            decrypted = output_area.text.strip()
-            assert decrypted == plaintext
+            assert app._state.output == plaintext
 
-    @pytest.mark.asyncio
-    async def test_pq_checkbox_toggles_keygen_section(self):
-        """Enabling PQ checkbox shows the key generation section."""
-        app = SecureEncryptionApp()
-        async with app.run_test(size=(120, 50)) as pilot:
-            keygen = app.query_one("#keygen-section")
-            pq_check = app.query_one("#pq-check", Checkbox)
 
-            if not pq_check.disabled:
-                pq_check.value = True
-                await pilot.pause()
-                assert keygen.display is True
+# ── Clipboard helpers ────────────────────────────────────────────
 
-    @pytest.mark.asyncio
-    async def test_clear_all_action(self):
-        """Ctrl+L (clear all) resets input, password, and output."""
-        app = SecureEncryptionApp()
-        async with app.run_test(size=(120, 50)) as pilot:
-            app.query_one("#input-text", TextArea).insert("some text")
-            app.query_one("#password-input", Input).value = "password"
+class TestClipboardPaste:
+    """Test the clipboard fallback chain in the password step."""
 
-            # Trigger clear all via action
-            app.action_clear_all()
-            await pilot.pause()
+    def test_pyperclip_used_first(self):
+        with patch("morpheus.ui.steps.password._pyperclip") as mock_pp:
+            mock_pp.paste.return_value = "from-pyperclip"
+            assert _clipboard_paste() == "from-pyperclip"
 
-            assert app.query_one("#input-text", TextArea).text == ""
-            assert app.query_one("#password-input", Input).value == ""
-            assert app.query_one("#password-confirm", Input).value == ""
+    def test_subprocess_fallback_on_pyperclip_failure(self):
+        with patch("morpheus.ui.steps.password._pyperclip", None), \
+             patch("morpheus.ui.steps.password.subprocess.run") as mock_run:
+            mock_run.return_value = type("R", (), {"returncode": 0, "stdout": "from-xclip"})()
+            result = _clipboard_paste()
+            assert result == "from-xclip"
 
-    @pytest.mark.asyncio
-    async def test_password_match_indicator(self):
-        """Password match indicator updates when passwords match/differ."""
-        app = SecureEncryptionApp()
-        async with app.run_test(size=(120, 50)) as pilot:
-            pwd_input = app.query_one("#password-input", Input)
-            confirm_input = app.query_one("#password-confirm", Input)
-            match_label = app.query_one("#password-match", Static)
-
-            pwd_input.value = "T3st!Pass"
-            confirm_input.value = "T3st!Pass"
-            await pilot.pause()
-            rendered = str(match_label.render())
-            assert "Match" in rendered
-
-            confirm_input.value = "different"
-            await pilot.pause()
-            rendered = str(match_label.render())
-            assert "No match" in rendered
-
-    @pytest.mark.asyncio
-    async def test_on_unmount_zeros_keys(self):
-        """on_unmount() zeros PQ key material."""
-        app = SecureEncryptionApp()
-        async with app.run_test(size=(120, 50)) as pilot:  # noqa: F841
-            app._pq_public_key = bytearray(b"\xff" * 32)
-            app._pq_secret_key = bytearray(b"\xff" * 32)
-
-        # After exiting run_test, on_unmount should have been called
-        assert app._pq_public_key is None
-        assert app._pq_secret_key is None
+    def test_returns_none_when_all_fail(self):
+        with patch("morpheus.ui.steps.password._pyperclip", None), \
+             patch("morpheus.ui.steps.password.subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError
+            assert _clipboard_paste() is None
