@@ -33,12 +33,14 @@ class ReviewStep(Vertical):
         s = self._state
         yield Static("Review", classes="step-title")
         yield Static(
-            "Confirm your settings, then press Execute.",
+            "Review your configuration below. If everything looks correct, "
+            "press Execute (or Tab to the Execute button and press Enter). "
+            "Use the Back button or number keys to revisit any step.",
             classes="step-subtitle",
         )
 
         mode_str = "Encrypt" if s.mode == Mode.ENCRYPT else "Decrypt"
-        yield ReviewRow("Mode:", mode_str)
+        yield ReviewRow("Operation:", mode_str)
 
         cipher_str = s.cipher
         if s.chain:
@@ -47,7 +49,7 @@ class ReviewStep(Vertical):
         yield ReviewRow("KDF:", s.kdf)
 
         if s.hybrid_pq:
-            yield ReviewRow("Post-Quantum:", "ML-KEM-768 hybrid")
+            yield ReviewRow("Post-Quantum:", "ML-KEM-768 hybrid enabled")
 
         flags = []
         if s.pad:
@@ -65,18 +67,20 @@ class ReviewStep(Vertical):
         else:
             yield ReviewRow("Input:", f"File: {s.input_file}")
 
+        yield ReviewRow("Password:", "*" * min(len(s.password), 16))
+
         # Warnings
         if s.mode == Mode.ENCRYPT:
             strength = check_password_strength(s.password)
             if not strength.is_acceptable:
                 yield Static(
-                    f"⚠ Password is {strength.label}: "
+                    f"Warning: Password is {strength.label} — "
                     + "; ".join(strength.feedback[:2]),
                     classes="warning-text",
                 )
             elif strength.score < 60:
                 yield Static(
-                    f"⚠ Password strength is only '{strength.label}'. "
-                    "Consider a longer password.",
+                    f"Warning: Password strength is '{strength.label}'. "
+                    "Consider a longer password for better security.",
                     classes="warning-text",
                 )
