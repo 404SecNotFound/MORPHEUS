@@ -166,7 +166,7 @@ pip install pqcrypto
 
 ```bash
 python -m pytest tests/ -v
-# You should see: "123 passed"
+# You should see: "268 passed"
 ```
 
 ---
@@ -182,40 +182,38 @@ python morpheus.py
 This opens the terminal GUI (TUI). It works in any modern terminal — no
 web browser or desktop environment needed.
 
-### Encrypting Text
+### The 6-Step Wizard
 
-1. Make sure **Encrypt** is selected (top radio buttons)
-2. Choose your **Cipher** (AES-256-GCM recommended for most users)
-3. Choose your **KDF** (Argon2id recommended)
-4. Optionally check **Chain ciphers** for extra protection
-5. Optionally check **Hybrid Post-Quantum** if you need PQ protection
-6. Type or paste your text into the **Input** area
-7. Enter your password in the **Password** field
-8. Enter it again in the **Confirm** field
-9. Click **ENCRYPT** (or press `Ctrl+E`)
-10. The encrypted output appears in the **Output** area
+The GUI uses a guided wizard that walks you through encryption or decryption
+one step at a time. Each step validates your input before allowing you to
+proceed.
+
+| Step | Name | What You Do |
+|------|------|-------------|
+| 1 | **Operation** | Choose **Encrypt** or **Decrypt** |
+| 2 | **Input** | Type/paste your text, or select a file to encrypt/decrypt |
+| 3 | **Password** | Enter and confirm your password (strength meter shown in real time) |
+| 4 | **Options** | Choose cipher (AES-256-GCM or ChaCha20-Poly1305), KDF (Argon2id or Scrypt), toggle cipher chaining, toggle hybrid post-quantum, configure padding |
+| 5 | **Confirm** | Review a summary of all settings before proceeding |
+| 6 | **Result** | View the encrypted/decrypted output, copy to clipboard, or save to file |
 
 **Important**: The output auto-clears after 60 seconds! Copy it before it
 disappears (use the **Copy** button or `Ctrl+C` to copy from the output area).
 
-### Decrypting Text
-
-1. Switch to **Decrypt** mode
-2. Paste the encrypted string into the **Input** area
-3. Enter the password used during encryption
-4. Click **DECRYPT** (or press `Ctrl+D`)
-5. Your original text appears in the **Output** area
-
-### Keyboard Shortcuts
+### Keyboard Navigation
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+E` | Encrypt |
-| `Ctrl+D` | Decrypt |
-| `Ctrl+L` | Clear all fields |
+| `Enter` | Advance to the next wizard step |
+| `Escape` | Go back to the previous wizard step |
+| `Ctrl+E` | Encrypt (from any step) |
+| `Ctrl+D` | Decrypt (from any step) |
+| `Ctrl+L` | Clear all fields and restart the wizard |
 | `Ctrl+Q` | Quit |
-| `Tab` | Move to next field |
-| `Shift+Tab` | Move to previous field |
+| `Tab` | Move to next field within a step |
+| `Shift+Tab` | Move to previous field within a step |
+| `Up/Down` | Navigate options in selection lists |
+| `Space` | Toggle checkboxes (chaining, hybrid PQ, padding) |
 
 ### Password Strength Meter
 
@@ -271,6 +269,16 @@ python morpheus.py -o decrypt --data "AgECAADE3f7a..."
 | `--pq-secret-key` | Base64-encoded ML-KEM-768 secret key (for hybrid decrypt) |
 | `--generate-keypair` | Generate and display an ML-KEM-768 keypair |
 | `--cli` | Force CLI mode (skip GUI) |
+| `--pad` | Enable PKCS#7 padding to hide plaintext length |
+| `--fixed-size SIZE` | Pad plaintext to a fixed size in bytes before encryption |
+| `--no-filename` | Omit the original filename from the encrypted file envelope |
+| `--inspect` | Print parsed header fields from a ciphertext without decrypting |
+| `--benchmark` | Run KDF benchmark (measures Argon2id/Scrypt iterations per second) |
+| `--passphrase` | Read the password from stdin non-interactively (for scripting) |
+| `--check-leaks` | Scan the ciphertext for known plaintext patterns (sanity check) |
+| `--save-config PATH` | Save the current cipher/KDF/options to a JSON config file |
+| `--no-strength-check` | Skip the password strength validation (use with caution) |
+| `--force` | Overwrite output files without prompting |
 
 ---
 
@@ -497,6 +505,25 @@ in memory only and are never saved to disk.
 - Don't reuse passwords from other services
 - Consider a password manager
 
+### Non-Interactive Password Input (`--passphrase`)
+
+For scripting and automation, use the `--passphrase` flag to read the password
+from stdin instead of the interactive prompt:
+
+```bash
+echo "MyStr0ng!Pass#2024" | python morpheus.py -o encrypt --data "secret" --passphrase
+```
+
+When `--passphrase` is used, the password is read as a single line from stdin.
+The strength check still applies by default -- use `--no-strength-check` to
+bypass it if your pipeline manages password policy externally. Note that passing
+passwords via shell commands may expose them in process listings; prefer piping
+from a file or a secrets manager:
+
+```bash
+cat /run/secrets/encryption_pw | python morpheus.py -o encrypt -f data.bin --passphrase
+```
+
 ### Scoring System
 
 The tool scores passwords 0-100:
@@ -587,7 +614,7 @@ algorithms were used. This means:
 python -m pytest tests/ -v
 ```
 
-Expected output: **123 passed**
+Expected output: **268 passed**
 
 ### What the Tests Cover
 
@@ -600,6 +627,10 @@ Expected output: **123 passed**
 | `test_memory.py` | Secure zeroing with ctypes.memset, SecureBuffer, secure_key context manager | 7 |
 | `test_validation.py` | Password strength scoring (0-100), minimum requirements, edge cases, input text validation | 17 |
 | `test_cli.py` | File encrypt/decrypt roundtrip (text and binary files), path traversal prevention | 3 |
+| `test_config.py` | Config file save/load, schema validation, option merging, invalid config rejection | 12 |
+| `test_fuzz.py` | Fuzz testing with random inputs, malformed headers, truncated payloads, random byte sequences | 30 |
+| `test_gui.py` | Wizard step transitions, widget state management, keyboard navigation, strength meter updates | 22 |
+| `test_wizard_state.py` | Wizard state machine, step validation, back/forward navigation, state persistence across steps | 18 |
 
 Tests include **NIST SP 800-38D** (AES-256-GCM) and **RFC 8439** (ChaCha20-Poly1305) reference vectors verified against the `cryptography` library's validated implementations.
 

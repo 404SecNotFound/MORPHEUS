@@ -2,4 +2,7 @@ cryptography>=44.0.0
 argon2-cffi>=25.1.0
 textual>=1.0.0
 pyperclip>=1.9.0
-pqcrypto>=0.4.0
+
+# Optional: post-quantum support (requires C compiler and liboqs)
+# Install separately: pip install pqcrypto>=0.4.0
+# Or: pip install morpheus[pq]

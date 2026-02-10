@@ -26,7 +26,9 @@ from textual.widgets import Button, Footer, Static
 from ..core.ciphers import CIPHER_CHOICES
 from ..core.kdf import KDF_CHOICES
 from ..core.pipeline import EncryptionPipeline
-from ..core.validation import validate_input_text
+from ..core.validation import check_password_strength, validate_input_text
+
+_MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MiB — same limit as CLI
 from .sidebar import Sidebar, SidebarItem
 from .state import (
     STEP_INPUT,
@@ -60,7 +62,7 @@ class MorpheusWizard(App):
       - Escape focuses the sidebar for arrow-key browsing
     """
 
-    TITLE = "MORPHEUS v2.0"
+    TITLE = "MORPHEUS v2.1"
     CSS = WIZARD_CSS
 
     BINDINGS = [
@@ -92,7 +94,7 @@ class MorpheusWizard(App):
     def compose(self) -> ComposeResult:
         # Top bar
         with Horizontal(id="top-bar"):
-            yield Static("[bold #00FF41]MORPHEUS[/] [#007018]v2.0[/]", id="top-title")
+            yield Static("[bold #00FF41]MORPHEUS[/] [#007018]v2.1[/]", id="top-title")
             yield Static(self._step_label(), id="top-step")
 
         # Body: sidebar + step panel
@@ -320,6 +322,16 @@ class MorpheusWizard(App):
     def _do_encrypt(self) -> None:
         s = self._state
         try:
+            # Password strength check (mirrors CLI enforcement)
+            strength = check_password_strength(s.password)
+            if not strength.is_acceptable:
+                msg = (
+                    f"Password too weak ({strength.label}). "
+                    + "; ".join(strength.feedback[:2])
+                )
+                self.call_from_thread(self.notify, msg, severity="error")
+                return
+
             pipeline = self._build_pipeline()
 
             if s.input_method == InputMethod.TEXT:
@@ -380,6 +392,11 @@ class MorpheusWizard(App):
         path = s.input_file
         if not os.path.isfile(path):
             raise FileNotFoundError(f"File not found: {path}")
+        file_size = os.path.getsize(path)
+        if file_size > _MAX_FILE_SIZE:
+            raise ValueError(
+                f"File too large ({file_size / 1024 / 1024:.1f} MiB, max 100 MiB)"
+            )
         with open(path, "rb") as f:
             raw = f.read()
         envelope = {
@@ -398,6 +415,11 @@ class MorpheusWizard(App):
         path = self._state.input_file
         if not os.path.isfile(path):
             raise FileNotFoundError(f"File not found: {path}")
+        file_size = os.path.getsize(path)
+        if file_size > _MAX_FILE_SIZE:
+            raise ValueError(
+                f"File too large ({file_size / 1024 / 1024:.1f} MiB, max 100 MiB)"
+            )
         with open(path, "r") as f:
             data = f.read().strip()
         return pipeline.decrypt(data, self._state.password)
