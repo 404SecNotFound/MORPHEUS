@@ -12,13 +12,19 @@ import getpass
 import sys
 
 from .core.ciphers import CIPHER_CHOICES, CIPHER_REGISTRY
+from .core.config import apply_config_defaults, load_config, save_config
 from .core.formats import (
     FORMAT_VERSION_3, FLAG_CHAINED, FLAG_HYBRID_PQ, FLAG_PADDED,
     deserialize,
 )
 from .core.kdf import KDF_CHOICES, KDF_REGISTRY
 from .core.pipeline import PQ_AVAILABLE, EncryptionPipeline
-from .core.validation import check_password_strength, validate_input_text
+from .core.validation import (
+    check_passphrase_strength,
+    check_password_leaked,
+    check_password_strength,
+    validate_input_text,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -116,6 +122,27 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Benchmark KDF and cipher performance on this hardware, "
              "then print recommended configuration.",
+    )
+    parser.add_argument(
+        "--passphrase",
+        action="store_true",
+        help="Use passphrase-mode strength check (word-based, no digit/"
+             "special requirement). Requires 4+ words and 20+ characters.",
+    )
+    parser.add_argument(
+        "--check-leaks",
+        action="store_true",
+        dest="check_leaks",
+        help="Check password against Have I Been Pwned breach database "
+             "(k-anonymity — only 5 chars of SHA-1 hash are sent). "
+             "Requires network access.",
+    )
+    parser.add_argument(
+        "--save-config",
+        action="store_true",
+        dest="save_config",
+        help="Save current cipher/KDF/flag preferences to "
+             "~/.morpheus/config.toml for future sessions.",
     )
     return parser
 
@@ -294,6 +321,23 @@ def run_cli(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    # --- Load persistent preferences (CLI args override) ---
+    saved = load_config()
+    if saved:
+        apply_config_defaults(args, saved)
+
+    # --- Save config ---
+    if args.save_config:
+        settings: dict[str, str | bool] = {}
+        settings["cipher"] = args.cipher
+        settings["kdf"] = args.kdf
+        for flag in ("chain", "pad", "fixed_size", "no_filename", "check_leaks", "passphrase"):
+            if getattr(args, flag, False):
+                settings[flag] = True
+        path = save_config(settings)
+        _print_status(f"Preferences saved to {path}")
+        return
+
     # --- Benchmark ---
     if args.benchmark:
         _run_benchmark()
@@ -370,10 +414,14 @@ def run_cli(argv: list[str] | None = None) -> None:
 
     if operation == "encrypt":
         if not getattr(args, "no_strength_check", False):
-            strength = check_password_strength(password)
+            if getattr(args, "passphrase", False):
+                strength = check_passphrase_strength(password)
+            else:
+                strength = check_password_strength(password)
             if not strength.is_acceptable:
+                mode = "passphrase" if getattr(args, "passphrase", False) else "password"
                 _print_status(
-                    f"Error: password too weak ({strength.label}). "
+                    f"Error: {mode} too weak ({strength.label}). "
                     + "; ".join(strength.feedback),
                     error=True,
                 )
@@ -383,6 +431,26 @@ def run_cli(argv: list[str] | None = None) -> None:
                 "Warning: password strength check skipped (--no-strength-check).",
                 error=True,
             )
+
+        # Breach check (opt-in, requires network)
+        if getattr(args, "check_leaks", False):
+            import urllib.error
+            try:
+                is_leaked, count = check_password_leaked(password)
+                if is_leaked:
+                    _print_status(
+                        f"WARNING: This password has appeared in {count:,} known "
+                        f"data breaches (Have I Been Pwned). Choose a different password.",
+                        error=True,
+                    )
+                    sys.exit(1)
+            except (urllib.error.URLError, OSError) as exc:
+                _print_status(
+                    f"Warning: breach check failed (network error: {exc}). "
+                    "Proceeding without breach check.",
+                    error=True,
+                )
+
         # Irrecoverability warning
         _print_status(
             "WARNING: There is no password recovery. If you forget your "
