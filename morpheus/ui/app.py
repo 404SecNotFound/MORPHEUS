@@ -201,7 +201,7 @@ class MorpheusWizard(App):
             self.notify("Output is available after encryption/decryption", severity="warning")
             return
         if not self._state.is_step_unlocked(step):
-            self.notify(f"Complete earlier steps first", severity="warning")
+            self.notify("Complete earlier steps first", severity="warning")
             return
         # Mark all steps before the target as completed
         for i in range(step):

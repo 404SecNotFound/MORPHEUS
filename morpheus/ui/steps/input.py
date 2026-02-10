@@ -17,7 +17,6 @@ class InputStep(Vertical):
 
     def compose(self):
         is_encrypt = self._state.mode == Mode.ENCRYPT
-        mode_label = "encrypt" if is_encrypt else "decrypt"
 
         yield Static("Input", classes="step-title")
 
