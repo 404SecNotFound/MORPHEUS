@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Input, Label, RadioButton, RadioSet, Static, TextArea
+from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static, TextArea
 
+from ..clipboard import clipboard_copy, clipboard_paste
 from ..state import InputMethod, Mode, WizardState
 
 
@@ -56,6 +57,9 @@ class InputStep(Vertical):
             )
 
         yield TextArea(id="input-editor")
+        with Horizontal(id="input-actions"):
+            yield Button("Paste", id="btn-paste-input")
+            yield Button("Copy", id="btn-copy-input")
         yield Static("", id="input-stats")
 
         # File path row (shown/hidden based on tab)
@@ -94,6 +98,35 @@ class InputStep(Vertical):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "file-path-input":
             self._state.input_file = event.value
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-paste-input":
+            self._paste_input()
+        elif event.button.id == "btn-copy-input":
+            self._copy_input()
+
+    def _paste_input(self) -> None:
+        text = clipboard_paste()
+        if text is None:
+            self.notify("Could not read clipboard", severity="warning")
+            return
+        editor = self.query_one("#input-editor", TextArea)
+        editor.clear()
+        editor.insert(text)
+        self._state.input_text = text
+        self._update_stats()
+        self.notify("Pasted from clipboard", severity="information")
+
+    def _copy_input(self) -> None:
+        text = self.query_one("#input-editor", TextArea).text
+        if not text.strip():
+            self.notify("Nothing to copy", severity="warning")
+            return
+        ok, method = clipboard_copy(text)
+        if ok:
+            self.notify(f"Copied to clipboard ({method})", severity="information")
+        else:
+            self.notify("Could not copy to clipboard", severity="warning")
 
     def _update_tab_visibility(self) -> None:
         is_text = self._state.input_method == InputMethod.TEXT

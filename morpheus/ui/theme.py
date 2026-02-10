@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 # -- Matrix colour palette ---------------------------------------------------
-BG              = "#030303"    # Near-black
-SURFACE         = "#080C08"    # Green-black surface
-ELEVATED        = "#0C140C"    # Elevated card background
-BORDER          = "#0D3B0D"    # Green border
-BORDER_BRIGHT   = "#00AA28"    # Bright green border (focus / active)
+BG              = "#020402"    # Near-black
+SURFACE         = "#061006"    # Green-black surface
+ELEVATED        = "#0A180A"    # Elevated card background
+BORDER          = "#135A13"    # Green border
+BORDER_BRIGHT   = "#00E63A"    # Bright green border (focus / active)
 
 TEXT_PRIMARY     = "#00FF41"   # Classic Matrix phosphor green
-TEXT_BODY        = "#00DD36"   # Readable body text
+TEXT_BODY        = "#6CFF8C"   # Readable body text
 TEXT_SECONDARY   = "#00AA28"   # Labels / secondary info
-TEXT_DIM         = "#007018"   # Dim hints
-DISABLED         = "#0A2A0A"   # Barely visible
+TEXT_DIM         = "#00A82B"   # Dim hints
+DISABLED         = "#103010"   # Barely visible
 
 ACCENT          = "#00FF41"    # Bright Matrix green
-ACCENT_HOVER    = "#33FF66"    # Hover state
+ACCENT_HOVER    = "#72FF95"    # Hover state
 ACCENT_DIM      = "#00CC33"    # Muted accent
 
 SUCCESS         = "#39FF14"    # Neon green
@@ -46,7 +46,7 @@ Footer {
     background: """ + SURFACE + """;
     color: """ + TEXT_SECONDARY + """;
     padding: 1 2;
-    border-bottom: solid """ + BORDER + """;
+    border-bottom: heavy """ + BORDER + """;
 }
 
 #top-title {
@@ -65,7 +65,7 @@ Footer {
 #sidebar {
     width: 28;
     background: """ + SURFACE + """;
-    border-right: solid """ + BORDER + """;
+    border-right: heavy """ + BORDER + """;
     padding: 1 0;
     overflow-y: auto;
 }
@@ -80,7 +80,7 @@ Footer {
 .sidebar-item:focus {
     background: """ + ELEVATED + """;
     color: """ + ACCENT + """;
-    text-style: bold;
+    text-style: bold reverse;
 }
 
 .sidebar-item.--current {
@@ -102,14 +102,14 @@ Footer {
 #step-container {
     width: 1fr;
     height: 1fr;
-    padding: 1 3;
+    padding: 1 2;
     background: """ + BG + """;
     overflow-y: auto;
 }
 
 .step-title {
     color: """ + TEXT_PRIMARY + """;
-    text-style: bold;
+    text-style: bold underline;
     padding: 0 0 1 0;
     width: 100%;
 }
@@ -156,7 +156,7 @@ Footer {
     padding: 0 2;
     dock: bottom;
     background: """ + SURFACE + """;
-    border-top: solid """ + BORDER + """;
+    border-top: heavy """ + BORDER + """;
 }
 
 #nav-bar Button {
@@ -167,7 +167,7 @@ Footer {
 #btn-back {
     background: """ + ELEVATED + """;
     color: """ + TEXT_SECONDARY + """;
-    border: tall """ + BORDER + """;
+    border: heavy """ + BORDER + """;
 }
 
 #btn-back:hover {
@@ -179,7 +179,7 @@ Footer {
     background: """ + ACCENT + """;
     color: """ + BG + """;
     text-style: bold;
-    border: tall """ + ACCENT_DIM + """;
+    border: heavy """ + ACCENT_DIM + """;
 }
 
 #btn-next:hover {
@@ -189,14 +189,14 @@ Footer {
 #btn-next:disabled {
     background: """ + DISABLED + """;
     color: """ + TEXT_DIM + """;
-    border: tall """ + DISABLED + """;
+    border: heavy """ + DISABLED + """;
 }
 
 #btn-run {
     background: """ + ACCENT + """;
     color: """ + BG + """;
     text-style: bold;
-    border: tall """ + ACCENT_DIM + """;
+    border: heavy """ + ACCENT_DIM + """;
 }
 
 #btn-run:hover {
@@ -207,16 +207,39 @@ Footer {
 
 Input {
     background: """ + ELEVATED + """;
-    border: tall """ + BORDER + """;
+    border: heavy """ + BORDER + """;
     color: """ + TEXT_PRIMARY + """;
 }
 
 Input:focus {
-    border: tall """ + ACCENT + """;
+    border: heavy """ + ACCENT + """;
 }
 
 Input.-invalid {
-    border: tall """ + ERROR + """;
+    border: heavy """ + ERROR + """;
+}
+
+TextArea {
+    background: """ + ELEVATED + """;
+    color: """ + TEXT_PRIMARY + """;
+    border: heavy """ + BORDER + """;
+}
+
+TextArea:focus {
+    border: heavy """ + ACCENT + """;
+}
+
+RadioButton {
+    color: """ + TEXT_BODY + """;
+}
+
+RadioButton.-on {
+    color: """ + ACCENT + """;
+    text-style: bold;
+}
+
+#output-actions Button {
+    min-width: 14;
 }
 
 TextArea {
