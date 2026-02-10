@@ -10,8 +10,9 @@ import pytest
 from textual.widgets import Button, RadioButton, Static
 
 from morpheus.ui.app import MorpheusWizard
+from morpheus.ui.clipboard import clipboard_copy, clipboard_paste
 from morpheus.ui.state import Mode
-from morpheus.ui.steps.password import StrengthBar, _clipboard_paste
+from morpheus.ui.steps.password import StrengthBar
 
 
 # ── StrengthBar unit tests ──────────────────────────────────────
@@ -19,32 +20,32 @@ from morpheus.ui.steps.password import StrengthBar, _clipboard_paste
 class TestStrengthBar:
     """Unit tests for the password strength indicator widget."""
 
-    def test_weak_renders_red(self):
+    def test_weak_renders_orange(self):
         bar = StrengthBar()
         bar.score = 20
         rendered = bar.render()
-        assert "#E09050" in rendered
+        assert "#FF8800" in rendered
         assert "Weak" in rendered
 
-    def test_fair_renders_amber(self):
+    def test_fair_renders_gold(self):
         bar = StrengthBar()
         bar.score = 40
         rendered = bar.render()
-        assert "#E2B93B" in rendered
+        assert "#FFD700" in rendered
         assert "Fair" in rendered
 
-    def test_strong_renders_blue(self):
+    def test_strong_renders_green(self):
         bar = StrengthBar()
         bar.score = 60
         rendered = bar.render()
-        assert "#5B8CFF" in rendered
+        assert "#00CC33" in rendered
         assert "Strong" in rendered
 
-    def test_excellent_renders_green(self):
+    def test_excellent_renders_matrix_green(self):
         bar = StrengthBar()
         bar.score = 80
         rendered = bar.render()
-        assert "#6BCB77" in rendered
+        assert "#00FF41" in rendered
         assert "Excellent" in rendered
 
     def test_zero_score(self):
@@ -184,22 +185,40 @@ class TestWizardApp:
 # ── Clipboard helpers ────────────────────────────────────────────
 
 class TestClipboardPaste:
-    """Test the clipboard fallback chain in the password step."""
+    """Test the clipboard fallback chain."""
 
     def test_pyperclip_used_first(self):
-        with patch("morpheus.ui.steps.password._pyperclip") as mock_pp:
+        with patch("morpheus.ui.clipboard._pyperclip") as mock_pp:
             mock_pp.paste.return_value = "from-pyperclip"
-            assert _clipboard_paste() == "from-pyperclip"
+            assert clipboard_paste() == "from-pyperclip"
 
     def test_subprocess_fallback_on_pyperclip_failure(self):
-        with patch("morpheus.ui.steps.password._pyperclip", None), \
-             patch("morpheus.ui.steps.password.subprocess.run") as mock_run:
+        with patch("morpheus.ui.clipboard._pyperclip", None), \
+             patch("morpheus.ui.clipboard.subprocess.run") as mock_run:
             mock_run.return_value = type("R", (), {"returncode": 0, "stdout": "from-xclip"})()
-            result = _clipboard_paste()
+            result = clipboard_paste()
             assert result == "from-xclip"
 
     def test_returns_none_when_all_fail(self):
-        with patch("morpheus.ui.steps.password._pyperclip", None), \
-             patch("morpheus.ui.steps.password.subprocess.run") as mock_run:
+        with patch("morpheus.ui.clipboard._pyperclip", None), \
+             patch("morpheus.ui.clipboard.subprocess.run") as mock_run:
             mock_run.side_effect = FileNotFoundError
-            assert _clipboard_paste() is None
+            assert clipboard_paste() is None
+
+
+class TestClipboardCopy:
+    """Test the clipboard copy fallback chain."""
+
+    def test_pyperclip_copy(self):
+        with patch("morpheus.ui.clipboard._pyperclip") as mock_pp:
+            ok, method = clipboard_copy("test")
+            mock_pp.copy.assert_called_once_with("test")
+            assert ok is True
+            assert method == "pyperclip"
+
+    def test_returns_false_when_all_fail(self):
+        with patch("morpheus.ui.clipboard._pyperclip", None), \
+             patch("morpheus.ui.clipboard.subprocess.Popen") as mock_popen:
+            mock_popen.side_effect = FileNotFoundError
+            ok, method = clipboard_copy("test")
+            assert ok is False

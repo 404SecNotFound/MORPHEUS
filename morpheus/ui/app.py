@@ -42,7 +42,7 @@ from .theme import WIZARD_CSS
 class MorpheusWizard(App):
     """2-pane wizard: sidebar (left) + active step panel (right)."""
 
-    TITLE = "MORPHEUS v2.0 — Quantum-Resistant Encryption Tool"
+    TITLE = "MORPHEUS v2.0"
     CSS = WIZARD_CSS
 
     BINDINGS = [
@@ -67,7 +67,7 @@ class MorpheusWizard(App):
     def compose(self) -> ComposeResult:
         # Top bar
         with Horizontal(id="top-bar"):
-            yield Static("MORPHEUS v2.0", id="top-title")
+            yield Static("[bold #00FF41]MORPHEUS[/] [#007018]v2.0[/]", id="top-title")
             yield Static(self._step_label(), id="top-step")
 
         # Body: sidebar + step panel
@@ -78,9 +78,9 @@ class MorpheusWizard(App):
 
         # Navigation buttons
         with Horizontal(id="nav-bar"):
-            yield Button("← Back", id="btn-back")
-            yield Button("Next →", id="btn-next")
-            yield Button("Run", id="btn-run")
+            yield Button("Back", id="btn-back")
+            yield Button("Next", id="btn-next")
+            yield Button("Execute", id="btn-run")
 
         yield Footer()
 
