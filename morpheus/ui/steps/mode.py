@@ -18,17 +18,27 @@ class ModeStep(Vertical):
     def compose(self):
         yield Static("Mode", classes="step-title")
         yield Static(
-            "Choose whether to encrypt new data or decrypt existing ciphertext.",
+            "Choose an operation. Encrypt converts plaintext into protected "
+            "ciphertext. Decrypt reverses the process to recover the original data.",
             classes="step-subtitle",
+        )
+        yield Static(
+            "[dim]Use Up/Down arrows to highlight, Enter to select, "
+            "or press Ctrl+E / Ctrl+D to skip this step.[/dim]",
+            classes="step-hint",
         )
         with RadioSet(id="mode-radio"):
             yield RadioButton(
-                "Encrypt — protect data with a password",
+                "Encrypt — protect data with a password\n"
+                "  Derives a key from your password using a memory-hard KDF,\n"
+                "  then encrypts with authenticated encryption (AEAD).",
                 id="radio-encrypt",
                 value=self._state.mode == Mode.ENCRYPT,
             )
             yield RadioButton(
-                "Decrypt — recover data from ciphertext",
+                "Decrypt — recover data from ciphertext\n"
+                "  Reads the algorithm from the ciphertext header and\n"
+                "  reverses encryption using your password.",
                 id="radio-decrypt",
                 value=self._state.mode == Mode.DECRYPT,
             )

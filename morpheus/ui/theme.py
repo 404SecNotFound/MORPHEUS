@@ -63,16 +63,24 @@ Footer {
 /* ── Sidebar ────────────────────────────────────────────────────── */
 
 #sidebar {
-    width: 22;
+    width: 28;
     background: """ + SURFACE + """;
     border-right: solid """ + BORDER + """;
     padding: 1 0;
+    overflow-y: auto;
 }
 
 .sidebar-item {
-    height: 1;
+    height: 2;
     padding: 0 1;
     color: """ + TEXT_DIM + """;
+    margin: 0 0 1 0;
+}
+
+.sidebar-item:focus {
+    background: """ + ELEVATED + """;
+    color: """ + ACCENT + """;
+    text-style: bold;
 }
 
 .sidebar-item.--current {
@@ -107,9 +115,16 @@ Footer {
 }
 
 .step-subtitle {
-    color: """ + TEXT_SECONDARY + """;
+    color: """ + TEXT_BODY + """;
     padding: 0 0 1 0;
     width: 100%;
+}
+
+.step-hint {
+    color: """ + TEXT_DIM + """;
+    padding: 0 0 1 0;
+    width: 100%;
+    height: auto;
 }
 
 .field-label {
@@ -123,6 +138,13 @@ Footer {
     layout: horizontal;
     align: left middle;
     margin: 0 0 0 0;
+}
+
+.field-help {
+    color: """ + TEXT_DIM + """;
+    padding: 0 0 1 2;
+    height: auto;
+    width: 100%;
 }
 
 /* ── Navigation buttons ─────────────────────────────────────────── */
@@ -302,6 +324,7 @@ CollapsibleTitle:focus {
 #mode-radio RadioButton {
     padding: 0 0 0 0;
     margin: 0 0 1 0;
+    height: auto;
 }
 
 .settings-section {

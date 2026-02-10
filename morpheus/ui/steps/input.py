@@ -16,18 +16,44 @@ class InputStep(Vertical):
         self._state = state
 
     def compose(self):
-        mode_label = "encrypt" if self._state.mode == Mode.ENCRYPT else "decrypt"
+        is_encrypt = self._state.mode == Mode.ENCRYPT
+        mode_label = "encrypt" if is_encrypt else "decrypt"
+
         yield Static("Input", classes="step-title")
+
+        if is_encrypt:
+            yield Static(
+                "Enter or paste the plaintext you want to encrypt. "
+                "You can type directly in the text area, or switch to "
+                "File mode to encrypt a file from disk.",
+                classes="step-subtitle",
+            )
+        else:
+            yield Static(
+                "Paste the ciphertext (base64 string) you want to decrypt, "
+                "or switch to File mode to select an encrypted file.",
+                classes="step-subtitle",
+            )
+
         yield Static(
-            f"Provide the data to {mode_label}.",
-            classes="step-subtitle",
+            "[dim]Use Up/Down to switch between Text and File. "
+            "Tab to move into the editor. "
+            "To paste: click the text area, then use Ctrl+Shift+V "
+            "(terminal paste).[/dim]",
+            classes="step-hint",
         )
 
         with RadioSet(id="input-tabs"):
-            yield RadioButton("Text", value=self._state.input_method == InputMethod.TEXT,
-                              id="tab-text")
-            yield RadioButton("File", value=self._state.input_method == InputMethod.FILE,
-                              id="tab-file")
+            yield RadioButton(
+                "Text — type or paste directly",
+                value=self._state.input_method == InputMethod.TEXT,
+                id="tab-text",
+            )
+            yield RadioButton(
+                "File — encrypt/decrypt a file on disk",
+                value=self._state.input_method == InputMethod.FILE,
+                id="tab-file",
+            )
 
         yield TextArea(id="input-editor")
         yield Static("", id="input-stats")
@@ -36,10 +62,17 @@ class InputStep(Vertical):
         with Horizontal(classes="field-row", id="file-row"):
             yield Label("File:", classes="field-label")
             yield Input(
-                placeholder="Path to file...",
+                placeholder="Enter the full path to the file...",
                 id="file-path-input",
                 value=self._state.input_file,
             )
+
+        yield Static(
+            "[dim]File path: use absolute path (e.g. /home/user/secret.txt). "
+            "Tab into the field and type or paste the path.[/dim]",
+            id="file-help",
+            classes="field-help",
+        )
 
     def on_mount(self) -> None:
         editor = self.query_one("#input-editor", TextArea)
@@ -67,6 +100,7 @@ class InputStep(Vertical):
         self.query_one("#input-editor", TextArea).display = is_text
         self.query_one("#input-stats", Static).display = is_text
         self.query_one("#file-row").display = not is_text
+        self.query_one("#file-help").display = not is_text
 
     def _update_stats(self) -> None:
         text = self._state.input_text
