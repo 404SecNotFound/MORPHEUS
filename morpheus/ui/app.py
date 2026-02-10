@@ -1,4 +1,15 @@
-"""Main wizard application — 2-pane layout with sidebar + step panel."""
+"""Main wizard application — 2-pane layout with sidebar + step panel.
+
+Keyboard navigation:
+  1-6      Jump to step (if unlocked)
+  Left/Right  Previous / next step
+  Tab      Cycle through fields in the current step
+  Enter    Select / confirm focused element
+  Escape   Focus the sidebar
+  Ctrl+E   Quick-encrypt  Ctrl+D  Quick-decrypt
+  Ctrl+L   Reset all      Ctrl+Q  Quit
+  F1       Show keyboard help
+"""
 
 from __future__ import annotations
 
@@ -16,7 +27,7 @@ from ..core.ciphers import CIPHER_CHOICES
 from ..core.kdf import KDF_CHOICES
 from ..core.pipeline import EncryptionPipeline
 from ..core.validation import validate_input_text
-from .sidebar import Sidebar
+from .sidebar import Sidebar, SidebarItem
 from .state import (
     STEP_INPUT,
     STEP_LABELS,
@@ -40,7 +51,14 @@ from .theme import WIZARD_CSS
 
 
 class MorpheusWizard(App):
-    """2-pane wizard: sidebar (left) + active step panel (right)."""
+    """2-pane wizard: sidebar (left) + active step panel (right).
+
+    Navigate with keyboard:
+      - Number keys 1-6 jump directly to unlocked steps
+      - Left/Right arrows move between steps
+      - Tab cycles through fields, Enter selects
+      - Escape focuses the sidebar for arrow-key browsing
+    """
 
     TITLE = "MORPHEUS v2.0"
     CSS = WIZARD_CSS
@@ -50,10 +68,17 @@ class MorpheusWizard(App):
         Binding("ctrl+e", "quick_encrypt", "Encrypt"),
         Binding("ctrl+d", "quick_decrypt", "Decrypt"),
         Binding("ctrl+l", "clear_all", "Clear"),
-        Binding("left", "prev_step", "← Step", show=False),
-        Binding("right", "next_step", "→ Step", show=False),
-        Binding("escape", "focus_sidebar", "Back", show=False),
+        Binding("left", "prev_step", "Prev", show=False),
+        Binding("right", "next_step", "Next", show=False),
+        Binding("escape", "focus_sidebar", show=False),
         Binding("f1", "show_help", "Help"),
+        # Number keys to jump directly to steps
+        Binding("1", "goto_step_1", "1:Mode", show=False),
+        Binding("2", "goto_step_2", "2:Settings", show=False),
+        Binding("3", "goto_step_3", "3:Input", show=False),
+        Binding("4", "goto_step_4", "4:Password", show=False),
+        Binding("5", "goto_step_5", "5:Review", show=False),
+        Binding("6", "goto_step_6", "6:Output", show=False),
     ]
 
     def __init__(self, **kw) -> None:
@@ -168,6 +193,41 @@ class MorpheusWizard(App):
         if self._current_step < STEP_OUTPUT:
             self._show_step(self._current_step + 1)
 
+    def _goto_step(self, step: int) -> None:
+        """Jump to a specific step if it is unlocked."""
+        if step == self._current_step:
+            return
+        if step == STEP_OUTPUT and STEP_OUTPUT not in self._state.completed_steps:
+            self.notify("Output is available after encryption/decryption", severity="warning")
+            return
+        if not self._state.is_step_unlocked(step):
+            self.notify(f"Complete earlier steps first", severity="warning")
+            return
+        # Mark all steps before the target as completed
+        for i in range(step):
+            ok, _ = self._state.is_step_valid(i)
+            if ok:
+                self._state.completed_steps.add(i)
+        self._show_step(step)
+
+    def action_goto_step_1(self) -> None:
+        self._goto_step(STEP_MODE)
+
+    def action_goto_step_2(self) -> None:
+        self._goto_step(STEP_SETTINGS)
+
+    def action_goto_step_3(self) -> None:
+        self._goto_step(STEP_INPUT)
+
+    def action_goto_step_4(self) -> None:
+        self._goto_step(STEP_PASSWORD)
+
+    def action_goto_step_5(self) -> None:
+        self._goto_step(STEP_REVIEW)
+
+    def action_goto_step_6(self) -> None:
+        self._goto_step(STEP_OUTPUT)
+
     def action_focus_sidebar(self) -> None:
         if self._sidebar:
             self._sidebar.focus()
@@ -179,6 +239,7 @@ class MorpheusWizard(App):
             self._show_step(STEP_SETTINGS)
         else:
             self._update_nav()
+        self.notify("Mode set to Encrypt", severity="information")
 
     def action_quick_decrypt(self) -> None:
         self._state.mode = Mode.DECRYPT
@@ -187,19 +248,32 @@ class MorpheusWizard(App):
             self._show_step(STEP_SETTINGS)
         else:
             self._update_nav()
+        self.notify("Mode set to Decrypt", severity="information")
 
     def action_clear_all(self) -> None:
         self._state = WizardState()
+        if self._sidebar:
+            self._sidebar._state = self._state
         self._show_step(STEP_MODE)
+        self.notify("All fields cleared", severity="information")
 
     def action_show_help(self) -> None:
         self.notify(
-            "←/→ Steps · Tab Fields · Enter Select · "
-            "Esc Back · Ctrl+E Encrypt · Ctrl+D Decrypt · "
-            "Ctrl+L Clear · Ctrl+Q Quit",
+            "Keyboard shortcuts:\n"
+            "  1-6  Jump to step     Tab   Next field\n"
+            "  Left/Right  Prev/Next step\n"
+            "  Enter  Select item    Esc   Focus sidebar\n"
+            "  Ctrl+E  Encrypt mode  Ctrl+D  Decrypt mode\n"
+            "  Ctrl+L  Clear all     Ctrl+Q  Quit",
             severity="information",
-            timeout=8,
+            timeout=10,
         )
+
+    # ── Sidebar item selection ─────────────────────────────────────
+
+    def on_sidebar_item_selected(self, event: SidebarItem.Selected) -> None:
+        """Handle Enter key on a sidebar item."""
+        self._goto_step(event.step)
 
     # ── Button events ────────────────────────────────────────────
 

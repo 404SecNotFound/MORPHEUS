@@ -7,7 +7,7 @@ from textual.reactive import reactive
 from textual.widgets import Button, Static, TextArea
 
 from ..clipboard import clipboard_copy, save_to_file
-from ..state import WizardState
+from ..state import Mode, WizardState
 
 AUTO_CLEAR_SECONDS = 60
 
@@ -23,7 +23,31 @@ class OutputStep(Vertical):
         self._state = state
 
     def compose(self):
+        is_encrypt = self._state.mode == Mode.ENCRYPT
+
         yield Static("Output", classes="step-title")
+
+        if is_encrypt:
+            yield Static(
+                "Encryption complete. The ciphertext below is a base64 string "
+                "that contains your encrypted data, algorithm header, and "
+                "authentication tag. Store it securely or share it with the recipient.",
+                classes="step-subtitle",
+            )
+        else:
+            yield Static(
+                "Decryption complete. The recovered plaintext is shown below. "
+                "Copy or save it before the auto-clear timer expires.",
+                classes="step-subtitle",
+            )
+
+        yield Static(
+            "[dim]Copy: use the Copy button, or select text with your mouse "
+            "and Ctrl+Shift+C. Save: writes to a temporary file. "
+            "Auto-clear wipes the output after 60 seconds for security.[/dim]",
+            classes="step-hint",
+        )
+
         yield Static("", id="output-status")
         yield TextArea(id="output-area", read_only=True)
         with Horizontal(id="output-actions"):
@@ -73,7 +97,7 @@ class OutputStep(Vertical):
         try:
             self.app.copy_to_clipboard(text)
             self.app.notify(
-                "Copied via terminal (may not work in all terminals)",
+                "Copied via terminal escape (may not work in all terminals)",
                 severity="information",
             )
             return
