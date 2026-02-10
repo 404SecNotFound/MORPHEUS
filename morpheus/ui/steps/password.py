@@ -40,12 +40,34 @@ class PasswordStep(Vertical):
         self._state = state
 
     def compose(self):
+        is_encrypt = self._state.mode == Mode.ENCRYPT
+
         yield Static("Password", classes="step-title")
-        yield Static(
-            "Choose a strong password. There is no recovery — "
-            "if you forget it, your data is permanently lost.",
-            classes="step-subtitle",
-        )
+
+        if is_encrypt:
+            yield Static(
+                "Choose a strong password to protect your data. "
+                "There is no recovery mechanism — if you forget this "
+                "password, your data is permanently lost.",
+                classes="step-subtitle",
+            )
+            yield Static(
+                "[dim]Tip: Use a long passphrase (4+ random words) for best security. "
+                "The strength meter updates as you type. "
+                "You must confirm the password below.[/dim]",
+                classes="step-hint",
+            )
+        else:
+            yield Static(
+                "Enter the password that was used to encrypt the data. "
+                "The password must match exactly — including case and special characters.",
+                classes="step-subtitle",
+            )
+            yield Static(
+                "[dim]Tip: To paste a password, Tab to the password field, "
+                "then use Ctrl+Shift+V (terminal paste) or the Paste button.[/dim]",
+                classes="step-hint",
+            )
 
         with Horizontal(classes="field-row"):
             yield Label("Password:", classes="field-label")
@@ -69,7 +91,7 @@ class PasswordStep(Vertical):
         with Horizontal(classes="field-row", id="confirm-row"):
             yield Label("Confirm:", classes="field-label")
             yield Input(
-                placeholder="Confirm password...",
+                placeholder="Re-enter password to confirm...",
                 password=True,
                 id="pwd-confirm",
                 classes="password-field",
@@ -77,6 +99,13 @@ class PasswordStep(Vertical):
             yield Button("Paste", id="paste-confirm", classes="pwd-action-btn")
 
         yield Checkbox("Show password", id="show-pwd-check", value=False)
+
+        yield Static(
+            "[dim]Paste button reads from system clipboard (requires xclip/xsel). "
+            "If clipboard is unavailable, use Ctrl+Shift+V to paste directly "
+            "into the focused field.[/dim]",
+            classes="step-hint",
+        )
 
     def on_mount(self) -> None:
         # Hide confirm row in decrypt mode
@@ -121,7 +150,8 @@ class PasswordStep(Vertical):
             self.app.notify("Pasted from clipboard", severity="information")
         else:
             self.app.notify(
-                "Clipboard empty or unavailable — use Ctrl+Shift+V",
+                "Clipboard unavailable — Tab to the password field, "
+                "then press Ctrl+Shift+V to paste from your terminal",
                 severity="warning",
             )
 
@@ -132,18 +162,19 @@ class PasswordStep(Vertical):
             return
         ok, method = clipboard_copy(pwd)
         if ok:
-            self.app.notify("Password copied to clipboard", severity="information")
+            self.app.notify(f"Password copied ({method})", severity="information")
         else:
             # Fall back to Textual OSC-52 (unverifiable but often works)
             try:
                 self.app.copy_to_clipboard(pwd)
                 self.app.notify(
-                    "Copied via terminal (may not work in all terminals)",
+                    "Copied via terminal escape (may not work in all terminals)",
                     severity="information",
                 )
             except Exception:
                 self.app.notify(
-                    "Clipboard unavailable — select text with Ctrl+Shift+C",
+                    "Clipboard unavailable — select text manually with "
+                    "your terminal's copy shortcut (Ctrl+Shift+C)",
                     severity="warning",
                 )
 

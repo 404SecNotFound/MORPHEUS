@@ -128,29 +128,81 @@ Launch with no arguments:
 python morpheus.py
 ```
 
-The wizard walks you through six steps:
+The wizard walks you through six steps using **keyboard-only navigation** — no
+mouse required. The left sidebar tracks progress and every step includes
+contextual hints.
 
-| Step | What you do |
-|------|-------------|
-| **1 Mode** | Choose Encrypt or Decrypt |
-| **2 Settings** | Cipher, KDF, chaining, hybrid PQ, advanced padding options |
-| **3 Input** | Enter text or select a file |
-| **4 Password** | Password + confirm, strength meter, paste-from-clipboard |
-| **5 Review** | Summary of all settings, warnings, then Run |
-| **6 Output** | Read-only result, copy button, 60-second auto-clear countdown |
+### Encryption Steps (Walkthrough)
 
-The sidebar tracks progress — completed steps show `✓`, the current step is
-highlighted, and locked steps stay dim until prerequisites are met.
+#### Step 1 — Mode
+Choose an operation: **Encrypt** converts plaintext into protected ciphertext,
+**Decrypt** reverses the process. Use `Up/Down` arrows to select, `Enter` to
+confirm, or `Ctrl+E` / `Ctrl+D` to skip directly.
+
+#### Step 2 — Settings
+Configure the encryption algorithm and key derivation function. Defaults
+(AES-256-GCM + Argon2id) are secure for most use cases.
+
+- **Cipher**: AES-256-GCM (NIST standard, hardware-accelerated) or
+  ChaCha20-Poly1305 (constant-time, software-optimized)
+- **KDF**: Argon2id (memory-hard, resists GPU/ASIC) or Scrypt (widely deployed)
+- **Chain ciphers**: Double encryption with independent keys — hedges against a
+  single-cipher break
+- **Hybrid Post-Quantum**: Adds ML-KEM-768 key encapsulation — protects against
+  future quantum computers
+- **Advanced**: Plaintext padding, fixed 64 KiB output, omit filename from
+  envelope
+
+Use `Tab` between fields, `Enter` to open dropdowns, `Space` to toggle checkboxes.
+
+#### Step 3 — Input
+Provide the data to encrypt or decrypt:
+
+- **Text mode**: Type or paste directly into the editor. For pasting, focus the
+  text area and use `Ctrl+Shift+V` (terminal paste)
+- **File mode**: Enter the full path to the file (e.g. `/home/user/secret.txt`)
+
+Use `Up/Down` to switch between Text and File tabs.
+
+#### Step 4 — Password
+For encryption: choose a strong password (4+ random words recommended). The
+strength meter updates as you type. You must confirm the password.
+
+For decryption: enter the exact password used during encryption — case and
+special characters must match.
+
+The **Paste** button reads from the system clipboard (requires `xclip`/`xsel`).
+If clipboard is unavailable, use `Ctrl+Shift+V` to paste directly into the
+focused field.
+
+#### Step 5 — Review
+Review your configuration summary. If everything looks correct, press
+**Execute** (`Tab` to the button, then `Enter`). Warnings appear if your
+password is weak. Use `Back` or number keys to revisit any step.
+
+#### Step 6 — Output
+The result appears in a read-only text area:
+
+- **Copy**: Copies to system clipboard (falls back to file if unavailable)
+- **Save to file**: Writes output to a temporary file
+- **Auto-clear**: Wipes the output after 60 seconds for security (stop with the
+  **Stop timer** button)
+
+### Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
+| `1`-`6` | Jump directly to a step (if unlocked) |
+| `←` / `→` | Previous / next step |
+| `Tab` | Cycle through fields in the current step |
+| `Enter` | Select / confirm focused element |
+| `Space` | Toggle checkboxes |
+| `Esc` | Focus the sidebar (then arrow keys to browse) |
 | `Ctrl+E` | Quick Encrypt (sets mode + advances) |
 | `Ctrl+D` | Quick Decrypt |
 | `Ctrl+L` | Clear all and restart |
 | `Ctrl+Q` | Quit |
-| `←` / `→` | Switch steps |
-| `Esc` | Back to sidebar |
-| `F1` | Show help |
+| `F1` | Show keyboard help overlay |
 
 ---
 
