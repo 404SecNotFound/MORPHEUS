@@ -1,4 +1,4 @@
-"""Tests for the MORPHEUS wizard GUI.
+"""Tests for the MORPHEUS dashboard GUI.
 
 Uses Textual's built-in testing framework (app.run_test()) to verify
 widget interactions without a real terminal.
@@ -7,12 +7,12 @@ widget interactions without a real terminal.
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, RadioButton, Static
+from textual.widgets import Button, Static
 
-from morpheus.ui.app import MorpheusWizard
+from morpheus.ui.app import MorpheusApp, MorpheusWizard
 from morpheus.ui.clipboard import clipboard_copy, clipboard_paste
+from morpheus.ui.panels import StrengthBar
 from morpheus.ui.state import Mode
-from morpheus.ui.steps.password import StrengthBar
 
 
 # ── StrengthBar unit tests ──────────────────────────────────────
@@ -55,88 +55,73 @@ class TestStrengthBar:
         assert "Very weak" in rendered
 
 
-# ── Wizard app integration tests ────────────────────────────────
+# ── Backward compat alias ──────────────────────────────────────
 
-class TestWizardApp:
+class TestBackwardCompat:
+    """MorpheusWizard alias still works."""
+
+    def test_alias_points_to_app(self):
+        assert MorpheusWizard is MorpheusApp
+
+
+# ── Dashboard integration tests ────────────────────────────────
+
+class TestDashboardApp:
     """Integration tests using Textual's async test harness."""
 
     @pytest.mark.asyncio
-    async def test_app_mounts_with_sidebar(self):
-        """App mounts with sidebar and step container."""
-        app = MorpheusWizard()
+    async def test_app_mounts_with_panels(self):
+        """App mounts with all six dashboard panels."""
+        app = MorpheusApp()
         async with app.run_test(size=(120, 50)) as pilot:  # noqa: F841
-            assert app.query_one("#sidebar") is not None
-            assert app.query_one("#step-container") is not None
-            assert app.query_one("#btn-back", Button) is not None
-            assert app.query_one("#btn-next", Button) is not None
+            assert app.query_one("#mode-panel") is not None
+            assert app.query_one("#settings-panel") is not None
+            assert app.query_one("#status-panel") is not None
+            assert app.query_one("#input-panel") is not None
+            assert app.query_one("#password-panel") is not None
+            assert app.query_one("#output-panel") is not None
 
     @pytest.mark.asyncio
-    async def test_initial_step_is_mode(self):
-        """App starts on the Mode step."""
-        app = MorpheusWizard()
+    async def test_header_shows_morpheus(self):
+        """Header bar displays MORPHEUS branding."""
+        app = MorpheusApp()
         async with app.run_test(size=(120, 50)) as pilot:  # noqa: F841
-            step_label = app.query_one("#top-step", Static)
-            rendered = str(step_label.render())
-            assert "Mode" in rendered
+            title = app.query_one("#header-title", Static)
+            rendered = str(title.render())
+            assert "MORPHEUS" in rendered
 
     @pytest.mark.asyncio
-    async def test_navigation_next_and_back(self):
-        """Next goes to Settings, Back returns to Mode."""
-        app = MorpheusWizard()
-        async with app.run_test(size=(120, 50)) as pilot:
-            # Select Encrypt mode first
-            encrypt_radio = app.query_one("#radio-encrypt", RadioButton)
-            encrypt_radio.value = True
-            await pilot.pause()
-
-            # Next
-            app.action_next_step()
-            await pilot.pause()
-            step_label = str(app.query_one("#top-step", Static).render())
-            assert "Settings" in step_label
-
-            # Back
-            app.action_prev_step()
-            await pilot.pause()
-            step_label = str(app.query_one("#top-step", Static).render())
-            assert "Mode" in step_label
-
-    @pytest.mark.asyncio
-    async def test_next_blocked_without_mode(self):
-        """Cannot advance past Mode without selecting Encrypt or Decrypt."""
-        app = MorpheusWizard()
+    async def test_execute_disabled_without_input(self):
+        """Execute button is disabled when form is incomplete."""
+        app = MorpheusApp()
         async with app.run_test(size=(120, 50)) as pilot:  # noqa: F841
-            btn = app.query_one("#btn-next", Button)
+            btn = app.query_one("#btn-run", Button)
             assert btn.disabled
 
     @pytest.mark.asyncio
-    async def test_quick_encrypt_shortcut(self):
-        """Ctrl+E sets mode to Encrypt and advances to Settings."""
-        app = MorpheusWizard()
+    async def test_quick_encrypt_sets_mode(self):
+        """Ctrl+E sets mode to Encrypt."""
+        app = MorpheusApp()
         async with app.run_test(size=(120, 50)) as pilot:
             app.action_quick_encrypt()
             await pilot.pause()
             assert app._state.mode == Mode.ENCRYPT
-            step_label = str(app.query_one("#top-step", Static).render())
-            assert "Settings" in step_label
 
     @pytest.mark.asyncio
-    async def test_quick_decrypt_shortcut(self):
-        """Ctrl+D sets mode to Decrypt and advances to Settings."""
-        app = MorpheusWizard()
+    async def test_quick_decrypt_sets_mode(self):
+        """Ctrl+D sets mode to Decrypt."""
+        app = MorpheusApp()
         async with app.run_test(size=(120, 50)) as pilot:
             app.action_quick_decrypt()
             await pilot.pause()
             assert app._state.mode == Mode.DECRYPT
-            step_label = str(app.query_one("#top-step", Static).render())
-            assert "Settings" in step_label
 
     @pytest.mark.asyncio
-    async def test_clear_all_resets_to_mode(self):
-        """Ctrl+L resets state and goes back to Mode step."""
-        app = MorpheusWizard()
+    async def test_clear_all_resets_state(self):
+        """Ctrl+L resets all state fields."""
+        app = MorpheusApp()
         async with app.run_test(size=(120, 50)) as pilot:
-            # Advance to settings
+            # Set some state
             app.action_quick_encrypt()
             await pilot.pause()
 
@@ -144,15 +129,15 @@ class TestWizardApp:
             app.action_clear_all()
             await pilot.pause()
             assert app._state.mode is None
-            step_label = str(app.query_one("#top-step", Static).render())
-            assert "Mode" in step_label
+            assert app._state.password == ""
+            assert app._state.input_text == ""
 
     @pytest.mark.asyncio
     async def test_encrypt_decrypt_roundtrip(self):
-        """Full encrypt then decrypt through the wizard state model."""
-        app = MorpheusWizard()
+        """Full encrypt then decrypt through the dashboard state model."""
+        app = MorpheusApp()
         async with app.run_test(size=(120, 50)) as pilot:
-            plaintext = "Secret message for wizard test"
+            plaintext = "Secret message for dashboard test"
             password = "T3st!Passw0rd#Str0ng"
 
             # Set state directly for speed

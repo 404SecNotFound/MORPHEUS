@@ -1,271 +1,453 @@
-"""Theme tokens and CSS for the MORPHEUS wizard UI — Matrix Edition."""
+"""Dashboard CSS for MORPHEUS — Sampler-inspired dark terminal dashboard.
+
+Design principles (from Sampler):
+  - Every panel gets a heavy border with a title in the frame
+  - Dark background (#0A0A0A) with bright green (#00FF41) accents
+  - Dense layout — everything visible on one screen
+  - No wasted space, no scrolling, no hidden panels
+"""
 
 from __future__ import annotations
 
-# -- Matrix colour palette ---------------------------------------------------
-BG              = "#030303"    # Near-black
-SURFACE         = "#080C08"    # Green-black surface
-ELEVATED        = "#0C140C"    # Elevated card background
-BORDER          = "#0D3B0D"    # Green border
-BORDER_BRIGHT   = "#00AA28"    # Bright green border (focus / active)
+DASHBOARD_CSS = """
 
-TEXT_PRIMARY     = "#00FF41"   # Classic Matrix phosphor green
-TEXT_BODY        = "#00DD36"   # Readable body text
-TEXT_SECONDARY   = "#00AA28"   # Labels / secondary info
-TEXT_DIM         = "#007018"   # Dim hints
-DISABLED         = "#0A2A0A"   # Barely visible
+/* ══════════════════════════════════════════════════════════════════
+   SCREEN
+   ══════════════════════════════════════════════════════════════════ */
 
-ACCENT          = "#00FF41"    # Bright Matrix green
-ACCENT_HOVER    = "#33FF66"    # Hover state
-ACCENT_DIM      = "#00CC33"    # Muted accent
-
-SUCCESS         = "#39FF14"    # Neon green
-WARNING         = "#FFD700"    # Gold (stands out intentionally)
-ERROR           = "#FF3333"    # Red
-
-WIZARD_CSS = """
 Screen {
-    background: """ + BG + """;
+    background: #0A0A0A;
+    layout: vertical;
 }
 
-Header {
-    background: """ + SURFACE + """;
-    color: """ + TEXT_PRIMARY + """;
-}
+/* ══════════════════════════════════════════════════════════════════
+   HEADER BAR
+   ══════════════════════════════════════════════════════════════════ */
 
-Footer {
-    background: """ + SURFACE + """;
-    color: """ + TEXT_SECONDARY + """;
-}
-
-/* ── Top bar ────────────────────────────────────────────────────── */
-
-#top-bar {
+#header-bar {
     dock: top;
     height: 3;
-    background: """ + SURFACE + """;
-    color: """ + TEXT_SECONDARY + """;
+    background: #0F0F0F;
     padding: 1 2;
-    border-bottom: solid """ + BORDER + """;
+    border-bottom: heavy #0D3B0D;
 }
 
-#top-title {
+#header-title {
     width: 1fr;
-    color: """ + ACCENT + """;
+    color: #00FF41;
     text-style: bold;
 }
 
-#top-step {
+#header-subtitle {
     width: auto;
-    color: """ + TEXT_SECONDARY + """;
+    color: #007018;
+    text-style: italic;
 }
 
-/* ── Sidebar ────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   DASHBOARD GRID
+   ══════════════════════════════════════════════════════════════════ */
 
-#sidebar {
-    width: 28;
-    background: """ + SURFACE + """;
-    border-right: solid """ + BORDER + """;
-    padding: 1 0;
+#dashboard {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#top-row {
+    height: auto;
+    max-height: 14;
+    min-height: 10;
+}
+
+#mid-row {
+    height: 1fr;
+    min-height: 12;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PANEL BASE — every panel gets this
+   ══════════════════════════════════════════════════════════════════ */
+
+.panel {
+    border: heavy #0D3B0D;
+    border-title-color: #00FF41;
+    border-title-style: bold;
+    border-subtitle-color: #007018;
+    border-subtitle-style: italic;
+    background: #0D0D0D;
+    padding: 0 1;
+    margin: 0 0;
     overflow-y: auto;
 }
 
-.sidebar-item {
-    height: 2;
-    padding: 0 1;
-    color: """ + TEXT_DIM + """;
+.panel:focus-within {
+    border: heavy #00AA28;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   MODE PANEL (top-left, narrow)
+   ══════════════════════════════════════════════════════════════════ */
+
+#mode-panel {
+    width: 24;
+    min-width: 20;
+}
+
+.panel-hint {
+    color: #007018;
+    height: 1;
     margin: 0 0 1 0;
 }
 
-.sidebar-item:focus {
-    background: """ + ELEVATED + """;
-    color: """ + ACCENT + """;
-    text-style: bold;
-}
-
-.sidebar-item.--current {
-    color: """ + ACCENT + """;
-    text-style: bold;
-    background: """ + ELEVATED + """;
-}
-
-.sidebar-item.--completed {
-    color: """ + ACCENT_DIM + """;
-}
-
-.sidebar-item.--locked {
-    color: """ + DISABLED + """;
-}
-
-/* ── Step panel (right pane) ────────────────────────────────────── */
-
-#step-container {
-    width: 1fr;
-    height: 1fr;
-    padding: 1 3;
-    background: """ + BG + """;
-    overflow-y: auto;
-}
-
-.step-title {
-    color: """ + TEXT_PRIMARY + """;
-    text-style: bold;
-    padding: 0 0 1 0;
-    width: 100%;
-}
-
-.step-subtitle {
-    color: """ + TEXT_BODY + """;
-    padding: 0 0 1 0;
-    width: 100%;
-}
-
-.step-hint {
-    color: """ + TEXT_DIM + """;
-    padding: 0 0 1 0;
-    width: 100%;
+#mode-radio {
+    background: transparent;
+    border: none;
     height: auto;
+    padding: 0;
 }
 
-.field-label {
-    color: """ + TEXT_SECONDARY + """;
-    width: 16;
-    padding: 0 1 0 0;
+#mode-radio RadioButton {
+    background: transparent;
+    color: #00DD36;
+    height: auto;
+    margin: 0;
+    padding: 0;
 }
 
-.field-row {
+#mode-radio RadioButton:focus {
+    color: #00FF41;
+    text-style: bold;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SETTINGS PANEL (top-center, flexible)
+   ══════════════════════════════════════════════════════════════════ */
+
+#settings-panel {
+    width: 1fr;
+}
+
+.setting-row {
     height: 3;
     layout: horizontal;
     align: left middle;
-    margin: 0 0 0 0;
 }
 
-.field-help {
-    color: """ + TEXT_DIM + """;
-    padding: 0 0 1 2;
+.setting-label {
+    width: 8;
+    color: #00AA28;
+    padding: 0 1 0 0;
+}
+
+.opts-row {
     height: auto;
-    width: 100%;
-}
-
-/* ── Navigation buttons ─────────────────────────────────────────── */
-
-#nav-bar {
-    height: 3;
     layout: horizontal;
-    align: center middle;
-    padding: 0 2;
-    dock: bottom;
-    background: """ + SURFACE + """;
-    border-top: solid """ + BORDER + """;
+    margin: 1 0 0 0;
 }
 
-#nav-bar Button {
-    margin: 0 1;
-    min-width: 14;
+.opts-row Checkbox {
+    margin: 0 2 0 0;
+    background: transparent;
+    color: #00DD36;
+    padding: 0;
 }
 
-#btn-back {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_SECONDARY + """;
-    border: tall """ + BORDER + """;
+#settings-panel Select {
+    width: 1fr;
+    max-width: 28;
 }
 
-#btn-back:hover {
-    background: """ + BORDER + """;
-    color: """ + ACCENT + """;
+/* ══════════════════════════════════════════════════════════════════
+   STATUS PANEL (top-right, narrow)
+   ══════════════════════════════════════════════════════════════════ */
+
+#status-panel {
+    width: 26;
+    min-width: 22;
 }
 
-#btn-next {
-    background: """ + ACCENT + """;
-    color: """ + BG + """;
-    text-style: bold;
-    border: tall """ + ACCENT_DIM + """;
+#status-panel Static {
+    height: 1;
+    color: #00DD36;
 }
 
-#btn-next:hover {
-    background: """ + ACCENT_HOVER + """;
-}
-
-#btn-next:disabled {
-    background: """ + DISABLED + """;
-    color: """ + TEXT_DIM + """;
-    border: tall """ + DISABLED + """;
+.status-divider {
+    color: #0D3B0D;
+    height: 1;
+    margin: 1 0;
 }
 
 #btn-run {
-    background: """ + ACCENT + """;
-    color: """ + BG + """;
+    width: 100%;
+    min-width: 16;
+    margin: 0;
+    background: #00FF41;
+    color: #0A0A0A;
     text-style: bold;
-    border: tall """ + ACCENT_DIM + """;
+    border: tall #00CC33;
 }
 
 #btn-run:hover {
-    background: """ + ACCENT_HOVER + """;
+    background: #33FF66;
 }
 
-/* ── Shared widget styles ───────────────────────────────────────── */
+#btn-run:disabled {
+    background: #111111;
+    color: #333333;
+    border: tall #1A1A1A;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   INPUT PANEL (mid-left, wider)
+   ══════════════════════════════════════════════════════════════════ */
+
+#input-panel {
+    width: 2fr;
+}
+
+#input-header {
+    height: auto;
+    margin: 0 0 1 0;
+}
+
+#input-tabs {
+    height: auto;
+    background: transparent;
+    border: none;
+    width: auto;
+    padding: 0;
+}
+
+#input-tabs RadioButton {
+    background: transparent;
+    color: #00DD36;
+    height: auto;
+    padding: 0;
+}
+
+#input-tabs RadioButton:focus {
+    color: #00FF41;
+}
+
+#input-stats {
+    height: 1;
+    width: auto;
+    color: #007018;
+    text-align: right;
+    padding: 0 0 0 2;
+    dock: right;
+}
+
+#input-editor {
+    height: 1fr;
+    min-height: 4;
+    background: #111111;
+    color: #00FF41;
+    border: tall #0D3B0D;
+}
+
+#input-editor:focus {
+    border: tall #00AA28;
+}
+
+#file-row {
+    height: 3;
+    layout: horizontal;
+    align: left middle;
+}
+
+#file-path-input {
+    width: 1fr;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PASSWORD PANEL (mid-right, narrower)
+   ══════════════════════════════════════════════════════════════════ */
+
+#password-panel {
+    width: 1fr;
+}
+
+.pwd-row {
+    height: 3;
+    layout: horizontal;
+    align: left middle;
+}
+
+.pwd-label {
+    width: 5;
+    color: #00AA28;
+    padding: 0 1 0 0;
+}
+
+.pwd-field {
+    width: 1fr;
+}
+
+.pwd-btn {
+    min-width: 8;
+    margin: 0 0 0 1;
+}
+
+#match-indicator {
+    width: auto;
+    min-width: 12;
+    padding: 0 0 0 1;
+}
+
+#show-pwd-check {
+    margin: 0 0 1 0;
+    background: transparent;
+    color: #00DD36;
+}
+
+#strength-bar {
+    height: 1;
+}
+
+#pwd-feedback {
+    height: auto;
+    color: #007018;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   OUTPUT PANEL (bottom, full width)
+   ══════════════════════════════════════════════════════════════════ */
+
+#output-panel {
+    height: auto;
+    max-height: 14;
+    min-height: 8;
+}
+
+#output-area {
+    height: 1fr;
+    min-height: 3;
+    background: #111111;
+    color: #00FF41;
+    border: tall #0D3B0D;
+}
+
+#output-area:focus {
+    border: tall #00AA28;
+}
+
+#output-actions {
+    height: 3;
+    layout: horizontal;
+    align: left middle;
+    margin: 1 0 0 0;
+}
+
+#output-actions Button {
+    margin: 0 1 0 0;
+    min-width: 10;
+}
+
+#btn-copy {
+    background: #00FF41;
+    color: #0A0A0A;
+    text-style: bold;
+    border: tall #00CC33;
+}
+
+#btn-copy:hover {
+    background: #33FF66;
+}
+
+#btn-save {
+    background: #111111;
+    color: #00AA28;
+    border: tall #0D3B0D;
+}
+
+#btn-save:hover {
+    background: #0D3B0D;
+    color: #00FF41;
+}
+
+#btn-clear {
+    background: #111111;
+    color: #FF3333;
+    border: tall #0D3B0D;
+}
+
+#btn-clear:hover {
+    background: #2A0A0A;
+    color: #FF5555;
+}
+
+#btn-stop-timer {
+    background: #111111;
+    color: #FFD700;
+    border: tall #0D3B0D;
+}
+
+#btn-stop-timer:hover {
+    background: #1A1A0A;
+    color: #FFE44D;
+}
+
+#countdown-label {
+    width: auto;
+    padding: 0 0 0 2;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SHARED WIDGET STYLES
+   ══════════════════════════════════════════════════════════════════ */
 
 Input {
-    background: """ + ELEVATED + """;
-    border: tall """ + BORDER + """;
-    color: """ + TEXT_PRIMARY + """;
+    background: #111111;
+    border: tall #0D3B0D;
+    color: #00FF41;
 }
 
 Input:focus {
-    border: tall """ + ACCENT + """;
-}
-
-Input.-invalid {
-    border: tall """ + ERROR + """;
+    border: tall #00AA28;
 }
 
 TextArea {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_PRIMARY + """;
-    border: tall """ + BORDER + """;
-}
-
-TextArea:focus {
-    border: tall """ + ACCENT + """;
+    background: #111111;
+    color: #00FF41;
 }
 
 Select {
-    background: """ + ELEVATED + """;
-    border: tall """ + BORDER + """;
-    color: """ + TEXT_PRIMARY + """;
+    background: #111111;
+    border: tall #0D3B0D;
+    color: #00FF41;
 }
 
 Select:focus {
-    border: tall """ + ACCENT + """;
+    border: tall #00AA28;
 }
 
 SelectOverlay {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_PRIMARY + """;
-    border: solid """ + BORDER + """;
+    background: #111111;
+    color: #00FF41;
+    border: heavy #0D3B0D;
 }
 
 SelectCurrent {
-    color: """ + TEXT_PRIMARY + """;
+    color: #00FF41;
 }
 
 Checkbox {
     background: transparent;
-    color: """ + TEXT_BODY + """;
-    padding: 0 0 0 0;
+    color: #00DD36;
 }
 
 Checkbox:focus {
-    color: """ + ACCENT + """;
+    color: #00FF41;
 }
 
 RadioButton {
     background: transparent;
-    color: """ + TEXT_BODY + """;
+    color: #00DD36;
 }
 
 RadioButton:focus {
-    color: """ + ACCENT + """;
+    color: #00FF41;
 }
 
 RadioSet {
@@ -274,209 +456,22 @@ RadioSet {
 }
 
 Button {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_BODY + """;
-    border: tall """ + BORDER + """;
+    background: #111111;
+    color: #00DD36;
+    border: tall #0D3B0D;
 }
 
 Button:hover {
-    background: """ + BORDER + """;
-    color: """ + ACCENT + """;
+    background: #0D3B0D;
+    color: #00FF41;
 }
 
 Button:focus {
-    border: tall """ + ACCENT + """;
+    border: tall #00AA28;
 }
 
-Collapsible {
-    background: transparent;
-    border: none;
-    padding: 0 0 0 0;
-}
-
-CollapsibleTitle {
-    color: """ + TEXT_SECONDARY + """;
-    background: transparent;
-    padding: 1 0 0 0;
-}
-
-CollapsibleTitle:hover {
-    color: """ + ACCENT + """;
-}
-
-CollapsibleTitle:focus {
-    color: """ + ACCENT + """;
-}
-
-/* ── Step-specific ──────────────────────────────────────────────── */
-
-.mode-choice {
-    height: auto;
-    padding: 1 0;
-}
-
-#mode-radio {
-    background: transparent;
-    border: none;
-    padding: 0;
-}
-
-#mode-radio RadioButton {
-    padding: 0 0 0 0;
-    margin: 0 0 1 0;
-    height: auto;
-}
-
-.settings-section {
-    height: auto;
-    padding: 0 0 1 0;
-}
-
-#input-tabs {
-    height: auto;
-    padding: 0 0 1 0;
-    background: transparent;
-    border: none;
-}
-
-#input-editor {
-    height: 12;
-    min-height: 8;
-}
-
-#input-stats {
-    color: """ + TEXT_SECONDARY + """;
-    text-align: right;
-    height: 1;
-    width: 100%;
-}
-
-#file-path-input {
-    width: 1fr;
-}
-
-.password-field {
-    width: 40;
-}
-
-#strength-bar {
-    width: 30;
-}
-
-#match-indicator {
-    color: """ + ACCENT + """;
-    padding: 0 0 0 2;
-}
-
-.review-table {
-    height: auto;
-    padding: 0 0 1 0;
-}
-
-.review-row {
-    height: 1;
-    layout: horizontal;
-    padding: 0 0 0 0;
-}
-
-.review-key {
-    width: 18;
-    color: """ + TEXT_SECONDARY + """;
-}
-
-.review-val {
-    width: 1fr;
-    color: """ + TEXT_PRIMARY + """;
-}
-
-.warning-text {
-    color: """ + WARNING + """;
-    padding: 1 0 0 0;
-}
-
-#output-area {
-    height: 10;
-    min-height: 6;
-}
-
-#output-status {
-    height: 1;
-    color: """ + TEXT_SECONDARY + """;
-}
-
-#output-actions {
-    height: 3;
-    layout: horizontal;
-    padding: 1 0 0 0;
-}
-
-#output-actions Button {
-    margin: 0 1 0 0;
-}
-
-#btn-copy {
-    background: """ + ACCENT + """;
-    color: """ + BG + """;
-    text-style: bold;
-    border: tall """ + ACCENT_DIM + """;
-}
-
-#btn-copy:hover {
-    background: """ + ACCENT_HOVER + """;
-}
-
-#btn-clear {
-    background: """ + ELEVATED + """;
-    color: """ + ERROR + """;
-    border: tall """ + BORDER + """;
-}
-
-#btn-clear:hover {
-    background: """ + BORDER + """;
-}
-
-#btn-stop-timer {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_SECONDARY + """;
-    border: tall """ + BORDER + """;
-}
-
-#countdown-label {
-    color: """ + WARNING + """;
-    text-style: bold;
-    width: auto;
-    padding: 0 0 0 2;
-}
-
-/* ── Password step buttons ──────────────────────────────────────── */
-
-.pwd-action-btn {
-    min-width: 8;
-    margin: 0 0 0 1;
-}
-
-#copy-pwd {
-    background: """ + ELEVATED + """;
-    color: """ + ACCENT_DIM + """;
-    border: tall """ + BORDER + """;
-}
-
-#copy-pwd:hover {
-    color: """ + ACCENT + """;
-    background: """ + BORDER + """;
-}
-
-#pwd-feedback {
-    color: """ + TEXT_DIM + """;
-    height: auto;
-    padding: 0 0 0 0;
-}
-
-/* ── Section dividers ───────────────────────────────────────────── */
-
-.section-divider {
-    height: 1;
-    color: """ + BORDER + """;
-    margin: 1 0;
+Footer {
+    background: #0F0F0F;
+    color: #00AA28;
 }
 """
