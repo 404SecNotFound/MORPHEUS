@@ -4,7 +4,8 @@
 
 | Version | Supported          |
 |---------|--------------------|
-| 2.0.x   | Yes                |
+| 2.1.x   | Yes                |
+| 2.0.x   | Security fixes only |
 | < 2.0   | No                 |
 
 ## Reporting a Vulnerability
@@ -58,6 +59,7 @@ The following are **out of scope** (documented in the Threat Model):
 | 2026-02-07 | Cryptographic deep review      | 7 findings (2 high, 3 medium, 2 low) — all remediated |
 | 2026-02-08 | External review + independent audit | 4 external findings + 21 audit findings — remediated in v2.0.2 |
 | 2026-02-08 | Privacy/crypto/ethics review + security hardening | 12 findings (4 crypto, 5 privacy, 3 ethical) + 6 hardening findings — remediated in v2.0.3 |
+| 2026-02-11 | Full end-to-end review (v2.1.0) | 18 findings (3 critical, 6 high, 8 medium, 6 low) — all remediated in v2.1.0 |
 
 ### Remediation Summary (v2.0.1)
 

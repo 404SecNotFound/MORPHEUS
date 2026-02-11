@@ -3,26 +3,50 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [2.1.0] - 2026-02-10
+## [2.1.0] - 2026-02-11
 
 ### Changed
-- **Wizard GUI overhaul**: Replaced the single-page scrollable form with a
-  6-step guided wizard (Mode → Settings → Input → Password → Review → Output).
-  2-pane layout: left sidebar with step completion markers (✓ done, ▸ current,
-  dim locked) and right panel for the active step
-- **Professional dark theme**: New palette — `#0F1115` background, `#5B8CFF`
-  accent, muted greens/ambers/reds. Replaces the neon color scheme
-- **Clipboard robustness**: Copy now uses Textual OSC 52 (terminal-native) as
-  primary method, with pyperclip and subprocess (xclip/xsel/wl-copy) fallbacks.
-  Paste buttons added to both password fields for password-manager workflows
-- **Step validation**: Next button disabled until the current step is valid;
-  Review step summarises all choices and shows password-strength warnings before
-  the Run action
-- **New shortcuts**: `←/→` switch steps, `Esc` returns to sidebar, `F1` shows
-  help overlay. Existing `Ctrl+E/D/L/Q` shortcuts preserved
-- **New `ui/` package**: `theme.py`, `state.py`, `sidebar.py`, `app.py`,
-  `steps/` — decoupled from crypto core
-- Test count: 241 → 266 (25 state-validation + 10 wizard integration tests)
+- **Dashboard UI overhaul**: Replaced the 6-step wizard with a Sampler-inspired
+  single-screen dashboard. All panels (Mode, Cipher & KDF, Status, Input,
+  Password, Output) are visible simultaneously — no more clicking through steps.
+  Heavy bordered panels with titles in the frame, dark background (#0A0A0A) with
+  Matrix green (#00FF41) accents. Panels glow brighter when focused
+- **Real-time Status panel**: Live readiness checklist shows validation state for
+  each section with colored dots (green ● ready, grey ○ incomplete). Execute
+  button auto-enables only when all fields are valid
+- **Simplified keyboard navigation**: Tab/Shift+Tab between all fields on the
+  single screen. Ctrl+E/D to set mode, Ctrl+L to clear, F1 for help. Removed
+  wizard-specific keys (1-6 step jump, Left/Right step nav, Esc→sidebar)
+- **New `panels.py` module**: Six self-contained panel widgets replace the old
+  `sidebar.py` + `steps/` directory. Each panel manages its own state slice and
+  UI elements
+
+### Security
+- **CRITICAL**: Fixed `requirements-lock.txt` pinning `cryptography==41.0.7`
+  (below minimum `>=44.0.0`). Now pins `cryptography==46.0.5`
+- **HIGH**: Added password strength check to GUI encrypt path — previously only
+  enforced in CLI
+- **HIGH**: Added 100 MiB file size limits to GUI file encrypt/decrypt
+- **HIGH**: Fixed `apply_config_defaults` so CLI flags properly override saved
+  config (added `raw_argv` parameter)
+- **MEDIUM**: Fixed config file permission race — `save_config()` now uses
+  `os.umask(0o077)` + `os.open()` with mode `0o600` for atomic creation
+- Added `pip-audit` dependency vulnerability scanning to CI pipeline
+- Added crypto key patterns (`*.key`, `*.pem`, `*.p12`, etc.) to `.gitignore`
+- Added `MAX_PASSWORD_LENGTH` (1024) validation to prevent DoS
+- Added clipboard temp file cleanup via `atexit`
+- Added `# nosec` annotations for bandit false positives (SHA-1 for HIBP, HTTPS
+  urlopen)
+
+### Fixed
+- Version mismatch: `pyproject.toml` and `__init__.py` now both read `2.1.0`
+- Removed stale `secure_encryption/` bytecode directory (legacy pre-rename)
+- Made `pqcrypto` optional in `requirements.txt` (commented with install guide)
+- Raised coverage threshold from 78% to 85%
+
+### Added
+- Decryption file size limit in CLI (100 MiB, matching encrypt)
+- Test count: 266 → 268
 
 ## [2.0.6] - 2026-02-10
 

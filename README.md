@@ -128,81 +128,55 @@ Launch with no arguments:
 python morpheus.py
 ```
 
-The wizard walks you through six steps using **keyboard-only navigation** — no
-mouse required. The left sidebar tracks progress and every step includes
-contextual hints.
+The dashboard shows **everything on one screen** — no wizard steps, no hidden
+panels. Inspired by terminal dashboards like [Sampler](https://github.com/sqshq/sampler).
 
-### Encryption Steps (Walkthrough)
+### Dashboard Layout
 
-#### Step 1 — Mode
-Choose an operation: **Encrypt** converts plaintext into protected ciphertext,
-**Decrypt** reverses the process. Use `Up/Down` arrows to select, `Enter` to
-confirm, or `Ctrl+E` / `Ctrl+D` to skip directly.
+```
+┏━ MODE ━━━━┓ ┏━ CIPHER & KDF ━━━━━━━━━┓ ┏━ STATUS ━━━━━━┓
+┃ ● ENCRYPT  ┃ ┃ Cipher [AES-256-GCM ▼] ┃ ┃  ● Mode       ┃
+┃ ○ DECRYPT  ┃ ┃ KDF    [Argon2id    ▼] ┃ ┃  ● Settings   ┃
+┃            ┃ ┃ □ Chain  □ PQ  □ Pad   ┃ ┃  ○ Input      ┃
+┗━━━━━━━━━━━━┛ ┗━━━━━━━━━━━━━━━━━━━━━━━━┛ ┃  ○ Password   ┃
+                                            ┃ [▶ ENCRYPT]  ┃
+┏━ INPUT ━━━━━━━━━━━━━━━━━┓ ┏━ PASSWORD ━━━┛━━━━━━━━━━━━━━┓
+┃ ● Text  ○ File    0L 0C ┃ ┃ Key [●●●●●●●●●]             ┃
+┃ ┌───────────────────────┐┃ ┃ Cfm [●●●●●●●●●] ✓ Match    ┃
+┃ │ Enter plaintext...    │┃ ┃ □ Show password              ┃
+┃ └───────────────────────┘┃ ┃ ████████░░ Strong 78/100     ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┏━ OUTPUT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ [Copy] [Save] [Clear] [Stop timer]            ⏱ 60s       ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
 
-#### Step 2 — Settings
-Configure the encryption algorithm and key derivation function. Defaults
-(AES-256-GCM + Argon2id) are secure for most use cases.
+**Six bordered panels**, each with a title in the frame:
 
-- **Cipher**: AES-256-GCM (NIST standard, hardware-accelerated) or
-  ChaCha20-Poly1305 (constant-time, software-optimized)
-- **KDF**: Argon2id (memory-hard, resists GPU/ASIC) or Scrypt (widely deployed)
-- **Chain ciphers**: Double encryption with independent keys — hedges against a
-  single-cipher break
-- **Hybrid Post-Quantum**: Adds ML-KEM-768 key encapsulation — protects against
-  future quantum computers
-- **Advanced**: Plaintext padding, fixed 64 KiB output, omit filename from
-  envelope
+| Panel | Purpose |
+|-------|---------|
+| **MODE** | Select Encrypt or Decrypt |
+| **CIPHER & KDF** | Choose algorithm, KDF, toggle chaining/PQ/padding |
+| **STATUS** | Live readiness checklist (green ● / grey ○) + Execute button |
+| **INPUT** | Type text or select a file to encrypt/decrypt |
+| **PASSWORD** | Password + confirm + strength meter (color-coded bar) |
+| **OUTPUT** | Result with Copy/Save/Clear + 60-second auto-clear countdown |
 
-Use `Tab` between fields, `Enter` to open dropdowns, `Space` to toggle checkboxes.
-
-#### Step 3 — Input
-Provide the data to encrypt or decrypt:
-
-- **Text mode**: Type or paste directly into the editor. For pasting, focus the
-  text area and use `Ctrl+Shift+V` (terminal paste)
-- **File mode**: Enter the full path to the file (e.g. `/home/user/secret.txt`)
-
-Use `Up/Down` to switch between Text and File tabs.
-
-#### Step 4 — Password
-For encryption: choose a strong password (4+ random words recommended). The
-strength meter updates as you type. You must confirm the password.
-
-For decryption: enter the exact password used during encryption — case and
-special characters must match.
-
-The **Paste** button reads from the system clipboard (requires `xclip`/`xsel`).
-If clipboard is unavailable, use `Ctrl+Shift+V` to paste directly into the
-focused field.
-
-#### Step 5 — Review
-Review your configuration summary. If everything looks correct, press
-**Execute** (`Tab` to the button, then `Enter`). Warnings appear if your
-password is weak. Use `Back` or number keys to revisit any step.
-
-#### Step 6 — Output
-The result appears in a read-only text area:
-
-- **Copy**: Copies to system clipboard (falls back to file if unavailable)
-- **Save to file**: Writes output to a temporary file
-- **Auto-clear**: Wipes the output after 60 seconds for security (stop with the
-  **Stop timer** button)
+The **STATUS** panel updates in real time as you fill in fields. The Execute
+button enables only when all sections are valid.
 
 ### Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
-| `1`-`6` | Jump directly to a step (if unlocked) |
-| `←` / `→` | Previous / next step |
-| `Tab` | Cycle through fields in the current step |
-| `Enter` | Select / confirm focused element |
+| `Tab` / `Shift+Tab` | Navigate between fields |
+| `Enter` | Select / activate focused element |
 | `Space` | Toggle checkboxes |
-| `Esc` | Focus the sidebar (then arrow keys to browse) |
-| `Ctrl+E` | Quick Encrypt (sets mode + advances) |
-| `Ctrl+D` | Quick Decrypt |
-| `Ctrl+L` | Clear all and restart |
+| `Ctrl+E` | Set Encrypt mode |
+| `Ctrl+D` | Set Decrypt mode |
+| `Ctrl+L` | Clear all fields |
 | `Ctrl+Q` | Quit |
-| `F1` | Show keyboard help overlay |
+| `F1` | Show keyboard help |
 
 ---
 
@@ -378,7 +352,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**266 tests** across 12 test files:
+**268 tests** across 12 test files:
 
 | File | Scope |
 |------|-------|
@@ -389,7 +363,7 @@ python -m pytest tests/ -v
 | `test_memory.py` | `secure_zero`, `SecureBuffer`, `secure_key` context manager |
 | `test_validation.py` | Password scoring (0-100), minimum requirements, edge cases |
 | `test_cli.py` | File encrypt/decrypt roundtrip (text + binary), path traversal prevention |
-| `test_gui.py` | Wizard mount, step navigation, shortcuts, encrypt/decrypt roundtrip, clipboard fallbacks |
+| `test_gui.py` | Dashboard panel mounting, shortcuts, encrypt/decrypt roundtrip, clipboard fallbacks |
 | `test_wizard_state.py` | State validation per step, step unlocking rules, edge cases |
 
 Tests include **NIST SP 800-38D** and **RFC 8439** reference vectors verified
@@ -402,22 +376,16 @@ against the `cryptography` library's validated implementations.
 ```
 morpheus/
 ├── morpheus/
-│   ├── __init__.py            # Package version
+│   ├── __init__.py            # Package version (2.1.0)
 │   ├── __main__.py            # Entry point (auto-detects GUI vs CLI)
 │   ├── gui.py                 # Thin shim → ui/app.py
 │   ├── cli.py                 # CLI with file encryption support
-│   ├── ui/                    # Wizard GUI (Textual)
-│   │   ├── app.py             # MorpheusWizard — 2-pane shell, navigation, workers
-│   │   ├── theme.py           # Colour tokens + CSS
-│   │   ├── state.py           # WizardState dataclass + per-step validation
-│   │   ├── sidebar.py         # Left pane step list (✓/▸/dim)
-│   │   └── steps/
-│   │       ├── mode.py        # Step 1 — Encrypt / Decrypt
-│   │       ├── settings.py    # Step 2 — Cipher, KDF, options
-│   │       ├── input.py       # Step 3 — Text editor / file path
-│   │       ├── password.py    # Step 4 — Password + strength + paste
-│   │       ├── review.py      # Step 5 — Summary + Run
-│   │       └── output.py      # Step 6 — Result + copy + countdown
+│   ├── ui/                    # Dashboard GUI (Textual)
+│   │   ├── app.py             # MorpheusApp — dashboard shell, workers, keybindings
+│   │   ├── panels.py          # Six panel widgets (Mode, Settings, Status, Input, Password, Output)
+│   │   ├── theme.py           # Dashboard CSS — Sampler-inspired dark theme
+│   │   ├── state.py           # WizardState dataclass + per-section validation
+│   │   └── clipboard.py       # Clipboard copy/paste with fallback chain
 │   └── core/
 │       ├── ciphers.py         # AES-256-GCM, ChaCha20-Poly1305
 │       ├── kdf.py             # Argon2id, Scrypt
@@ -426,12 +394,12 @@ morpheus/
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # mlock, ctypes.memset zeroing, SecureBuffer
 │       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 266 tests (NIST/RFC vectors included)
+├── tests/                     # 268 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history
 ├── CONTRIBUTING.md            # Contributor guide
-├── .github/workflows/ci.yml   # CI: Python 3.10-3.13 test matrix
+├── .github/workflows/ci.yml   # CI: Python 3.10-3.13 + pip-audit
 ├── pyproject.toml
 ├── requirements.txt
 └── LICENSE                    # MIT
