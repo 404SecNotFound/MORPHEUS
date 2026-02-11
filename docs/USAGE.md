@@ -179,49 +179,75 @@ python -m pytest tests/ -v
 python morpheus.py
 ```
 
-This opens the terminal GUI (TUI). It works in any modern terminal — no
+This opens the terminal dashboard (TUI). It works in any modern terminal — no
 web browser or desktop environment needed.
 
-### The 6-Step Wizard
+### Dashboard Layout
 
-The GUI uses a guided wizard that walks you through encryption or decryption
-one step at a time. Each step validates your input before allowing you to
-proceed.
+The GUI is a **single-screen dashboard** inspired by
+[Sampler](https://github.com/sqshq/sampler). All panels are visible at once —
+no wizard steps, no hidden content, no clicking through pages.
 
-| Step | Name | What You Do |
-|------|------|-------------|
-| 1 | **Operation** | Choose **Encrypt** or **Decrypt** |
-| 2 | **Input** | Type/paste your text, or select a file to encrypt/decrypt |
-| 3 | **Password** | Enter and confirm your password (strength meter shown in real time) |
-| 4 | **Options** | Choose cipher (AES-256-GCM or ChaCha20-Poly1305), KDF (Argon2id or Scrypt), toggle cipher chaining, toggle hybrid post-quantum, configure padding |
-| 5 | **Confirm** | Review a summary of all settings before proceeding |
-| 6 | **Result** | View the encrypted/decrypted output, copy to clipboard, or save to file |
+```
+┏━ MODE ━━━━┓ ┏━ CIPHER & KDF ━━━━━━━━━┓ ┏━ STATUS ━━━━━━┓
+┃ ● ENCRYPT  ┃ ┃ Cipher [AES-256-GCM ▼] ┃ ┃  ● Mode       ┃
+┃ ○ DECRYPT  ┃ ┃ KDF    [Argon2id    ▼] ┃ ┃  ● Settings   ┃
+┗━━━━━━━━━━━━┛ ┃ □ Chain  □ PQ  □ Pad   ┃ ┃  ○ Input      ┃
+               ┗━━━━━━━━━━━━━━━━━━━━━━━━┛ ┃  ○ Password   ┃
+                                           ┃ [▶ ENCRYPT]  ┃
+┏━ INPUT ━━━━━━━━━━━━━━━━━┓ ┏━ PASSWORD ━━┛━━━━━━━━━━━━━━━┓
+┃ ● Text  ○ File          ┃ ┃ Key [●●●●●●●●●]             ┃
+┃ ┌───────────────────────┐┃ ┃ Cfm [●●●●●●●●●] ✓ Match    ┃
+┃ │ Enter plaintext...    │┃ ┃ □ Show password              ┃
+┃ └───────────────────────┘┃ ┃ ████████░░ Strong 78/100     ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┏━ OUTPUT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ [Copy] [Save] [Clear] [Stop timer]            ⏱ 60s       ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+**Six bordered panels**, each with a title in the border frame:
+
+| Panel | What It Does |
+|-------|-------------|
+| **MODE** | Select Encrypt or Decrypt (radio buttons) |
+| **CIPHER & KDF** | Choose algorithm (AES-256-GCM / ChaCha20-Poly1305), KDF (Argon2id / Scrypt), toggle chaining, post-quantum, and padding |
+| **STATUS** | Live readiness checklist — green ● when a section is valid, grey ○ when incomplete. The Execute button enables only when everything is ready |
+| **INPUT** | Type or paste text, or switch to File mode and enter a path |
+| **PASSWORD** | Password entry + confirmation (encryption only) + real-time strength meter with color-coded bar (0-100 score) |
+| **OUTPUT** | Read-only result area with Copy, Save, Clear buttons and a 60-second auto-clear countdown |
+
+Panels glow brighter when focused (border changes from dark green to bright
+green). The STATUS panel updates in real time as you fill in fields.
 
 **Important**: The output auto-clears after 60 seconds! Copy it before it
-disappears (use the **Copy** button or `Ctrl+C` to copy from the output area).
+disappears (use the **Copy** button or select text and `Ctrl+Shift+C`).
 
 ### Keyboard Navigation
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Advance to the next wizard step |
-| `Escape` | Go back to the previous wizard step |
-| `Ctrl+E` | Encrypt (from any step) |
-| `Ctrl+D` | Decrypt (from any step) |
-| `Ctrl+L` | Clear all fields and restart the wizard |
-| `Ctrl+Q` | Quit |
-| `Tab` | Move to next field within a step |
-| `Shift+Tab` | Move to previous field within a step |
+| `Tab` | Move to next field |
+| `Shift+Tab` | Move to previous field |
+| `Enter` | Select / activate focused element |
 | `Up/Down` | Navigate options in selection lists |
 | `Space` | Toggle checkboxes (chaining, hybrid PQ, padding) |
+| `Ctrl+E` | Set Encrypt mode |
+| `Ctrl+D` | Set Decrypt mode |
+| `Ctrl+L` | Clear all fields and reset |
+| `Ctrl+Q` | Quit |
+| `F1` | Show keyboard help |
 
 ### Password Strength Meter
 
-As you type your password, a strength meter shows:
-- **Red (Weak)**: Too short or missing character types
-- **Yellow (Fair)**: Meets some requirements
-- **Cyan (Strong)**: Good password
-- **Green (Excellent)**: Very strong password
+As you type your password in the PASSWORD panel, a color-coded bar updates:
+- **Red (Very weak / Weak)**: Too short or missing character types
+- **Orange (Weak)**: Meets some but not all requirements
+- **Gold (Fair)**: Meets basics, could be stronger
+- **Green (Strong)**: Good password
+- **Bright green (Excellent)**: Very strong password
+
+The score (0-100) is shown alongside the bar with specific feedback hints.
 
 ---
 
@@ -629,8 +655,8 @@ Expected output: **268 passed**
 | `test_cli.py` | File encrypt/decrypt roundtrip (text and binary files), path traversal prevention | 3 |
 | `test_config.py` | Config file save/load, schema validation, option merging, invalid config rejection | 12 |
 | `test_fuzz.py` | Fuzz testing with random inputs, malformed headers, truncated payloads, random byte sequences | 30 |
-| `test_gui.py` | Wizard step transitions, widget state management, keyboard navigation, strength meter updates | 22 |
-| `test_wizard_state.py` | Wizard state machine, step validation, back/forward navigation, state persistence across steps | 18 |
+| `test_gui.py` | Dashboard panel mounting, keyboard shortcuts, encrypt/decrypt roundtrip, strength meter, clipboard fallbacks | 22 |
+| `test_wizard_state.py` | State validation per section, step unlocking rules, edge cases | 18 |
 
 Tests include **NIST SP 800-38D** (AES-256-GCM) and **RFC 8439** (ChaCha20-Poly1305) reference vectors verified against the `cryptography` library's validated implementations.
 
