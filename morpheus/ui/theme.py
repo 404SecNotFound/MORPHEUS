@@ -342,8 +342,13 @@ SelectOverlay {
     border: solid $m-border;
 }
 
+/* Textual gives SelectCurrent `background: $surface`, a neutral grey. That is a
+   second surface, and a cooler one than ours, sitting behind the chosen value.
+   This system has one background and lets borders carry elevation, so the panel
+   is repointed rather than kept. */
 SelectCurrent {
     color: $m-text;
+    background: $m-bg;
 }
 
 Checkbox {
@@ -394,6 +399,19 @@ RadioSet:blur > RadioButton.-selected > .toggle--label {
 ToggleButton.-on > .toggle--button,
 RadioSet > RadioButton.-on .toggle--button {
     color: $m-selected;
+}
+
+/* The caret. Textual fills the cell with $input-cursor-background, a near-white
+   that is close to our own near-white without being it. A caret is not
+   structural chrome: it says where typing will land, which is why it is pointed
+   at a token rather than added to the rendered keep-list. Both widgets are
+   listed because a caret renders only while its field has focus, so leaving
+   either one would make the rendered guard pass on which field happened to be
+   focused when the screenshot was taken. */
+TextArea > .text-area--cursor,
+Input > .input--cursor {
+    background: $m-selected;
+    color: $m-bg;
 }
 
 /* The chosen value in a closed Select. Textual routes it through an inner

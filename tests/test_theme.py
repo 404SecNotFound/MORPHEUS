@@ -438,31 +438,55 @@ def rgb_distance(a: str, b: str) -> float:
     return math.dist(_rgb(a), _rgb(b))
 
 
-def fills_on_rendered_glyphs(svg: str) -> set[str]:
-    """Every colour that actually paints a visible character in an exported SVG.
+# The exporter wraps every screenshot in a fake macOS window. The app's own
+# output is the group clipped to the terminal, so that group is the boundary
+# between what we are responsible for and what the exporter owns.
+_TERMINAL_CONTENT = re.compile(
+    r'<g[^>]*clip-path="url\(#terminal-\d+-clip-terminal\)"[^>]*>'
+)
 
-    Scoped to the terminal matrix, so the fake window chrome Textual draws
-    around the screenshot (title bar, traffic lights) is not mistaken for app
-    output.
 
-    That scoping is load-bearing, and a grep over build/screens/*.svg does not
-    have it. Every exported SVG contains #ff5f57, #febc2e and #28c840: the three
-    macOS traffic-light dots the exporter draws outside the terminal. #febc2e is
-    an amber roughly 30 from SIGNAL and will look alarming in a raw grep. It is
-    not ours, it is not on screen in the running app, and it must not be
-    "fixed" — the exporter owns it.
+def terminal_content(svg: str) -> str:
+    """The part of an exported SVG the app drew, with the fake window removed.
+
+    Everything before this group is the exporter's chrome and none of it is
+    ours: #292929 the window frame, #c5c8c6 the window title, and #ff5f57,
+    #febc2e and #28c840 the three traffic-light dots. #febc2e is an amber
+    roughly 30 from SIGNAL and looks alarming in a raw grep over the SVGs, which
+    is why the scoping is load-bearing rather than tidiness. None of the five is
+    on screen in the running app and none must ever be "fixed".
+    """
+    match = _TERMINAL_CONTENT.search(svg)
+    assert match, (
+        "the terminal content group is missing, so this would scan the fake "
+        "window chrome as if it were app output; the exporter's SVG shape has "
+        "probably changed"
+    )
+    return svg[match.end():]
+
+
+def fills_on_rendered_cells(svg: str) -> set[str]:
+    """Every colour that paints a visible cell: glyph fills and cell backgrounds.
+
+    Backgrounds are not optional here. Reading only <text> fills made this blind
+    to exactly the regression the palette guards exist for: Textual paints a
+    selected row by filling the cell, so deleting the rule that repoints the
+    primary-blue selection band changed no glyph fill at all and the guard came
+    back byte-identical. A cell background is a <rect fill=...> inside the
+    terminal group, so both are collected.
     """
     class_fill = dict(
         re.findall(r"\.(terminal-\d+-r\d+)\s*\{[^}]*?fill:\s*(#[0-9A-Fa-f]{6})", svg)
     )
-    body = svg.partition("-matrix")[2]
+    body = terminal_content(svg)
     used = set()
     for cls, text in re.findall(
         r'<text[^>]*class="(terminal-\d+-r\d+)"[^>]*>(.*?)</text>', body, re.S
     ):
         if text.replace("&#160;", " ").strip():
             used.add(class_fill.get(cls, ""))
-    return {colour for colour in used if colour}
+    used |= set(re.findall(r'<rect[^>]*fill="(#[0-9A-Fa-f]{6})"', body))
+    return {colour.lower() for colour in used if colour}
 
 
 class TestRenderedAmberIsReserved:
@@ -501,7 +525,7 @@ class TestRenderedAmberIsReserved:
                     f"step {index + 1} was refused; the guard would silently "
                     f"check step {app._current_step + 1} twice"
                 )
-                rendered[index] = fills_on_rendered_glyphs(app.export_screenshot())
+                rendered[index] = fills_on_rendered_cells(app.export_screenshot())
         return rendered
 
     def test_the_distance_threshold_separates_the_regression_from_the_palette(self):
@@ -569,10 +593,10 @@ class TestRenderedAmberIsReserved:
                 "step happened to be showing"
             )
 
-            masked = fills_on_rendered_glyphs(app.export_screenshot())
+            masked = fills_on_rendered_cells(app.export_screenshot())
             app.query_one("#show-pwd-check", Checkbox).value = True
             await pilot.pause()
-            revealed = fills_on_rendered_glyphs(app.export_screenshot())
+            revealed = fills_on_rendered_cells(app.export_screenshot())
 
         assert theme.SIGNAL not in masked, (
             "a masked password field shows bullets, not secret material, and "
@@ -593,22 +617,36 @@ class TestRenderedPaletteIsClosed:
     those colours were never in it. This pins the whole rendered set instead,
     so the next one fails here rather than on screen.
 
+    Cell backgrounds count, not just glyphs. This class was blind to them until
+    a mutation showed that deleting the selection-band rule changed no glyph
+    fill at all, because Textual paints a selected row by filling the cell. The
+    one regression named at the top of this docstring was invisible to the test
+    written for it. See `fills_on_rendered_cells`.
+
     The five below are deliberate. All are structural chrome inside widget
     frames, none carries meaning, and none renders informational text:
 
       #242f38  $panel            toggle side bars, the ▐ ▌ around a check
       #000f18  $panel-darken-2   the unchecked glyph, hidden against $panel
       #191919  $border-blurred   unfocused widget borders
-      #7f7f7f  $foreground 50%   the Select ▼ arrow
+      #777778  $foreground 50%   the Select ▼ arrow, composited onto BG
       #17171a  $boost over BG    white 4% on our own background, near-BG fill
 
     Repointing them means overriding component classes for no visible gain, and
     each override is a thing to recheck on every Textual upgrade. Left as-is on
     purpose; this test is where that decision is recorded.
+
+    Two values that used to render were repointed rather than kept, because
+    neither met the bar above. Textual's #1e1e1e sat behind the Select's chosen
+    value: a second surface, cooler than ours, against a system whose first rule
+    is one background. Its #e0e0e0 was the caret, which carries meaning. Both
+    now come from tokens. The arrow above moved from #7f7f7f to #777778 as a
+    consequence: it is `$foreground 50%`, so it composites against whatever sits
+    behind it, and that is now BG rather than Textual's panel.
     """
 
     KEPT_WIDGET_INTERNALS = {
-        "#242f38", "#000f18", "#191919", "#7f7f7f", "#17171a",
+        "#242f38", "#000f18", "#191919", "#777778", "#17171a",
     }
 
     async def _all_rendered_colours(self) -> set[str]:
