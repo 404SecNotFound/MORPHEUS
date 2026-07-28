@@ -155,12 +155,19 @@ so renaming them is free.
 
 ## 8. Verification
 
-1. All 278 tests pass, with the 4 updated assertions.
+1. All 294 tests pass. The suite grew from 278 during this work: the 4 updated assertions
+   in `test_gui.py` were the smallest part of it, and `tests/test_theme.py` was added to
+   hold the guards described below.
 2. `ruff` and `bandit` stay at exit 0.
 3. Every token used for text is re-checked against `#0e0e11` for AA. The check script lives
    at `scripts/check_contrast.py` so it can be re-run when tokens change.
-4. Grep proves no `#00FF41`, `#39FF14`, `#FFD700` or other Matrix-era hex remains anywhere
-   under `morpheus/`.
+4. No Matrix-era hex survives. Grep was the plan and it is not sufficient, so this is
+   enforced by `tests/test_theme.py` in two layers: the CSS guards require every colour in
+   `theme.py` to come from a token, and `TestRenderedPaletteIsClosed` asserts on the
+   colours that actually paint glyphs in the exported SVGs. The second layer exists
+   because grepping `morpheus/` cannot see colour Textual supplies from its own theme,
+   which is where the real regressions were — a primary-blue selection band and a green
+   check glyph both survived the rewrite and were caught only by rendering.
 5. The running TUI is screenshotted via Textual's SVG export for each of the 6 steps, so the
    result is reviewed as rendered rather than as source.
 6. The CHANGELOG 2.1.0 theme entry is updated, since it currently describes the Matrix
