@@ -164,6 +164,13 @@ def fills_on_rendered_glyphs(svg: str) -> set[str]:
     Scoped to the terminal matrix, so the fake window chrome Textual draws
     around the screenshot (title bar, traffic lights) is not mistaken for app
     output.
+
+    That scoping is load-bearing, and a grep over build/screens/*.svg does not
+    have it. Every exported SVG contains #ff5f57, #febc2e and #28c840: the three
+    macOS traffic-light dots the exporter draws outside the terminal. #febc2e is
+    an amber roughly 30 from SIGNAL and will look alarming in a raw grep. It is
+    not ours, it is not on screen in the running app, and it must not be
+    "fixed" — the exporter owns it.
     """
     class_fill = dict(
         re.findall(r"\.(terminal-\d+-r\d+)\s*\{[^}]*?fill:\s*(#[0-9A-Fa-f]{6})", svg)
@@ -294,6 +301,60 @@ class TestRenderedAmberIsReserved:
         assert theme.SIGNAL in revealed, (
             f"a revealed password is exposed secret material and must render "
             f"SIGNAL ({theme.SIGNAL}); got {sorted(revealed)}"
+        )
+
+
+class TestRenderedPaletteIsClosed:
+    """Every colour on screen is a token, or one of five values we chose to keep.
+
+    A primary-blue selection band and a green check glyph shipped because
+    Textual paints through component classes that theme.py's type selectors
+    never reached. Nothing caught it: the CSS guards read our stylesheet, and
+    those colours were never in it. This pins the whole rendered set instead,
+    so the next one fails here rather than on screen.
+
+    The five below are deliberate. All are structural chrome inside widget
+    frames, none carries meaning, and none renders informational text:
+
+      #242f38  $panel            toggle side bars, the ▐ ▌ around a check
+      #000f18  $panel-darken-2   the unchecked glyph, hidden against $panel
+      #191919  $border-blurred   unfocused widget borders
+      #7f7f7f  $foreground 50%   the Select ▼ arrow
+      #17171a  $boost over BG    white 4% on our own background, near-BG fill
+
+    Repointing them means overriding component classes for no visible gain, and
+    each override is a thing to recheck on every Textual upgrade. Left as-is on
+    purpose; this test is where that decision is recorded.
+    """
+
+    KEPT_WIDGET_INTERNALS = {
+        "#242f38", "#000f18", "#191919", "#7f7f7f", "#17171a",
+    }
+
+    async def _all_rendered_colours(self) -> set[str]:
+        rendered = set()
+        for colours in (await TestRenderedAmberIsReserved()._render_steps()).values():
+            rendered |= colours
+        return rendered
+
+    @pytest.mark.asyncio
+    async def test_no_colour_renders_that_is_neither_token_nor_documented(self):
+        rendered = await self._all_rendered_colours()
+        allowed = set(SPEC_TOKENS.values()) | self.KEPT_WIDGET_INTERNALS
+        assert rendered - allowed == set(), (
+            "these render on screen and come from neither a token nor the "
+            "documented keep-list, which is how the blue selection band got "
+            f"in: {sorted(rendered - allowed)}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_keep_list_has_no_dead_entries(self):
+        """A stale keep-list would silently widen what the test above permits."""
+        rendered = await self._all_rendered_colours()
+        dead = self.KEPT_WIDGET_INTERNALS - rendered
+        assert dead == set(), (
+            "these are on the keep-list but no longer render; drop them rather "
+            f"than leave the allowance open: {sorted(dead)}"
         )
 
 
