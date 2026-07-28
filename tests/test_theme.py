@@ -136,3 +136,25 @@ class TestRestrictedTokenUsage:
             f"TEXT_4 is {ratio:.2f}:1 and must not render informational text:\n  "
             + "\n  ".join(offenders)
         )
+
+
+class TestAllColoursGoThroughTokens:
+    """theme.py's token block is the only place a colour may be a literal.
+
+    The other guards match token names, so a raw hex literal bypasses them all.
+    """
+
+    def test_no_hex_literals_outside_the_token_block(self):
+        pkg = Path(__file__).resolve().parent.parent / "morpheus"
+        offenders = []
+        for path in sorted(pkg.rglob("*.py")):
+            source = path.read_text()
+            if path.name == "theme.py":
+                # The token block legitimately defines the palette.
+                source = source.partition("WIZARD_CSS = ")[2]
+            for match in re.findall(r"#[0-9A-Fa-f]{6}\b", source):
+                offenders.append(f"{path.relative_to(pkg.parent)}: {match}")
+        assert not offenders, (
+            "colours must come from theme tokens, not hex literals:\n  "
+            + "\n  ".join(offenders)
+        )
