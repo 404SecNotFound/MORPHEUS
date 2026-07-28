@@ -240,8 +240,9 @@ python morpheus.py -o decrypt -f document.pdf.enc
 # Pipe from stdin
 echo "secret" | python morpheus.py -o encrypt --data -
 
-# Generate ML-KEM-768 keypair for hybrid PQ
-python morpheus.py --generate-keypair
+# Generate ML-KEM-768 keypair for hybrid PQ.
+# Public key goes to stdout; secret key to a 0600 file.
+python morpheus.py --generate-keypair --output my_pq_secret.key
 
 # Hybrid PQ encrypt
 python morpheus.py -o encrypt --data "text" \
@@ -249,7 +250,7 @@ python morpheus.py -o encrypt --data "text" \
 
 # Hybrid PQ decrypt
 python morpheus.py -o decrypt --data "AgEB..." \
-  --hybrid-pq --pq-secret-key <base64-sk>
+  --hybrid-pq --pq-secret-key-file my_pq_secret.key
 
 # Use passphrase mode (no digits/specials required)
 python morpheus.py -o encrypt --data "text" --passphrase
@@ -287,8 +288,9 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--no-filename` | Omit original filename from encrypted envelope |
 | `--hybrid-pq` | Enable hybrid post-quantum |
 | `--pq-public-key` | Base64 ML-KEM-768 public key |
-| `--pq-secret-key` | Base64 ML-KEM-768 secret key |
-| `--generate-keypair` | Generate and print an ML-KEM-768 keypair |
+| `--pq-secret-key` | Base64 ML-KEM-768 secret key. Discouraged: argv is readable by other local users |
+| `--pq-secret-key-file` | Path to a file holding the base64 secret key. Preferred over `--pq-secret-key` |
+| `--generate-keypair` | Generate an ML-KEM-768 keypair: public key to stdout, secret key to a 0600 file |
 | `--passphrase` | Use passphrase-mode strength check (word-based, no digit/special requirement). Requires 4+ words and 20+ chars |
 | `--check-leaks` | Check password against Have I Been Pwned breach database (k-anonymity, only 5 chars of SHA-1 sent). Requires network |
 | `--save-config` | Save current cipher/KDF/flag preferences to `~/.morpheus/config.toml` for future sessions |

@@ -459,6 +459,44 @@ class TestKDFBoundsValidation:
             _build_kdf_from_params(0xFF, (1, 1, 1))
 
 
+class TestKDFWorkingSetCap:
+    """Header params must be bounded by implied memory, not only per parameter.
+
+    The v3 header carries KDF parameters that are consumed *before* the AEAD
+    tag can be checked, so these bounds are the only thing standing between a
+    pasted ciphertext and an unbounded allocation. No password is required to
+    reach this code.
+    """
+
+    def test_scrypt_product_inside_per_param_limits_is_rejected(self):
+        """n and r are each individually legal; together they imply 64 GiB.
+
+        This is the case per-parameter validation cannot catch: Scrypt
+        allocates 128 * n * r, so the product is the quantity that matters.
+        """
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(ValueError, match="working set"):
+            _build_kdf_from_params(0x01, (2**23, 64, 1))
+
+    def test_argon2_four_gib_is_rejected(self):
+        """4 GiB memory_cost sat inside the old per-parameter ceiling."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        with pytest.raises(ValueError, match="out of allowed range|working set"):
+            _build_kdf_from_params(0x02, (3, 4194304, 4))
+
+    def test_realistic_scrypt_params_still_accepted(self):
+        """A normal Scrypt header must survive the new cap."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        kdf = _build_kdf_from_params(0x01, (2**14, 8, 1))
+        assert kdf.n == 2**14
+
+    def test_realistic_argon2_params_still_accepted(self):
+        """A normal Argon2id header must survive the new cap."""
+        from morpheus.core.pipeline import _build_kdf_from_params
+        kdf = _build_kdf_from_params(0x02, (3, 65536, 4))
+        assert kdf.memory_cost == 65536
+
+
 class TestStructuredErrors:
     """Verify specific error types from morpheus.core.errors are raised."""
 

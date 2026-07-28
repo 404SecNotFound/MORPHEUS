@@ -2,7 +2,15 @@
 Command-line interface — backward-compatible with v1 and extended for v2.
 
 Supports both interactive prompts and non-interactive flag-based usage.
-Passwords are always read interactively (never from argv) unless piped via stdin.
+
+Passwords are normally read interactively, or piped via stdin. A hidden,
+deprecated `-p/--password` flag also accepts one from argv; it warns at
+runtime because argv is readable by other local users through `ps` and shell
+history. Prefer stdin. The same reasoning applies to `--pq-secret-key`, whose
+`--pq-secret-key-file` form should be used instead.
+
+stdout carries the payload only. Every banner, prompt and status line goes to
+stderr, so `morpheus -o encrypt | morpheus -o decrypt --data -` works.
 """
 
 from __future__ import annotations
@@ -12,7 +20,7 @@ import getpass
 import sys
 
 from .core.ciphers import CIPHER_CHOICES, CIPHER_REGISTRY
-from .core.config import apply_config_defaults, load_config, save_config
+from .core.config import config_path, load_config, save_config
 from .core.errors import (
     ConfigurationError,
     DecryptionError,
@@ -96,12 +104,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--pq-secret-key",
-        help="Base64-encoded ML-KEM-768 secret key (for hybrid decrypt)",
+        help="Base64-encoded ML-KEM-768 secret key (for hybrid decrypt). "
+             "Discouraged: argv is visible to other local users. Prefer "
+             "--pq-secret-key-file.",
+    )
+    parser.add_argument(
+        "--pq-secret-key-file",
+        help="Path to a file holding the base64 ML-KEM-768 secret key. "
+             "Preferred over --pq-secret-key, which exposes the key in argv.",
     )
     parser.add_argument(
         "--generate-keypair",
         action="store_true",
-        help="Generate an ML-KEM-768 keypair and print to stdout",
+        help="Generate an ML-KEM-768 keypair. The public key goes to stdout; "
+             "the secret key is written to a 0600 file (see --output)",
     )
     # Legacy compat: -p flag accepted but triggers a warning
     parser.add_argument(
@@ -199,8 +215,14 @@ def _read_password(prompt: str = "Enter password: ", confirm: bool = False) -> s
 
 
 def _print_status(msg: str, error: bool = False) -> None:
-    stream = sys.stderr if error else sys.stdout
-    print(msg, file=stream)
+    """Write a human-readable status line.
+
+    Always stderr, never stdout. stdout carries the payload and nothing else,
+    so that `morpheus -o encrypt | morpheus -o decrypt --data -` works. The
+    *error* parameter is kept because callers distinguish the two, but it no
+    longer selects the stream.
+    """
+    print(msg, file=sys.stderr)
 
 
 def _diagnose_ciphertext(b64_data: str) -> str:
@@ -489,12 +511,61 @@ def _bench_cipher(cipher, data, key, aad):
 def run_cli(argv: list[str] | None = None) -> None:
     """Run the CLI interface."""
     parser = _build_parser()
-    args = parser.parse_args(argv)
 
     # --- Load persistent preferences (CLI args override) ---
+    # set_defaults *before* parse_args, so argparse itself resolves the
+    # precedence. Applying the config afterwards meant inferring "the user did
+    # not pass this" by comparing against the parser default, which cannot
+    # distinguish an unset flag from one explicitly set to the default value.
     saved = load_config()
     if saved:
-        apply_config_defaults(args, saved)
+        parser.set_defaults(**saved)
+    args = parser.parse_args(argv)
+
+    if saved:
+        # Announced on stderr: a config that changes what the tool does while
+        # saying nothing is indistinguishable from one someone else planted.
+        _print_status(
+            f"Using saved preferences from {config_path()} "
+            f"({', '.join(f'{k}={v}' for k, v in sorted(saved.items()))}). "
+            "CLI arguments override these.",
+            error=True,
+        )
+
+    # --- Reject argument combinations decidable from argv alone ---
+    # The pipeline constructor also rejects this, but it runs after the user
+    # has typed and confirmed a password. parser.error() exits 2 immediately
+    # with a usage message, costing nothing.
+    if args.chain and args.cipher != "AES-256-GCM":
+        parser.error(
+            f"--chain uses a fixed cipher order (AES-256-GCM -> "
+            f"ChaCha20-Poly1305) and cannot be combined with "
+            f"--cipher {args.cipher}. Drop one of the two flags."
+        )
+
+    # --- Resolve the ML-KEM secret key source ---
+    # argv is readable by every local user through `ps` and
+    # /proc/<pid>/cmdline, and it persists in shell history, so the file form
+    # is preferred and the argv form warns. Resolving here means the rest of
+    # the CLI only ever sees args.pq_secret_key.
+    if args.pq_secret_key and args.pq_secret_key_file:
+        _print_status(
+            "Error: --pq-secret-key and --pq-secret-key-file are mutually "
+            "exclusive.\n  Pass the key once. Prefer --pq-secret-key-file, "
+            "which keeps the key out of argv.",
+            error=True,
+        )
+        sys.exit(1)
+
+    if args.pq_secret_key_file:
+        args.pq_secret_key = _read_pq_secret_key_file(args.pq_secret_key_file)
+    elif args.pq_secret_key:
+        _print_status(
+            "Warning: --pq-secret-key puts your ML-KEM secret key in argv, "
+            "where other local users can read it from `ps` and shell "
+            "history.\n  Use --pq-secret-key-file instead.",
+            error=True,
+        )
 
     # --- Reject PQ keys without --hybrid-pq ---
     # The key arguments are only consumed inside the hybrid-PQ branch, so
@@ -517,7 +588,9 @@ def run_cli(argv: list[str] | None = None) -> None:
         settings: dict[str, str | bool] = {}
         settings["cipher"] = args.cipher
         settings["kdf"] = args.kdf
-        for flag in ("chain", "pad", "fixed_size", "no_filename", "check_leaks", "passphrase"):
+        # check_leaks and passphrase are intentionally not persistable; see
+        # the _BOOL_KEYS comment in core/config.py.
+        for flag in ("chain", "pad", "fixed_size", "no_filename"):
             if getattr(args, flag, False):
                 settings[flag] = True
         path = save_config(settings)
@@ -554,10 +627,23 @@ def run_cli(argv: list[str] | None = None) -> None:
 
         from .core.pipeline import pq_generate_keypair
         pk, sk = pq_generate_keypair()
-        print("ML-KEM-768 Keypair (base64-encoded)")
-        print(f"Public key:  {base64.b64encode(pk).decode()}")
-        print(f"Secret key:  {base64.b64encode(sk).decode()}")
-        print("\nKeys exist only in this terminal output. Copy them now.")
+
+        # The secret key never goes to stdout: terminal scrollback, tmux
+        # buffers and shell logging all outlive the command. It goes to a
+        # 0600 file instead, which is also what --pq-secret-key-file wants.
+        sk_path = args.output or "morpheus_pq_secret.key"
+        with _open_secure_output(sk_path, args.force) as fh:
+            fh.write(base64.b64encode(sk).decode() + "\n")
+
+        # The public key is public, so stdout is correct and pipeable.
+        print(base64.b64encode(pk).decode())
+        _print_status(
+            f"ML-KEM-768 keypair generated.\n"
+            f"  Public key: printed to stdout above.\n"
+            f"  Secret key: {sk_path} (mode 0600)\n"
+            f"  Decrypt with: --hybrid-pq --pq-secret-key-file {sk_path}\n"
+            "  Back this file up now. There is no way to regenerate it."
+        )
         return
 
     # --- Determine operation ---
@@ -731,7 +817,8 @@ def run_cli(argv: list[str] | None = None) -> None:
             _progress(f"Deriving key ({pipeline.kdf.name})...")
             result = pipeline.encrypt(data, password, pad=args.pad,
                                       fixed_size=args.fixed_size)
-            print(f"\nEncrypted ({pipeline.description}):")
+            # Banner to stderr, payload to stdout: keeps the pipe clean.
+            _progress(f"\nEncrypted ({pipeline.description}):")
             print(result)
             hint = _padding_hint(len(data.encode("utf-8")), args.pad, args.fixed_size)
             if hint:
@@ -739,7 +826,7 @@ def run_cli(argv: list[str] | None = None) -> None:
         else:
             _progress("Deriving key and decrypting...")
             result = pipeline.decrypt(data, password)
-            print("\nDecrypted:")
+            _progress("\nDecrypted:")
             print(result)
     except Exception as exc:
         if operation == "decrypt":
@@ -767,6 +854,85 @@ def _check_overwrite(path: str, force: bool) -> None:
             error=True,
         )
         sys.exit(1)
+
+
+def _read_pq_secret_key_file(path: str) -> str:
+    """Read a base64 ML-KEM secret key from *path*.
+
+    Warns when the file is readable by anyone but its owner, since a key that
+    was kept out of argv only to sit in a world-readable file has gained
+    nothing.
+    """
+    import os
+    import stat
+
+    try:
+        with open(path, encoding="utf-8") as fh:
+            key_b64 = fh.read().strip()
+    except OSError as exc:
+        _print_status(
+            f"Error: cannot read --pq-secret-key-file: {path}\n"
+            f"  {exc.strerror}.",
+            error=True,
+        )
+        sys.exit(1)
+
+    if not key_b64:
+        _print_status(
+            f"Error: --pq-secret-key-file is empty: {path}", error=True
+        )
+        sys.exit(1)
+
+    try:
+        mode = os.stat(path).st_mode
+    except OSError:
+        mode = 0
+    if mode & (stat.S_IRWXG | stat.S_IRWXO):
+        _print_status(
+            f"Warning: {path} is readable by users other than its owner "
+            f"(mode {stat.S_IMODE(mode):04o}).\n  Run: chmod 600 {path}",
+            error=True,
+        )
+    return key_b64
+
+
+def _open_secure_output(path: str, force: bool, binary: bool = False):
+    """Open *path* for writing, owner-only, refusing to follow a symlink.
+
+    Three problems close together here:
+
+    * ``O_NOFOLLOW`` refuses a symlink at the final component. ``os.path.exists``
+      reports False for a *dangling* link, so ``_check_overwrite`` cannot see
+      one and the write would otherwise land on the link's target.
+    * ``O_EXCL`` makes the existence check atomic rather than a TOCTOU window.
+      ``--force`` swaps it for ``O_TRUNC`` so an intentional overwrite still
+      works, and still refuses symlinks.
+    * ``fchmod`` is applied unconditionally, so the mode depends on neither the
+      umask nor whatever permissions an overwritten file happened to carry.
+    """
+    import os
+
+    flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    flags |= os.O_TRUNC if force else os.O_EXCL
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError as exc:
+        _print_status(
+            f"Error: cannot write output file: {path}\n"
+            f"  {exc.strerror}.\n"
+            "  If this path is a symlink or already exists, choose a "
+            "different --output path (or pass --force to overwrite a "
+            "regular file).",
+            error=True,
+        )
+        sys.exit(1)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+    except OSError:
+        os.close(fd)
+        raise
+    return os.fdopen(fd, "wb" if binary else "w")
 
 
 def _default_output_name(file_path: str) -> str:
@@ -857,7 +1023,7 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             ).hexdigest()[:12]
             out_path = f"morpheus_{rand_id}.enc"
         _check_overwrite(out_path, args.force)
-        with open(out_path, "w") as f:
+        with _open_secure_output(out_path, args.force) as f:
             f.write(encrypted)
 
         _print_status(
@@ -911,7 +1077,7 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
                 out_path = args.output or original_name
                 _reject_output_over_input(out_path, file_path)
                 _check_overwrite(out_path, args.force)
-                with open(out_path, "wb") as f:
+                with _open_secure_output(out_path, args.force, binary=True) as f:
                     f.write(raw_data)
                 _print_status(
                     f"Decrypted: {file_path} -> {out_path} ({len(raw_data)} bytes)"
@@ -924,6 +1090,6 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
         out_path = args.output or _default_output_name(file_path)
         _reject_output_over_input(out_path, file_path)
         _check_overwrite(out_path, args.force)
-        with open(out_path, "w") as f:
+        with _open_secure_output(out_path, args.force) as f:
             f.write(decrypted)
         _print_status(f"Decrypted: {file_path} -> {out_path}")

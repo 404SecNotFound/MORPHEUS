@@ -274,8 +274,9 @@ python morpheus.py -o decrypt --data "AgECAADE3f7a..."
 | `--chain` | Enable cipher chaining (AES + ChaCha) |
 | `--hybrid-pq` | Enable hybrid post-quantum (ML-KEM-768) |
 | `--pq-public-key` | Base64-encoded ML-KEM-768 public key (for hybrid encrypt) |
-| `--pq-secret-key` | Base64-encoded ML-KEM-768 secret key (for hybrid decrypt) |
-| `--generate-keypair` | Generate and display an ML-KEM-768 keypair |
+| `--pq-secret-key` | Base64-encoded ML-KEM-768 secret key (for hybrid decrypt). Discouraged: argv is readable by other local users via `ps` and shell history |
+| `--pq-secret-key-file` | Path to a file holding the base64 secret key. Preferred over `--pq-secret-key` |
+| `--generate-keypair` | Generate an ML-KEM-768 keypair: public key to stdout, secret key to a 0600 file (path from `--output`) |
 
 ---
 
@@ -321,7 +322,7 @@ python morpheus.py -o encrypt -f classified.pdf \
 
 # Decrypt the hybrid PQ file
 python morpheus.py -o decrypt -f classified.pdf.enc \
-  --hybrid-pq --pq-secret-key <base64-sk>
+  --hybrid-pq --pq-secret-key-file my_pq_secret.key
 ```
 
 ### How File Encryption Works
@@ -460,10 +461,12 @@ ML-KEM shared secret. An attacker needs to break **both** to read your data:
 
 **Step 1: Generate a keypair**
 ```bash
-python morpheus.py --generate-keypair
+python morpheus.py --generate-keypair --output my_pq_secret.key
 ```
-This prints a public key and a secret key (base64-encoded). The public key
-is safe to share. The secret key must be kept private.
+The public key (base64) is printed to stdout and is safe to share. The secret
+key is written to `my_pq_secret.key` with mode 0600 rather than printed,
+because terminal scrollback and shell logs outlive the command. Back that file
+up: it cannot be regenerated.
 
 **Step 2: Encrypt (you or someone else)**
 ```bash
@@ -476,7 +479,7 @@ by the corresponding secret key.
 **Step 3: Decrypt**
 ```bash
 python morpheus.py -o decrypt --data "AgEB..." \
-  --hybrid-pq --pq-secret-key <base64-sk>
+  --hybrid-pq --pq-secret-key-file my_pq_secret.key
 ```
 
 In the GUI, check the "Hybrid Post-Quantum" checkbox and click "Generate
@@ -675,8 +678,8 @@ python morpheus.py -o decrypt --data "<encrypted output>"
 
 ```bash
 # Generate keypair
-python morpheus.py --generate-keypair
-# Save the public key and secret key
+python morpheus.py --generate-keypair --output my_pq_secret.key
+# Public key is printed; secret key lands in my_pq_secret.key (0600)
 
 # Encrypt with hybrid PQ
 python morpheus.py -o encrypt --data "quantum safe data" \
@@ -685,7 +688,7 @@ python morpheus.py -o encrypt --data "quantum safe data" \
 
 # Decrypt with hybrid PQ
 python morpheus.py -o decrypt --data "<encrypted output>" \
-  --hybrid-pq --pq-secret-key "<secret key>"
+  --hybrid-pq --pq-secret-key-file my_pq_secret.key
 # Enter same password
 ```
 
