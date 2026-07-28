@@ -23,10 +23,12 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Footer, Static
 
+from .. import __version__
 from ..core.ciphers import CIPHER_CHOICES
 from ..core.kdf import KDF_CHOICES
 from ..core.pipeline import EncryptionPipeline
 from ..core.validation import validate_input_text
+from . import theme
 from .sidebar import Sidebar, SidebarItem
 from .state import (
     STEP_INPUT,
@@ -92,7 +94,10 @@ class MorpheusWizard(App):
     def compose(self) -> ComposeResult:
         # Top bar
         with Horizontal(id="top-bar"):
-            yield Static("[bold #00FF41]MORPHEUS[/] [#007018]v2.0[/]", id="top-title")
+            yield Static(
+                f"[bold {theme.TEXT}]MORPHEUS[/] [{theme.TEXT_3}]v{__version__}[/]",
+                id="top-title",
+            )
             yield Static(self._step_label(), id="top-step")
 
         # Body: sidebar + step panel
