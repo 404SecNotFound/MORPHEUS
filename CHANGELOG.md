@@ -36,11 +36,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 - **Wizard GUI overhaul**: Replaced the single-page scrollable form with a
   6-step guided wizard (Mode → Settings → Input → Password → Review → Output).
-  2-pane layout: left sidebar with step completion markers (✓ done, ▸ current,
-  dim locked) and right panel for the active step
-- **Matrix dark theme**: Black-and-green palette — `#020402` background,
-  `#00FF41` phosphor-green accent, with gold and red reserved for warnings and
-  errors. (A blue/grey palette shipped mid-cycle and was reverted before release.)
+  2-pane layout: left sidebar with step markers (`[+]` done, `[>]` current,
+  step number when still locked) and right panel for the active step. A locked
+  step renders at `TEXT_3`, not a dimmed tier — it is keyboard-focusable and
+  carries a name and description, so it has to stay above AA
+- **Terminal visual system**: Warm-graphite palette replacing the Matrix
+  black-and-green theme. Amber `#f4b23e` is reserved for exposed secret
+  material (the output pane holding ciphertext or plaintext, and its auto-clear
+  countdown); selection and focus use near-white `#ecebe6`; text runs in tiers
+  so data reads brighter than chrome. Every token used for text clears WCAG AA
+  against the background, verified by `tests/test_theme.py` and re-runnable via
+  `scripts/check_contrast.py`. See
+  `docs/design/2026-07-28-terminal-visual-system.md`.
 - **Clipboard robustness**: Copy tries pyperclip first, then the system
   utilities (xclip/xsel/wl-copy/pbcopy), then tkinter. Paste buttons added to
   both password fields for password-manager workflows. MORPHEUS does not clear
@@ -52,8 +59,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   help overlay. Existing `Ctrl+E/D/L/Q` shortcuts preserved
 - **New `ui/` package**: `theme.py`, `state.py`, `sidebar.py`, `app.py`,
   `steps/` — decoupled from crypto core
-- Test count: 241 → 272 (state-validation, wizard integration, and clipboard
-  fallback tests)
+- Test count: 241 → 291 (state-validation, wizard integration, clipboard
+  fallback, and palette/contrast tests)
 
 ## [2.0.6] - 2026-02-10
 
