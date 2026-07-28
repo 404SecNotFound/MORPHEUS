@@ -7,7 +7,8 @@ it must either return valid data or raise ValueError.
 import base64
 import struct
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from morpheus.core.formats import (
     FORMAT_VERSION,

@@ -10,3 +10,8 @@ build/
 .hypothesis/
 venv/
 .env
+.superpowers/
+.DS_Store
+
+# Internal working notes: agent plans and specs, not published documentation.
+docs/superpowers/

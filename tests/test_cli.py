@@ -7,15 +7,15 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from morpheus.cli import (
-    run_cli,
     _diagnose_ciphertext,
-    _suggest_fix,
     _padding_hint,
+    _suggest_fix,
+    run_cli,
 )
 from morpheus.core.errors import (
     ConfigurationError,
@@ -356,14 +356,23 @@ class TestSaveConfig:
 class TestCheckLeaks:
     """Test --check-leaks flag (mocked network)."""
 
+    @staticmethod
+    def _mock_urlopen(body: bytes):
+        """urlopen is a context manager; the mock must behave like one."""
+        resp = MagicMock()
+        resp.read.return_value = body
+        cm = MagicMock()
+        cm.__enter__.return_value = resp
+        cm.__exit__.return_value = False
+        return cm
+
     def test_leaked_password_blocks_encrypt(self):
         """A known-breached password should block encryption."""
-        fake_response = MagicMock()
         # SHA-1("T3st!Passw0rd#Str0ng") — we mock the response to contain its suffix
         import hashlib
-        sha1 = hashlib.sha1(b"T3st!Passw0rd#Str0ng").hexdigest().upper()
+        sha1 = hashlib.sha1(b"T3st!Passw0rd#Str0ng", usedforsecurity=False).hexdigest().upper()
         suffix = sha1[5:]
-        fake_response.read.return_value = f"{suffix}:42\r\n".encode()
+        fake_response = self._mock_urlopen(f"{suffix}:42\r\n".encode())
 
         old_stdin = sys.stdin
         sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
@@ -381,8 +390,7 @@ class TestCheckLeaks:
 
     def test_safe_password_proceeds(self):
         """A non-breached password should allow encryption to proceed."""
-        fake_response = MagicMock()
-        fake_response.read.return_value = b"0000000000000000000000000000000000A:1\r\n"
+        fake_response = self._mock_urlopen(b"0000000000000000000000000000000000A:1\r\n")
 
         old_stdin = sys.stdin
         sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
@@ -574,3 +582,162 @@ class TestProgressFeedback:
             sys.stdin = old_stdin
         captured = capsys.readouterr()
         assert "--pad" in captured.err or "--fixed-size" in captured.err
+
+
+PW = "T3st!Passw0rd#Str0ng"
+
+
+class TestNoFilenameRoundtrip:
+    """--no-filename must still decrypt back to the original bytes.
+
+    Regression: the decrypt branch required both 'data' and 'filename' in the
+    envelope, so --no-filename fell through to a fallback that wrote the raw
+    JSON envelope instead of the file.
+    """
+
+    def test_no_filename_file_roundtrip_recovers_original_bytes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = os.path.join(tmpdir, "secret.bin")
+            payload = b"TOPSECRET-ORIGINAL-CONTENT-DO-NOT-LOSE\x00\xff binary"
+            with open(original, "wb") as f:
+                f.write(payload)
+
+            encrypted = os.path.join(tmpdir, "ct.enc")
+            recovered = os.path.join(tmpdir, "out.bin")
+
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO(f"{PW}\n{PW}\n")
+            try:
+                run_cli(["-o", "encrypt", "-f", original,
+                         "--no-filename", "--output", encrypted])
+            finally:
+                sys.stdin = old_stdin
+
+            sys.stdin = io.StringIO(f"{PW}\n")
+            try:
+                run_cli(["-o", "decrypt", "-f", encrypted, "--output", recovered])
+            finally:
+                sys.stdin = old_stdin
+
+            with open(recovered, "rb") as f:
+                got = f.read()
+            assert got == payload, (
+                "decrypt wrote the JSON envelope instead of the original bytes"
+            )
+
+
+class TestDecryptNeverOverwritesInput:
+    """Decrypt must refuse to write its output over its own input.
+
+    Regression: when the ciphertext filename did not end in '.enc',
+    removesuffix('.enc') returned the path unchanged, so out_path == file_path
+    and the ciphertext was destroyed in place.
+    """
+
+    @staticmethod
+    def _encrypt_to(tmpdir, ct_name, payload=b"TOPSECRET-ORIGINAL-CONTENT",
+                    no_filename=False):
+        original = os.path.join(tmpdir, "secret.bin")
+        with open(original, "wb") as f:
+            f.write(payload)
+        encrypted = os.path.join(tmpdir, ct_name)
+        argv = ["-o", "encrypt", "-f", original, "--output", encrypted]
+        if no_filename:
+            argv.append("--no-filename")
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(f"{PW}\n{PW}\n")
+        try:
+            run_cli(argv)
+        finally:
+            sys.stdin = old_stdin
+        return encrypted
+
+    def test_ciphertext_survives_decrypt_when_name_lacks_enc_suffix(self):
+        """The ciphertext must not be destroyed in place.
+
+        Uses --no-filename so the envelope carries no name, which is what
+        forces the output path to be derived from the input path. Runs with
+        the cwd inside tmpdir because decrypt writes relative paths there.
+        """
+        old_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Name deliberately does NOT end in .enc, so removesuffix is a no-op
+            encrypted = self._encrypt_to(tmpdir, "backup.dat", no_filename=True)
+            with open(encrypted, "rb") as f:
+                before = f.read()
+
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO(f"{PW}\n")
+            os.chdir(tmpdir)
+            try:
+                run_cli(["-o", "decrypt", "-f", encrypted, "--force"])
+            finally:
+                sys.stdin = old_stdin
+                os.chdir(old_cwd)
+
+            with open(encrypted, "rb") as f:
+                after = f.read()
+            assert after == before, (
+                "decrypt overwrote its own input, destroying the ciphertext"
+            )
+            # And the plaintext landed somewhere recoverable
+            assert os.path.exists(encrypted + ".decrypted")
+
+    def test_explicit_output_equal_to_input_is_refused(self):
+        """Even when asked directly, refuse to write output over the input."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            encrypted = self._encrypt_to(tmpdir, "ct.enc")
+            with open(encrypted, "rb") as f:
+                before = f.read()
+
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO(f"{PW}\n")
+            try:
+                with pytest.raises(SystemExit) as exc:
+                    run_cli(["-o", "decrypt", "-f", encrypted,
+                             "--output", encrypted, "--force"])
+                assert exc.value.code != 0
+            finally:
+                sys.stdin = old_stdin
+
+            with open(encrypted, "rb") as f:
+                after = f.read()
+            assert after == before, "ciphertext was destroyed despite the guard"
+
+
+class TestPQKeyRequiresHybridFlag:
+    """A PQ key without --hybrid-pq must not silently produce weaker ciphertext.
+
+    Regression: the PQ key-parsing block sat under `if args.hybrid_pq:`, so
+    passing --pq-public-key alone produced ordinary password-only ciphertext
+    with no warning, while the user believed it was quantum-resistant.
+    """
+
+    # Correct ML-KEM-768 public key length; contents are irrelevant because the
+    # flag-combination check must happen before any KEM operation.
+    DUMMY_PK = base64.b64encode(b"\x00" * 1184).decode()
+    DUMMY_SK = base64.b64encode(b"\x00" * 2400).decode()
+
+    def test_public_key_without_hybrid_pq_is_rejected(self, capsys):
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(f"{PW}\n{PW}\n")
+        try:
+            with pytest.raises(SystemExit) as exc:
+                run_cli(["-o", "encrypt", "--data", "secret",
+                         "--pq-public-key", self.DUMMY_PK])
+            assert exc.value.code != 0
+        finally:
+            sys.stdin = old_stdin
+        assert "--hybrid-pq" in capsys.readouterr().err
+
+    def test_secret_key_without_hybrid_pq_is_rejected(self, capsys):
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(f"{PW}\n")
+        try:
+            with pytest.raises(SystemExit) as exc:
+                run_cli(["-o", "decrypt", "--data", "AwEC",
+                         "--pq-secret-key", self.DUMMY_SK])
+            assert exc.value.code != 0
+        finally:
+            sys.stdin = old_stdin
+        assert "--hybrid-pq" in capsys.readouterr().err

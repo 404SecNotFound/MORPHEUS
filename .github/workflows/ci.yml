@@ -20,10 +20,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Installed from the [dev] extra so the ruff and bandit versions are
+      # pinned in pyproject.toml. Unpinned tools silently change the gate
+      # whenever upstream adds or reclassifies a rule.
       - name: Install linting tools
         run: |
           python -m pip install --upgrade pip
-          pip install ruff bandit
+          pip install -e ".[dev]"
 
       - name: Lint with ruff
         run: ruff check morpheus/ tests/
@@ -32,10 +35,19 @@ jobs:
         run: bandit -r morpheus/ -ll -q
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          # The tkinter clipboard fallback and the pbcopy/xclip backends are
+          # platform-specific, so smoke-test the other two OSes on one version.
+          - os: macos-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.12"
 
     steps:
       - uses: actions/checkout@v4
@@ -45,16 +57,86 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # Editable install of the package plus the [dev] extra. This pulls in
+      # hypothesis (required by tests/test_fuzz.py) and pytest-asyncio (without
+      # which the asyncio_mode setting is ignored and the async tests do not
+      # run), and it exercises the packaging metadata so build breakage is
+      # caught here rather than at release time.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
+          pip install -e ".[dev]"
+
+      # Required on Linux: without pqcrypto the 9 hybrid-PQ tests skip, which
+      # moves the coverage total and would make the gate below flap.
+      - name: Install post-quantum extra (Linux, required)
+        if: runner.os == 'Linux'
+        run: pip install -e ".[pq]"
+
+      # Best-effort elsewhere: a pqcrypto build failure on macOS or Windows
+      # should not mask real test failures.
+      - name: Install post-quantum extra (other platforms, best-effort)
+        if: runner.os != 'Linux'
+        continue-on-error: true
+        run: pip install -e ".[pq]"
 
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
 
+      # fail_under lives in [tool.coverage.report] in pyproject.toml, so this
+      # step fails the build if coverage regresses.
       - name: Run tests with coverage
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
+        run: python -m pytest tests/ --cov --cov-report=term-missing
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build distributions
         run: |
-          python -m pytest tests/ --cov --cov-report=term-missing
+          python -m pip install --upgrade pip build
+          python -m build
+
+      # Guards the PEP 561 marker, which older setuptools silently drops.
+      - name: Verify wheel contents
+        run: |
+          python - <<'PY'
+          import glob, sys, zipfile
+          whl = glob.glob("dist/*.whl")[0]
+          names = zipfile.ZipFile(whl).namelist()
+          required = [
+              "morpheus/py.typed",
+              "morpheus/ui/app.py",
+              "morpheus/ui/steps/input.py",
+              "morpheus/core/pipeline.py",
+          ]
+          missing = [r for r in required if not any(r in n for n in names)]
+          if missing:
+              sys.exit(f"missing from {whl}: {missing}")
+          print(f"{whl}: all required files present")
+          PY
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # This is a cryptographic tool; a vulnerable dependency is a release
+      # blocker, so the pinned set is audited on every run.
+      - name: Audit pinned dependencies
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip install -r requirements-lock.txt
+          pip-audit

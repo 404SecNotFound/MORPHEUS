@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-import urllib.request
 import urllib.error
+import urllib.request
 from dataclasses import dataclass
 
 SPECIAL_CHARS = r"""!@#$%^&*(),.?":{}|<>~`\[\]\-_=+;'/\\"""
@@ -197,7 +197,7 @@ def check_passphrase_strength(passphrase: str) -> PasswordStrength:
         feedback.append(f"Use at least 20 characters total (currently {total_len})")
 
     # Word uniqueness scoring (0-20 points)
-    unique_words = len(set(w.lower() for w in words))
+    unique_words = len({w.lower() for w in words})
     if unique_words == word_count:
         score += 20
     elif unique_words >= max(1, int(word_count * 0.75)):
@@ -246,19 +246,52 @@ def check_password_leaked(password: str, *, timeout: float = 5.0) -> tuple[bool,
     Returns (is_leaked, breach_count).
     Raises urllib.error.URLError on network failure.
     """
-    sha1 = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
+    # SHA-1 is mandated by the HIBP range API protocol. It is not used here as a
+    # security primitive: the hash is a lookup key, and only its first 5 hex
+    # characters ever leave this machine. usedforsecurity=False states that
+    # intent and keeps this working on FIPS-mode builds where SHA-1 is otherwise
+    # unavailable.
+    sha1 = hashlib.sha1(  # noqa: S324
+        password.encode("utf-8"), usedforsecurity=False
+    ).hexdigest().upper()
     prefix = sha1[:5]
     suffix = sha1[5:]
 
+    # prefix is 5 hex characters from a hash, so the URL is a fixed https
+    # literal with no attacker-controlled component. Assert the scheme anyway so
+    # the guarantee is enforced rather than merely intended.
     url = f"https://api.pwnedpasswords.com/range/{prefix}"
-    req = urllib.request.Request(url, headers={"User-Agent": "MORPHEUS-EncryptionTool"})
-    resp = urllib.request.urlopen(req, timeout=timeout)
-    body = resp.read().decode("utf-8")
+    if not url.startswith("https://"):  # pragma: no cover - defensive
+        raise ValueError("HIBP lookup must use https")
+
+    req = urllib.request.Request(  # nosec B310 - https scheme asserted above
+        url,
+        headers={
+            "User-Agent": "MORPHEUS-EncryptionTool",
+            # Ask HIBP to pad the response so its size cannot be correlated
+            # with the number of matches for this prefix.
+            "Add-Padding": "true",
+        },
+    )
+    # nosec: the URL is a fixed https literal with only a hex prefix
+    # interpolated, and the scheme is asserted above, so no file:/ or custom
+    # scheme can reach this call.
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
+        body = resp.read().decode("utf-8")
 
     for line in body.splitlines():
         parts = line.strip().split(":")
         if len(parts) == 2 and parts[0] == suffix:
-            return True, int(parts[1])
+            try:
+                count = int(parts[1])
+            except ValueError:
+                continue
+            # Padded responses carry decoy suffixes with a count of 0. The API
+            # contract says to discard them; treating one as a hit would report
+            # a clean password as breached.
+            if count == 0:
+                continue
+            return True, count
 
     return False, 0
 

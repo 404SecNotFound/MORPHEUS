@@ -1,6 +1,6 @@
 """Tests for password validation and input checking."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from morpheus.core.validation import (
     check_passphrase_strength,
@@ -162,6 +162,16 @@ class TestPassphraseStrength:
 class TestPasswordLeakCheck:
     """Tests for HIBP breach detection (mocked network)."""
 
+    @staticmethod
+    def _mock_urlopen(body: str):
+        """Model urlopen faithfully: it is a context manager, not a bare object."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = body.encode("utf-8")
+        cm = MagicMock()
+        cm.__enter__.return_value = mock_resp
+        cm.__exit__.return_value = False
+        return cm
+
     def test_leaked_password_detected(self):
         """A password found in the breach database returns (True, count)."""
         # SHA-1 of "password" = 5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8
@@ -170,9 +180,8 @@ class TestPasswordLeakCheck:
             "1E4C9B93F3F0682250B6CF8331B7EE68FD8:3861493\r\n"
             "1F2B668E8AABEF1C59E7B6D4A0F0E3B2C1D:5\r\n"
         )
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = fake_response.encode("utf-8")
-        with patch("morpheus.core.validation.urllib.request.urlopen", return_value=mock_resp):
+        with patch("morpheus.core.validation.urllib.request.urlopen",
+                   return_value=self._mock_urlopen(fake_response)):
             is_leaked, count = check_password_leaked("password")
         assert is_leaked
         assert count == 3861493
@@ -183,10 +192,27 @@ class TestPasswordLeakCheck:
             "0000000000000000000000000000000000A:1\r\n"
             "0000000000000000000000000000000000B:2\r\n"
         )
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = fake_response.encode("utf-8")
-        with patch("morpheus.core.validation.urllib.request.urlopen", return_value=mock_resp):
+        with patch("morpheus.core.validation.urllib.request.urlopen",
+                   return_value=self._mock_urlopen(fake_response)):
             is_leaked, count = check_password_leaked("xK9!mZ2@qY3#nW$vB8")
+        assert not is_leaked
+        assert count == 0
+
+    def test_padding_entries_are_not_treated_as_breaches(self):
+        """HIBP pads responses with count-0 entries; those are not real hits.
+
+        With the Add-Padding header set, the API mixes in fake suffixes carrying
+        a count of 0 so response size cannot be correlated with match count. A
+        client that trusts them would report a clean password as breached.
+        """
+        # Real SHA-1 suffix for "password", but with a padding count of 0
+        fake_response = (
+            "1E4C9B93F3F0682250B6CF8331B7EE68FD8:0\r\n"
+            "1D2DA4053E34E76F6576ED1DA63134B5E2A:0\r\n"
+        )
+        with patch("morpheus.core.validation.urllib.request.urlopen",
+                   return_value=self._mock_urlopen(fake_response)):
+            is_leaked, count = check_password_leaked("password")
         assert not is_leaked
         assert count == 0
 

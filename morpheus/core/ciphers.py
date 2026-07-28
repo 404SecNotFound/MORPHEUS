@@ -10,8 +10,7 @@ from __future__ import annotations
 import os
 from abc import ABC, abstractmethod
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
 
 class Cipher(ABC):

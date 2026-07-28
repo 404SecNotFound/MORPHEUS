@@ -14,7 +14,6 @@ from morpheus.ui.clipboard import clipboard_copy, clipboard_paste
 from morpheus.ui.state import Mode
 from morpheus.ui.steps.password import StrengthBar
 
-
 # ── StrengthBar unit tests ──────────────────────────────────────
 
 class TestStrengthBar:
@@ -206,12 +205,21 @@ class TestClipboardPaste:
             assert clipboard_paste() is None
 
     def test_tkinter_fallback(self):
+        # Patch the module object, not tk.Tk: tkinter is optional, so on a
+        # Python built without Tk `clipboard.tk` is None and has no attributes.
         with patch("morpheus.ui.clipboard._pyperclip", None), \
              patch("morpheus.ui.clipboard.subprocess.run", side_effect=FileNotFoundError), \
-             patch("morpheus.ui.clipboard.tk.Tk") as mock_tk:
-            tk_root = mock_tk.return_value
+             patch("morpheus.ui.clipboard.tk") as mock_tk:
+            tk_root = mock_tk.Tk.return_value
             tk_root.clipboard_get.return_value = "from-tkinter"
             assert clipboard_paste() == "from-tkinter"
+
+    def test_returns_none_when_tkinter_unavailable(self):
+        """Python without Tk must degrade gracefully, not raise."""
+        with patch("morpheus.ui.clipboard._pyperclip", None), \
+             patch("morpheus.ui.clipboard.subprocess.run", side_effect=FileNotFoundError), \
+             patch("morpheus.ui.clipboard.tk", None):
+            assert clipboard_paste() is None
 
 
 class TestClipboardCopy:
@@ -232,11 +240,21 @@ class TestClipboardCopy:
             assert ok is False
 
     def test_tkinter_fallback(self):
+        # Patch the module object, not tk.Tk: see the note in TestClipboardPaste.
         with patch("morpheus.ui.clipboard._pyperclip", None), \
              patch("morpheus.ui.clipboard.subprocess.Popen", side_effect=FileNotFoundError), \
-             patch("morpheus.ui.clipboard.tk.Tk") as mock_tk:
+             patch("morpheus.ui.clipboard.tk") as mock_tk:
             ok, method = clipboard_copy("test")
             assert ok is True
             assert method == "tkinter"
-            tk_root = mock_tk.return_value
+            tk_root = mock_tk.Tk.return_value
             tk_root.clipboard_append.assert_called_once_with("test")
+
+    def test_returns_false_when_tkinter_unavailable(self):
+        """Python without Tk must degrade gracefully, not raise."""
+        with patch("morpheus.ui.clipboard._pyperclip", None), \
+             patch("morpheus.ui.clipboard.subprocess.Popen", side_effect=FileNotFoundError), \
+             patch("morpheus.ui.clipboard.tk", None):
+            ok, method = clipboard_copy("test")
+            assert ok is False
+            assert method == ""

@@ -5,16 +5,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [2.1.0] - 2026-02-10
 
+### Documentation
+- **Corrected three security claims that the code does not implement.** A
+  pre-publication review found the README and USAGE describing protections that
+  were never wired into the encrypt/decrypt path. Earlier changelog entries
+  (2.0.0, 2.0.1) still mention these as shipped; they describe the intent at the
+  time, not current behaviour. Specifically:
+  - **Memory locking**: `mlock_buffer`, `SecureBuffer`, and `secure_key` exist in
+    `core/memory.py` but have no call sites in the pipeline. Key buffers are
+    zeroed with `ctypes.memset`, and are **not** `mlock`ed. The documented
+    "logs a warning on `RLIMIT_MEMLOCK` failure" behaviour cannot occur. Docs now
+    say best-effort zeroing only.
+  - **Clipboard wiping**: no clipboard-clearing code exists. Docs no longer claim
+    the clipboard is wiped or the previous value restored.
+  - **"No data touches the disk"**: the TUI writes a temporary file when no
+    clipboard backend is available. Replaced with a per-path table of exactly what
+    is written to disk.
+- Corrected the documented `--cli` flag, which does not exist. Passing any flag
+  runs the CLI; no arguments launches the GUI.
+- Corrected test counts and the `Argon2id ~1 s per guess` figure, which measured
+  at roughly 30 ms. The brute-force defence is memory-hardness (64 MiB per guess),
+  not wall-clock time, and the docs now say so.
+
+### Fixed
+- `import tkinter` in `ui/clipboard.py` is now guarded. It was unconditional, so
+  the GUI failed to start on any Python built without Tk (Homebrew, slim Docker
+  images, Debian without `python3-tk`) and the collection error aborted the whole
+  test suite.
+
 ### Changed
 - **Wizard GUI overhaul**: Replaced the single-page scrollable form with a
   6-step guided wizard (Mode → Settings → Input → Password → Review → Output).
   2-pane layout: left sidebar with step completion markers (✓ done, ▸ current,
   dim locked) and right panel for the active step
-- **Professional dark theme**: New palette — `#0F1115` background, `#5B8CFF`
-  accent, muted greens/ambers/reds. Replaces the neon color scheme
-- **Clipboard robustness**: Copy now uses Textual OSC 52 (terminal-native) as
-  primary method, with pyperclip and subprocess (xclip/xsel/wl-copy) fallbacks.
-  Paste buttons added to both password fields for password-manager workflows
+- **Matrix dark theme**: Black-and-green palette — `#020402` background,
+  `#00FF41` phosphor-green accent, with gold and red reserved for warnings and
+  errors. (A blue/grey palette shipped mid-cycle and was reverted before release.)
+- **Clipboard robustness**: Copy tries pyperclip first, then the system
+  utilities (xclip/xsel/wl-copy/pbcopy), then tkinter. Paste buttons added to
+  both password fields for password-manager workflows. MORPHEUS does not clear
+  the system clipboard afterwards
 - **Step validation**: Next button disabled until the current step is valid;
   Review step summarises all choices and shows password-strength warnings before
   the Run action
@@ -22,7 +52,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   help overlay. Existing `Ctrl+E/D/L/Q` shortcuts preserved
 - **New `ui/` package**: `theme.py`, `state.py`, `sidebar.py`, `app.py`,
   `steps/` — decoupled from crypto core
-- Test count: 241 → 266 (25 state-validation + 10 wizard integration tests)
+- Test count: 241 → 272 (state-validation, wizard integration, and clipboard
+  fallback tests)
 
 ## [2.0.6] - 2026-02-10
 

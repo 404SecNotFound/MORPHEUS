@@ -5,12 +5,19 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
-import tkinter as tk
 
 try:
     import pyperclip as _pyperclip
 except ImportError:
     _pyperclip = None  # type: ignore[assignment]
+
+# tkinter is an optional part of the stdlib: Python built without Tk (Homebrew,
+# most slim Docker images, Debian without python3-tk) has no _tkinter module.
+# It is only ever a last-resort clipboard backend, so never let it break import.
+try:
+    import tkinter as tk
+except ImportError:
+    tk = None  # type: ignore[assignment]
 
 
 def clipboard_copy(text: str) -> tuple[bool, str]:
@@ -49,16 +56,17 @@ def clipboard_copy(text: str) -> tuple[bool, str]:
             continue
 
     # 3. tkinter fallback (often available with Python installs)
-    try:
-        root = tk.Tk()
-        root.withdraw()
-        root.clipboard_clear()
-        root.clipboard_append(text)
-        root.update()
-        root.destroy()
-        return True, "tkinter"
-    except Exception:
-        pass
+    if tk is not None:
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.clipboard_clear()
+            root.clipboard_append(text)
+            root.update()
+            root.destroy()
+            return True, "tkinter"
+        except Exception:
+            pass
 
     return False, ""
 
@@ -88,15 +96,16 @@ def clipboard_paste() -> str | None:
         except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
             continue
 
-    try:
-        root = tk.Tk()
-        root.withdraw()
-        text = root.clipboard_get()
-        root.destroy()
-        if text:
-            return text
-    except Exception:
-        pass
+    if tk is not None:
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            text = root.clipboard_get()
+            root.destroy()
+            if text:
+                return text
+        except Exception:
+            pass
 
     return None
 
