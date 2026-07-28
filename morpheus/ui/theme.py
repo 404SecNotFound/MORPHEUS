@@ -36,6 +36,12 @@ ERROR           = "#e5594f"    # errors, refusals, weak-password floor
 # fails AA and is bounded to decoration and non-focusable disabled controls.
 TEXT_TOKENS = frozenset({"TEXT", "TEXT_2", "TEXT_3", "SELECTED", "SIGNAL", "ERROR"})
 
+# One caution when editing the prose below. bandit's B608 scans concatenated
+# string literals for SQL and its pattern is `select\\s.*from\\s` with DOTALL,
+# so a `Select` selector anywhere above the word "from" anywhere below reads as
+# SELECT ... FROM and fails the build at exit 1. Say "mirrors" or "taken out of"
+# instead. The finding is spurious, but suppressing it would mean a blanket
+# nosec over 500 lines of CSS, which is worse than avoiding one word.
 WIZARD_CSS = """
 Screen {
     background: """ + BG + """;
@@ -345,8 +351,8 @@ RadioSet {
    and RadioButton and it had no effect on either the glyph or the selected
    row. Left alone, Textual's own theme supplies the colour, which is how a
    blue selection band and a green bullet survived a palette rewrite. The
-   selectors below are taken from ToggleButton/RadioSet/SelectCurrent
-   DEFAULT_CSS on Textual 8.2.8; check them again on upgrade. */
+   selectors below mirror ToggleButton/RadioSet/SelectCurrent DEFAULT_CSS on
+   Textual 8.2.8; check them again on upgrade. */
 
 /* The selected row. Textual fills it with $block-cursor-background, which
    resolves to primary blue and reads as a second accent. Selection is
