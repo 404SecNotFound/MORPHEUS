@@ -62,7 +62,7 @@ class MorpheusWizard(App):
       - Escape focuses the sidebar for arrow-key browsing
     """
 
-    TITLE = "MORPHEUS v2.0"
+    TITLE = f"MORPHEUS v{__version__}"
     CSS = WIZARD_CSS
 
     BINDINGS = [
