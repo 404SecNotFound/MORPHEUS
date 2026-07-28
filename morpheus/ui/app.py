@@ -49,7 +49,6 @@ from .steps.output import OutputStep
 from .steps.password import PasswordStep
 from .steps.review import ReviewStep
 from .steps.settings import SettingsStep
-from .theme import WIZARD_CSS
 
 
 class MorpheusWizard(App):
@@ -63,7 +62,7 @@ class MorpheusWizard(App):
     """
 
     TITLE = f"MORPHEUS v{__version__}"
-    CSS = WIZARD_CSS
+    CSS = theme.WIZARD_CSS
 
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),

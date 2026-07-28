@@ -9,6 +9,8 @@ from unittest.mock import patch
 import pytest
 from textual.widgets import Button, RadioButton, Static
 
+from morpheus import __version__
+from morpheus.ui import theme
 from morpheus.ui.app import MorpheusWizard
 from morpheus.ui.clipboard import clipboard_copy, clipboard_paste
 from morpheus.ui.state import Mode
@@ -23,28 +25,28 @@ class TestStrengthBar:
         bar = StrengthBar()
         bar.score = 20
         rendered = bar.render()
-        assert "#e5594f" in rendered
+        assert theme.ERROR in rendered
         assert "Weak" in rendered
 
     def test_fair_renders_secondary(self):
         bar = StrengthBar()
         bar.score = 40
         rendered = bar.render()
-        assert "#a3a29b" in rendered
+        assert theme.TEXT_2 in rendered
         assert "Fair" in rendered
 
     def test_strong_renders_primary(self):
         bar = StrengthBar()
         bar.score = 60
         rendered = bar.render()
-        assert "#f1f0ec" in rendered
+        assert theme.TEXT in rendered
         assert "Strong" in rendered
 
     def test_excellent_renders_primary(self):
         bar = StrengthBar()
         bar.score = 80
         rendered = bar.render()
-        assert "#f1f0ec" in rendered
+        assert theme.TEXT in rendered
         assert "Excellent" in rendered
 
     def test_zero_score(self):
@@ -58,6 +60,10 @@ class TestStrengthBar:
 
 class TestWizardApp:
     """Integration tests using Textual's async test harness."""
+
+    def test_window_title_tracks_the_package_version(self):
+        """TITLE is user-visible; two stale 'v2.0' labels shipped without this."""
+        assert MorpheusWizard.TITLE.endswith(__version__)
 
     @pytest.mark.asyncio
     async def test_app_mounts_with_sidebar(self):
