@@ -21,6 +21,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.widget import Widget
 from textual.widgets import Button, Footer, Static
 
 from .. import __version__
@@ -66,8 +67,15 @@ class MorpheusWizard(App):
 
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
-        Binding("ctrl+e", "quick_encrypt", "Encrypt"),
-        Binding("ctrl+d", "quick_decrypt", "Decrypt"),
+        # Textual's Input and TextArea both bind "end,ctrl+e" and
+        # "delete,ctrl+d". A focused field therefore swallowed these two, and
+        # the footer stopped advertising them on the Password and Output steps.
+        # Harmless while focus never left the sidebar; a real regression once a
+        # step takes the keyboard. Both are documented as global shortcuts, so
+        # they outrank the focused widget. Cursor-to-end and delete-right are
+        # still on End and Delete.
+        Binding("ctrl+e", "quick_encrypt", "Encrypt", priority=True),
+        Binding("ctrl+d", "quick_decrypt", "Decrypt", priority=True),
         Binding("ctrl+l", "clear_all", "Clear"),
         Binding("left", "prev_step", "Prev", show=False),
         Binding("right", "next_step", "Next", show=False),
@@ -87,6 +95,9 @@ class MorpheusWizard(App):
         self._state = WizardState()
         self._current_step = STEP_MODE
         self._sidebar: Sidebar | None = None
+        # The step panel currently on screen, so a deferred focus call can
+        # tell whether it has been superseded.
+        self._step_panel: Widget | None = None
 
     # ── Compose ──────────────────────────────────────────────────
 
@@ -136,6 +147,7 @@ class MorpheusWizard(App):
         container.remove_children()
 
         panel = self._build_step(step)
+        self._step_panel = panel
         container.mount(panel)
 
         # Update sidebar indicators
@@ -144,6 +156,74 @@ class MorpheusWizard(App):
 
         # Update nav buttons
         self._update_nav()
+
+        # Hand the keyboard to the step itself. Deferred because a widget's
+        # composed children do not exist until after the mount completes:
+        # querying `panel` here finds nothing at all.
+        # Routed through the screen rather than `panel.call_next`, so a panel
+        # removed before the callback runs cannot swallow it with its queue.
+        self.call_after_refresh(self._focus_step_content, panel)
+
+    def _focus_step_content(self, panel: Widget) -> None:
+        """Move focus to the first focusable control of a step just shown.
+
+        Without this, focus stays where Textual's auto-focus left it at
+        startup — the first sidebar row — so Up/Down and Enter drive the step
+        list rather than the step. That contradicts what the app tells the user
+        to do ("Use Up/Down arrows to highlight, Enter to select" on the Mode
+        step) and makes Escape pointless: the sidebar is meant to be somewhere
+        you go on purpose, not where you always are.
+
+        Scoped to `panel` rather than to `#step-container`, because
+        `remove_children` completes asynchronously and the outgoing step's
+        widgets can still be in the container when this runs — searching the
+        container picks one of those and focus lands on the step just left.
+        """
+        # A quick Left/Right burst can leave an earlier call pending. Drop it
+        # rather than focus a step that is no longer on screen.
+        if panel is not self._step_panel:
+            return
+
+        for widget in panel.query("*"):
+            if widget.focusable:
+                self.set_focus(widget)
+                return
+
+        # Review composes only Static text; its one action, Execute, sits in
+        # the nav bar outside the panel. Landing on the sidebar there would be
+        # the very thing this method exists to stop, on the step whose whole
+        # purpose is pressing a button.
+        if self._focus_nav_action():
+            return
+
+        # Nothing focusable in the step or the nav bar. Leave the keyboard on
+        # the sidebar rather than on a widget this step has just replaced.
+        self.action_focus_sidebar()
+
+    def _focus_nav_action(self) -> bool:
+        """Focus the step's primary nav-bar action. True if one was found.
+
+        Ordered by intent, not by DOM order. The bar is laid out Back, Next,
+        Execute, so "first visible button" would hand Review the Back button —
+        the opposite of what the step is for. A step with no content of its own
+        wants whatever carries it forward, falling back to Back only when there
+        is no forward action to take (an incomplete Review disables Execute,
+        and going back is then the right move).
+
+        `display` is tested separately because `Widget.focusable` does not
+        consider it: `#btn-run` reports focusable on every step, including the
+        five where `_update_nav` has hidden it. Only `disabled` is covered.
+        Callers must therefore run this after `_update_nav`, never before.
+        """
+        for selector in ("#btn-run", "#btn-next", "#btn-back"):
+            try:
+                button = self.query_one(selector, Button)
+            except Exception:
+                continue
+            if button.display and button.focusable:
+                self.set_focus(button)
+                return True
+        return False
 
     def _build_step(self, step: int):
         if step == STEP_MODE:
@@ -233,8 +313,23 @@ class MorpheusWizard(App):
         self._goto_step(STEP_OUTPUT)
 
     def action_focus_sidebar(self) -> None:
-        if self._sidebar:
-            self._sidebar.focus()
+        """Focus the sidebar row for the current step.
+
+        This used to call `Sidebar.focus()`, which did nothing: `Sidebar` is a
+        plain `Vertical` and containers are not focusable, so Escape never
+        moved focus. It went unnoticed because focus never left the sidebar to
+        begin with — Textual's auto-focus put it on `sb-0` at startup and
+        nothing took it away. Now that a step claims focus, Escape is the way
+        back, so it has to actually work. `SidebarItem` is the focusable unit,
+        and the row for the current step is the one to land on.
+        """
+        if not self._sidebar:
+            return
+        try:
+            item = self._sidebar.query_one(f"#sb-{self._current_step}", SidebarItem)
+        except Exception:
+            return
+        self.set_focus(item)
 
     def action_quick_encrypt(self) -> None:
         self._state.mode = Mode.ENCRYPT
