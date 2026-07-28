@@ -7,12 +7,18 @@ from textual.reactive import reactive
 from textual.widgets import Button, Checkbox, Input, Label, Static
 
 from ...core.validation import check_password_strength
+from .. import theme
 from ..clipboard import clipboard_copy, clipboard_paste
 from ..state import Mode, WizardState
 
 
 class StrengthBar(Static):
-    """5-step discrete password strength indicator — Matrix palette."""
+    """5-step discrete password strength indicator.
+
+    Severity is carried by the text label, not by hue: the ramp only spans
+    TEXT, TEXT_2 and ERROR so the meter stays legible without competing with
+    the reserved accent.
+    """
 
     score: reactive[int] = reactive(0)
 
@@ -20,15 +26,15 @@ class StrengthBar(Static):
         filled = self.score // 10
         empty = 10 - filled
         if self.score >= 80:
-            color, label = "#00FF41", "Excellent"
+            color, label = theme.TEXT, "Excellent"
         elif self.score >= 60:
-            color, label = "#00CC33", "Strong"
+            color, label = theme.TEXT, "Strong"
         elif self.score >= 40:
-            color, label = "#FFD700", "Fair"
+            color, label = theme.TEXT_2, "Fair"
         elif self.score >= 20:
-            color, label = "#FF8800", "Weak"
+            color, label = theme.ERROR, "Weak"
         else:
-            color, label = "#FF3333", "Very weak"
+            color, label = theme.ERROR, "Very weak"
         return f"[{color}]{'█' * filled}{'░' * empty}[/] {label}"
 
 
@@ -200,8 +206,8 @@ class PasswordStep(Vertical):
         confirm = self._state.password_confirm
         indicator = self.query_one("#match-indicator", Static)
         if confirm and pwd == confirm:
-            indicator.update("[#00FF41]Match[/#00FF41]")
+            indicator.update(f"[{theme.TEXT}]Match[/]")
         elif confirm:
-            indicator.update("[#FF3333]No match[/#FF3333]")
+            indicator.update(f"[{theme.ERROR}]No match[/]")
         else:
             indicator.update("")

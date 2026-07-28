@@ -19,32 +19,32 @@ from morpheus.ui.steps.password import StrengthBar
 class TestStrengthBar:
     """Unit tests for the password strength indicator widget."""
 
-    def test_weak_renders_orange(self):
+    def test_weak_renders_error(self):
         bar = StrengthBar()
         bar.score = 20
         rendered = bar.render()
-        assert "#FF8800" in rendered
+        assert "#e5594f" in rendered
         assert "Weak" in rendered
 
-    def test_fair_renders_gold(self):
+    def test_fair_renders_secondary(self):
         bar = StrengthBar()
         bar.score = 40
         rendered = bar.render()
-        assert "#FFD700" in rendered
+        assert "#a3a29b" in rendered
         assert "Fair" in rendered
 
-    def test_strong_renders_green(self):
+    def test_strong_renders_primary(self):
         bar = StrengthBar()
         bar.score = 60
         rendered = bar.render()
-        assert "#00CC33" in rendered
+        assert "#f1f0ec" in rendered
         assert "Strong" in rendered
 
-    def test_excellent_renders_matrix_green(self):
+    def test_excellent_renders_primary(self):
         bar = StrengthBar()
         bar.score = 80
         rendered = bar.render()
-        assert "#00FF41" in rendered
+        assert "#f1f0ec" in rendered
         assert "Excellent" in rendered
 
     def test_zero_score(self):
