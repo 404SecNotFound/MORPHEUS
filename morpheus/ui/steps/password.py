@@ -56,9 +56,9 @@ class PasswordStep(Vertical):
                 classes="step-subtitle",
             )
             yield Static(
-                "[dim]Tip: Use a long passphrase (4+ random words) for best security. "
+                f"[{theme.TEXT_3}]Tip: Use a long passphrase (4+ random words) for best security. "
                 "The strength meter updates as you type. "
-                "You must confirm the password below.[/dim]",
+                "You must confirm the password below.[/]",
                 classes="step-hint",
             )
         else:
@@ -68,8 +68,8 @@ class PasswordStep(Vertical):
                 classes="step-subtitle",
             )
             yield Static(
-                "[dim]Tip: To paste a password, Tab to the password field, "
-                "then use Ctrl+Shift+V (terminal paste) or the Paste button.[/dim]",
+                f"[{theme.TEXT_3}]Tip: To paste a password, Tab to the password field, "
+                "then use Ctrl+Shift+V (terminal paste) or the Paste button.[/]",
                 classes="step-hint",
             )
 
@@ -105,9 +105,9 @@ class PasswordStep(Vertical):
         yield Checkbox("Show password", id="show-pwd-check", value=False)
 
         yield Static(
-            "[dim]Paste button reads from system clipboard (requires xclip/xsel). "
+            f"[{theme.TEXT_3}]Paste button reads from system clipboard (requires xclip/xsel). "
             "If clipboard is unavailable, use Ctrl+Shift+V to paste directly "
-            "into the focused field.[/dim]",
+            "into the focused field.[/]",
             classes="step-hint",
         )
 
@@ -190,7 +190,7 @@ class PasswordStep(Vertical):
             result = check_password_strength(pwd)
             bar.score = result.score
             if result.feedback:
-                fb.update("[dim]" + " · ".join(result.feedback[:2]) + "[/dim]")
+                fb.update(f"[{theme.TEXT_3}]" + " · ".join(result.feedback[:2]) + "[/]")
             else:
                 fb.update("")
         else:

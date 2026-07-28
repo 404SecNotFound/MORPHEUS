@@ -8,6 +8,7 @@ from textual.widgets import Checkbox, Collapsible, Label, Select, Static
 from ...core.ciphers import CIPHER_CHOICES
 from ...core.kdf import KDF_CHOICES
 from ...core.pipeline import PQ_AVAILABLE
+from .. import theme
 from ..state import WizardState
 
 
@@ -27,8 +28,8 @@ class SettingsStep(Vertical):
             classes="step-subtitle",
         )
         yield Static(
-            "[dim]Tab between fields. Enter opens dropdowns. "
-            "Space toggles checkboxes.[/dim]",
+            f"[{theme.TEXT_3}]Tab between fields. Enter opens dropdowns. "
+            "Space toggles checkboxes.[/]",
             classes="step-hint",
         )
 
@@ -40,8 +41,8 @@ class SettingsStep(Vertical):
                 id="cipher-select",
             )
         yield Static(
-            "[dim]AES-256-GCM: NIST standard, hardware-accelerated on most CPUs.\n"
-            "ChaCha20-Poly1305: Constant-time, excellent for software-only environments.[/dim]",
+            f"[{theme.TEXT_3}]AES-256-GCM: NIST standard, hardware-accelerated on most CPUs.\n"
+            "ChaCha20-Poly1305: Constant-time, excellent for software-only environments.[/]",
             classes="field-help",
         )
 
@@ -53,8 +54,8 @@ class SettingsStep(Vertical):
                 id="kdf-select",
             )
         yield Static(
-            "[dim]Argon2id: Memory-hard, resists GPU/ASIC attacks (recommended).\n"
-            "Scrypt: Also memory-hard, widely deployed alternative.[/dim]",
+            f"[{theme.TEXT_3}]Argon2id: Memory-hard, resists GPU/ASIC attacks (recommended).\n"
+            "Scrypt: Also memory-hard, widely deployed alternative.[/]",
             classes="field-help",
         )
 
@@ -64,14 +65,14 @@ class SettingsStep(Vertical):
             value=self._state.chain,
         )
         yield Static(
-            "[dim]Double encryption with independent keys — hedges against "
-            "a single-cipher break.[/dim]",
+            f"[{theme.TEXT_3}]Double encryption with independent keys — hedges against "
+            "a single-cipher break.[/]",
             classes="field-help",
         )
 
         pq_label = "Hybrid Post-Quantum (ML-KEM-768)"
         if not PQ_AVAILABLE:
-            pq_label += " [dim](install pqcrypto)[/dim]"
+            pq_label += f" [{theme.TEXT_3}](install pqcrypto)[/]"
         yield Checkbox(
             pq_label,
             id="pq-check",
@@ -80,8 +81,8 @@ class SettingsStep(Vertical):
         )
         if PQ_AVAILABLE:
             yield Static(
-                "[dim]Adds ML-KEM-768 key encapsulation on top of password-derived "
-                "keys — protects against future quantum computers.[/dim]",
+                f"[{theme.TEXT_3}]Adds ML-KEM-768 key encapsulation on top of password-derived "
+                "keys — protects against future quantum computers.[/]",
                 classes="field-help",
             )
 
@@ -89,22 +90,22 @@ class SettingsStep(Vertical):
             yield Checkbox("Pad plaintext to hide length", id="pad-check",
                            value=self._state.pad)
             yield Static(
-                "[dim]Adds random padding so ciphertext length does not reveal "
-                "plaintext size.[/dim]",
+                f"[{theme.TEXT_3}]Adds random padding so ciphertext length does not reveal "
+                "plaintext size.[/]",
                 classes="field-help",
             )
             yield Checkbox("Fixed 64 KiB output", id="fixed-check",
                            value=self._state.fixed_size)
             yield Static(
-                "[dim]All outputs are exactly 64 KiB — useful when uniform "
-                "ciphertext sizes are required.[/dim]",
+                f"[{theme.TEXT_3}]All outputs are exactly 64 KiB — useful when uniform "
+                "ciphertext sizes are required.[/]",
                 classes="field-help",
             )
             yield Checkbox("Omit filename from envelope", id="nofn-check",
                            value=self._state.no_filename)
             yield Static(
-                "[dim]Strips the original filename from the encrypted envelope "
-                "(file mode only).[/dim]",
+                f"[{theme.TEXT_3}]Strips the original filename from the encrypted envelope "
+                "(file mode only).[/]",
                 classes="field-help",
             )
 
