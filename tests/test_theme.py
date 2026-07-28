@@ -393,6 +393,11 @@ class TestTheGuardsSurviveReformatting:
     def test_a_comment_naming_the_token_is_not_a_usage(self):
         commented = "/* $m-signal is spent here and nowhere else */\n" + self.OUTPUT_RULE
         mutated = theme.WIZARD_CSS.replace(self.OUTPUT_RULE, commented)
+        # Without this the test passes by doing nothing: a `.replace()` whose
+        # anchor has drifted is a no-op, and the assert below then re-checks the
+        # unmutated stylesheet, which of course still passes. Every sibling here
+        # carries the same guard.
+        assert mutated != theme.WIZARD_CSS, "the rule this test comments has moved"
         assert _signal_selectors(mutated) == TestRestrictedTokenUsage.SIGNAL_SELECTORS
 
     @pytest.mark.parametrize(
