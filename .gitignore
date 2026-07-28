@@ -9,6 +9,7 @@ build/
 .ruff_cache/
 .hypothesis/
 venv/
+.venv/
 .env
 .superpowers/
 .DS_Store
