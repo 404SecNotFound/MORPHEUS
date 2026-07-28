@@ -7,7 +7,13 @@ import pytest
 from cryptography.exceptions import InvalidTag
 
 from morpheus.core.ciphers import AES256GCM, ChaCha20Poly1305Cipher
-from morpheus.core.formats import FLAG_CHAINED, FLAG_HYBRID_PQ, FORMAT_VERSION, FORMAT_VERSION_3, HEADER_FORMAT
+from morpheus.core.formats import (
+    FLAG_CHAINED,
+    FLAG_HYBRID_PQ,
+    FORMAT_VERSION,
+    FORMAT_VERSION_3,
+    HEADER_FORMAT,
+)
 from morpheus.core.kdf import Argon2idKDF, ScryptKDF
 from morpheus.core.pipeline import (
     PQ_AVAILABLE,
@@ -198,7 +204,10 @@ class TestHybridPQ:
             hybrid_pq=True, pq_secret_key=wrong_sk,
         )
         encrypted = enc.encrypt("secret", PASSWORD)
-        with pytest.raises(Exception):
+        # Note: the key-check is computed over the post-KEM combined key, so a
+        # wrong ML-KEM secret key currently surfaces as WrongPasswordError
+        # (a ValueError subclass) rather than a distinct PQ-specific error.
+        with pytest.raises((InvalidTag, ValueError)):
             dec.decrypt(encrypted, PASSWORD)
 
     def test_hybrid_without_pk_raises(self):
@@ -489,9 +498,13 @@ class TestStructuredErrors:
 
     def test_all_errors_inherit_from_morpheus_error(self):
         from morpheus.core.errors import (
-            MorpheusError, FormatError, PaddingError,
-            KDFParameterError, ConfigurationError,
-            DecryptionError, WrongPasswordError,
+            ConfigurationError,
+            DecryptionError,
+            FormatError,
+            KDFParameterError,
+            MorpheusError,
+            PaddingError,
+            WrongPasswordError,
         )
         for cls in (FormatError, PaddingError, KDFParameterError,
                     ConfigurationError, DecryptionError, WrongPasswordError):

@@ -13,7 +13,6 @@ from textual.widgets import Static
 
 from .state import STEP_LABELS, TOTAL_STEPS, WizardState
 
-
 STEP_DESCRIPTIONS_SHORT = [
     "Encrypt or Decrypt",
     "Cipher & KDF options",

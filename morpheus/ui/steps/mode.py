@@ -5,6 +5,7 @@ from __future__ import annotations
 from textual.containers import Vertical
 from textual.widgets import RadioButton, RadioSet, Static
 
+from .. import theme
 from ..state import Mode, WizardState
 
 
@@ -23,8 +24,8 @@ class ModeStep(Vertical):
             classes="step-subtitle",
         )
         yield Static(
-            "[dim]Use Up/Down arrows to highlight, Enter to select, "
-            "or press Ctrl+E / Ctrl+D to skip this step.[/dim]",
+            f"[{theme.TEXT_3}]Use Up/Down arrows to highlight, Enter to select, "
+            "or press Ctrl+E / Ctrl+D to skip this step.[/]",
             classes="step-hint",
         )
         with RadioSet(id="mode-radio"):

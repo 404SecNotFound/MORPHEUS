@@ -1,41 +1,125 @@
-"""Theme tokens and CSS for the MORPHEUS wizard UI — Matrix Edition."""
+"""Theme tokens and CSS for the MORPHEUS wizard UI.
+
+Visual system: docs/design/2026-07-28-terminal-visual-system.md
+Translated from Replicant's `signal-instrument` spec. Warm graphite surfaces,
+one semantic accent, data brighter than chrome.
+"""
 
 from __future__ import annotations
 
-# -- Matrix colour palette ---------------------------------------------------
-BG              = "#020402"    # Near-black
-SURFACE         = "#061006"    # Green-black surface
-ELEVATED        = "#0A180A"    # Elevated card background
-BORDER          = "#135A13"    # Green border
-BORDER_BRIGHT   = "#00E63A"    # Bright green border (focus / active)
+# -- Surfaces ----------------------------------------------------------------
+# One background only. The source system's four surface tiers sit 1.06-1.10:1
+# apart, which reads as depth in a browser (large fills, hairlines, shadows) and
+# as one flat colour in a terminal. Borders carry elevation here instead.
+BG              = "#0e0e11"    # warm graphite, deliberately not blue-black
 
-TEXT_PRIMARY     = "#00FF41"   # Classic Matrix phosphor green
-TEXT_BODY        = "#6CFF8C"   # Readable body text
-TEXT_SECONDARY   = "#00AA28"   # Labels / secondary info
-TEXT_DIM         = "#00A82B"   # Dim hints
-DISABLED         = "#103010"   # Barely visible
+# Borders are the source system's alpha hairlines composited onto BG, since
+# Textual has no alpha channel.
+BORDER          = "#212124"    # rgba(255,255,255,.08) over BG
+BORDER_STRONG   = "#303032"    # rgba(255,255,255,.14) over BG
+BORDER_FOCUS    = "#ecebe6"    # focus must be unmistakable; see the spec
 
-ACCENT          = "#00FF41"    # Bright Matrix green
-ACCENT_HOVER    = "#72FF95"    # Hover state
-ACCENT_DIM      = "#00CC33"    # Muted accent
+# -- Text tiers --------------------------------------------------------------
+# Data is the brightest thing on screen; chrome recedes. This replaces the
+# source system's mono-vs-sans distinction, which a terminal cannot express.
+TEXT            = "#f1f0ec"    # data and values          16.90:1 AAA
+TEXT_2          = "#a3a29b"    # body prose                7.52:1 AAA
+TEXT_3          = "#8f8d84"    # uppercase micro-labels    5.79:1 AA
+TEXT_4          = "#5f5e58"    # decoration + disabled controls    2.96:1
 
-SUCCESS         = "#39FF14"    # Neon green
-WARNING         = "#FFD700"    # Gold (stands out intentionally)
-ERROR           = "#FF3333"    # Red
+# -- Semantic ----------------------------------------------------------------
+SELECTED        = "#ecebe6"    # active step, primary button, selection
+SIGNAL          = "#f4b23e"    # EXPOSED SECRET MATERIAL ONLY. Nothing else.
+ERROR           = "#e5594f"    # errors, refusals, weak-password floor
 
-WIZARD_CSS = """
+# Tokens that may render informational text. TEXT_4 is absent by design: it
+# fails AA and is bounded to decoration and non-focusable disabled controls.
+TEXT_TOKENS = frozenset({"TEXT", "TEXT_2", "TEXT_3", "SELECTED", "SIGNAL", "ERROR"})
+
+# The stylesheet names its colours as Textual CSS variables rather than splicing
+# hex in with `""" + BG + """`. The names then survive into WIZARD_CSS itself,
+# so the guards in tests/test_theme.py parse real CSS instead of reconstructing
+# Python concatenation from this file's source text. That closes two whole
+# classes of bug: `"""+SIGNAL+"""` written without spaces was identical Python
+# but invisible to the old source parser, and ordinary reformatting (a grouped
+# selector, a brace on its own line) made it name the wrong selector.
+#
+# The `m-` prefix is not decoration. Textual 8.2.8 ships 168 built-in CSS
+# variables and `$text`, `$border` and `$error` are three of them, so declaring
+# those names unprefixed would silently repoint every Textual widget in the app,
+# not just our own rules. Namespacing keeps the blast radius at our stylesheet.
+#
+# Declared here out of the constants above, so the hex still has exactly one
+# home and the Python names stay importable by the steps and the tests.
+_VARS = "\n".join(
+    f"${name}: {value};"
+    for name, value in (
+        ("m-bg", BG), ("m-border", BORDER), ("m-border-strong", BORDER_STRONG),
+        ("m-border-focus", BORDER_FOCUS), ("m-text", TEXT), ("m-text-2", TEXT_2),
+        ("m-text-3", TEXT_3), ("m-text-4", TEXT_4), ("m-selected", SELECTED),
+        ("m-signal", SIGNAL), ("m-error", ERROR),
+    )
+)
+
+# One caution when editing the prose below. bandit's B608 scans string literals
+# for SQL and its pattern is `select\\s.*from\\s` with DOTALL, so a `Select`
+# selector anywhere above the word "from" anywhere below reads as SELECT ... FROM
+# and fails the build at exit 1. Say "mirrors" or "taken out of" instead. The
+# finding is spurious, but suppressing it would mean a blanket nosec over 500
+# lines of CSS, which is worse than avoiding one word.
+WIZARD_CSS = _VARS + """
 Screen {
-    background: """ + BG + """;
+    background: $m-bg;
 }
 
 Header {
-    background: """ + SURFACE + """;
-    color: """ + TEXT_PRIMARY + """;
+    background: $m-bg;
+    color: $m-text;
 }
 
 Footer {
-    background: """ + SURFACE + """;
-    color: """ + TEXT_SECONDARY + """;
+    background: $m-bg;
+    color: $m-text-3;
+}
+
+/* Footer renders its bindings through FooterKey, which carries its own
+   component classes and its own background. Styling `Footer` alone leaves
+   both at Textual's defaults, and the default key cap is a saturated amber
+   close enough to the reserved accent to break the "amber means exposed
+   secret material" rule on every screen. The key cap is the affordance, so
+   it takes TEXT_2; the description is supporting prose, so it takes TEXT_3.
+   Guarded by TestRenderedAmberIsReserved, which checks the rendered pixels
+   rather than this file. */
+
+FooterKey {
+    background: $m-bg;
+}
+
+FooterKey .footer-key--key {
+    background: $m-bg;
+    color: $m-text-2;
+    text-style: bold;
+}
+
+FooterKey .footer-key--description {
+    background: $m-bg;
+    color: $m-text-3;
+}
+
+FooterKey:hover {
+    background: $m-border;
+    color: $m-selected;
+}
+
+/* Textual draws this divider with `vkey $foreground 20%`, which composites to
+   an off-palette grey. Name the token instead. */
+FooterKey.-command-palette {
+    border-left: vkey $m-border-strong;
+}
+
+FooterLabel {
+    background: $m-bg;
+    color: $m-text-3;
 }
 
 /* ── Top bar ────────────────────────────────────────────────────── */
@@ -43,29 +127,29 @@ Footer {
 #top-bar {
     dock: top;
     height: 3;
-    background: """ + SURFACE + """;
-    color: """ + TEXT_SECONDARY + """;
+    background: $m-bg;
+    color: $m-text-3;
     padding: 1 2;
-    border-bottom: heavy """ + BORDER + """;
+    border-bottom: heavy $m-border;
 }
 
 #top-title {
     width: 1fr;
-    color: """ + ACCENT + """;
+    color: $m-selected;
     text-style: bold;
 }
 
 #top-step {
     width: auto;
-    color: """ + TEXT_SECONDARY + """;
+    color: $m-text-3;
 }
 
 /* ── Sidebar ────────────────────────────────────────────────────── */
 
 #sidebar {
     width: 28;
-    background: """ + SURFACE + """;
-    border-right: heavy """ + BORDER + """;
+    background: $m-bg;
+    border-right: heavy $m-border;
     padding: 1 0;
     overflow-y: auto;
 }
@@ -73,28 +157,28 @@ Footer {
 .sidebar-item {
     height: 2;
     padding: 0 1;
-    color: """ + TEXT_DIM + """;
+    color: $m-text-3;
     margin: 0 0 1 0;
 }
 
 .sidebar-item:focus {
-    background: """ + ELEVATED + """;
-    color: """ + ACCENT + """;
+    background: $m-bg;
+    color: $m-selected;
     text-style: bold reverse;
 }
 
 .sidebar-item.--current {
-    color: """ + ACCENT + """;
+    color: $m-selected;
     text-style: bold;
-    background: """ + ELEVATED + """;
+    background: $m-bg;
 }
 
 .sidebar-item.--completed {
-    color: """ + ACCENT_DIM + """;
+    color: $m-text-2;
 }
 
 .sidebar-item.--locked {
-    color: """ + DISABLED + """;
+    color: $m-text-3;
 }
 
 /* ── Step panel (right pane) ────────────────────────────────────── */
@@ -103,32 +187,32 @@ Footer {
     width: 1fr;
     height: 1fr;
     padding: 1 2;
-    background: """ + BG + """;
+    background: $m-bg;
     overflow-y: auto;
 }
 
 .step-title {
-    color: """ + TEXT_PRIMARY + """;
+    color: $m-text;
     text-style: bold underline;
     padding: 0 0 1 0;
     width: 100%;
 }
 
 .step-subtitle {
-    color: """ + TEXT_BODY + """;
+    color: $m-text-2;
     padding: 0 0 1 0;
     width: 100%;
 }
 
 .step-hint {
-    color: """ + TEXT_DIM + """;
+    color: $m-text-3;
     padding: 0 0 1 0;
     width: 100%;
     height: auto;
 }
 
 .field-label {
-    color: """ + TEXT_SECONDARY + """;
+    color: $m-text-3;
     width: 16;
     padding: 0 1 0 0;
 }
@@ -141,7 +225,7 @@ Footer {
 }
 
 .field-help {
-    color: """ + TEXT_DIM + """;
+    color: $m-text-3;
     padding: 0 0 1 2;
     height: auto;
     width: 100%;
@@ -155,8 +239,8 @@ Footer {
     align: center middle;
     padding: 0 2;
     dock: bottom;
-    background: """ + SURFACE + """;
-    border-top: heavy """ + BORDER + """;
+    background: $m-bg;
+    border-top: heavy $m-border;
 }
 
 #nav-bar Button {
@@ -165,130 +249,125 @@ Footer {
 }
 
 #btn-back {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_SECONDARY + """;
-    border: heavy """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text-3;
+    border: heavy $m-border;
 }
 
 #btn-back:hover {
-    background: """ + BORDER + """;
-    color: """ + ACCENT + """;
+    background: $m-border;
+    color: $m-selected;
 }
 
 #btn-next {
-    background: """ + ACCENT + """;
-    color: """ + BG + """;
+    background: $m-selected;
+    color: $m-bg;
     text-style: bold;
-    border: heavy """ + ACCENT_DIM + """;
+    border: heavy $m-border-strong;
 }
 
 #btn-next:hover {
-    background: """ + ACCENT_HOVER + """;
+    background: $m-text;
 }
 
 #btn-next:disabled {
-    background: """ + DISABLED + """;
-    color: """ + TEXT_DIM + """;
-    border: heavy """ + DISABLED + """;
+    background: $m-bg;
+    color: $m-text-4;
+    border: heavy $m-border;
 }
 
 #btn-run {
-    background: """ + ACCENT + """;
-    color: """ + BG + """;
+    background: $m-selected;
+    color: $m-bg;
     text-style: bold;
-    border: heavy """ + ACCENT_DIM + """;
+    border: heavy $m-border-strong;
 }
 
 #btn-run:hover {
-    background: """ + ACCENT_HOVER + """;
+    background: $m-text;
 }
 
 /* ── Shared widget styles ───────────────────────────────────────── */
 
 Input {
-    background: """ + ELEVATED + """;
-    border: heavy """ + BORDER + """;
-    color: """ + TEXT_PRIMARY + """;
+    background: $m-bg;
+    border: heavy $m-border;
+    color: $m-text;
 }
 
 Input:focus {
-    border: heavy """ + ACCENT + """;
+    border: heavy $m-border-focus;
 }
 
 Input.-invalid {
-    border: heavy """ + ERROR + """;
+    border: heavy $m-error;
 }
 
-TextArea {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_PRIMARY + """;
-    border: heavy """ + BORDER + """;
-}
-
-TextArea:focus {
-    border: heavy """ + ACCENT + """;
-}
-
-RadioButton {
-    color: """ + TEXT_BODY + """;
+/* A revealed password is exposed secret material, so it takes the accent for
+   exactly as long as it is legible. Applied by the Show-password checkbox
+   handler, not by a pseudo-class: Textual has no selector for `password=False`.
+   Masked input keeps TEXT above, because bullets are not secret. */
+Input.-revealed {
+    color: $m-signal;
 }
 
 RadioButton.-on {
-    color: """ + ACCENT + """;
+    color: $m-selected;
     text-style: bold;
 }
 
-#output-actions Button {
-    min-width: 14;
-}
-
 TextArea {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_PRIMARY + """;
-    border: tall """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text;
+    border: tall $m-border;
 }
 
 TextArea:focus {
-    border: tall """ + ACCENT + """;
+    border: tall $m-border-focus;
 }
 
 Select {
-    background: """ + ELEVATED + """;
-    border: tall """ + BORDER + """;
-    color: """ + TEXT_PRIMARY + """;
+    background: $m-bg;
+    border: tall $m-border;
+    color: $m-text;
 }
 
 Select:focus {
-    border: tall """ + ACCENT + """;
+    border: tall $m-border-focus;
 }
 
 SelectOverlay {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_PRIMARY + """;
-    border: solid """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text;
+    border: solid $m-border;
 }
 
+/* Textual gives SelectCurrent `background: $surface`, a neutral grey. That is a
+   second surface, and a cooler one than ours, sitting behind the chosen value.
+   This system has one background and lets borders carry elevation, so the panel
+   is repointed rather than kept. */
 SelectCurrent {
-    color: """ + TEXT_PRIMARY + """;
+    color: $m-text;
+    background: $m-bg;
 }
 
 Checkbox {
     background: transparent;
-    color: """ + TEXT_BODY + """;
+    color: $m-text-2;
     padding: 0 0 0 0;
 }
 
 Checkbox:focus {
-    color: """ + ACCENT + """;
+    color: $m-selected;
 }
 
 RadioButton {
     background: transparent;
-    color: """ + TEXT_BODY + """;
+    color: $m-text-2;
 }
 
 RadioButton:focus {
-    color: """ + ACCENT + """;
+    color: $m-selected;
 }
 
 RadioSet {
@@ -296,19 +375,65 @@ RadioSet {
     border: none;
 }
 
+/* ── Textual widget internals ───────────────────────────────────────
+   Textual paints parts of these widgets through component classes, which a
+   plain type selector never reaches: the rules above set `color` on Checkbox
+   and RadioButton and it had no effect on either the glyph or the selected
+   row. Left alone, Textual's own theme supplies the colour, which is how a
+   blue selection band and a green bullet survived a palette rewrite. The
+   selectors below mirror ToggleButton/RadioSet/SelectCurrent DEFAULT_CSS on
+   Textual 8.2.8; check them again on upgrade. */
+
+/* The selected row. Textual fills it with $block-cursor-background, which
+   resolves to primary blue and reads as a second accent. Selection is
+   near-white here, and on one background it needs no fill at all. */
+ToggleButton:focus > .toggle--label,
+RadioSet:focus > RadioButton.-selected > .toggle--label,
+RadioSet:blur > RadioButton.-selected > .toggle--label {
+    background: $m-bg;
+    color: $m-selected;
+}
+
+/* The check/bullet glyph. Textual's $text-success is a green that means
+   nothing in this system; checked is a selection state, so it reads as one. */
+ToggleButton.-on > .toggle--button,
+RadioSet > RadioButton.-on .toggle--button {
+    color: $m-selected;
+}
+
+/* The caret. Textual fills the cell with $input-cursor-background, a near-white
+   that is close to our own near-white without being it. A caret is not
+   structural chrome: it says where typing will land, which is why it is pointed
+   at a token rather than added to the rendered keep-list. Both widgets are
+   listed because a caret renders only while its field has focus, so leaving
+   either one would make the rendered guard pass on which field happened to be
+   focused when the screenshot was taken. */
+TextArea > .text-area--cursor,
+Input > .input--cursor {
+    background: $m-selected;
+    color: $m-bg;
+}
+
+/* The chosen value in a closed Select. Textual routes it through an inner
+   Static, so `SelectCurrent { color: ... }` above misses it and the value
+   rendered at Textual's default foreground instead of TEXT. */
+SelectCurrent.-has-value Static#label {
+    color: $m-text;
+}
+
 Button {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_BODY + """;
-    border: tall """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text-2;
+    border: tall $m-border;
 }
 
 Button:hover {
-    background: """ + BORDER + """;
-    color: """ + ACCENT + """;
+    background: $m-border;
+    color: $m-selected;
 }
 
 Button:focus {
-    border: tall """ + ACCENT + """;
+    border: tall $m-border-focus;
 }
 
 Collapsible {
@@ -318,17 +443,17 @@ Collapsible {
 }
 
 CollapsibleTitle {
-    color: """ + TEXT_SECONDARY + """;
+    color: $m-text-3;
     background: transparent;
     padding: 1 0 0 0;
 }
 
 CollapsibleTitle:hover {
-    color: """ + ACCENT + """;
+    color: $m-selected;
 }
 
 CollapsibleTitle:focus {
-    color: """ + ACCENT + """;
+    color: $m-selected;
 }
 
 /* ── Step-specific ──────────────────────────────────────────────── */
@@ -368,7 +493,7 @@ CollapsibleTitle:focus {
 }
 
 #input-stats {
-    color: """ + TEXT_SECONDARY + """;
+    color: $m-text-3;
     text-align: right;
     height: 1;
     width: 100%;
@@ -387,7 +512,7 @@ CollapsibleTitle:focus {
 }
 
 #match-indicator {
-    color: """ + ACCENT + """;
+    color: $m-selected;
     padding: 0 0 0 2;
 }
 
@@ -404,27 +529,28 @@ CollapsibleTitle:focus {
 
 .review-key {
     width: 18;
-    color: """ + TEXT_SECONDARY + """;
+    color: $m-text-3;
 }
 
 .review-val {
     width: 1fr;
-    color: """ + TEXT_PRIMARY + """;
+    color: $m-text;
 }
 
 .warning-text {
-    color: """ + WARNING + """;
+    color: $m-error;
     padding: 1 0 0 0;
 }
 
 #output-area {
     height: 10;
     min-height: 6;
+    color: $m-signal;
 }
 
 #output-status {
     height: 1;
-    color: """ + TEXT_SECONDARY + """;
+    color: $m-text-3;
 }
 
 #output-actions {
@@ -434,38 +560,39 @@ CollapsibleTitle:focus {
 }
 
 #output-actions Button {
+    min-width: 14;
     margin: 0 1 0 0;
 }
 
 #btn-copy {
-    background: """ + ACCENT + """;
-    color: """ + BG + """;
+    background: $m-selected;
+    color: $m-bg;
     text-style: bold;
-    border: tall """ + ACCENT_DIM + """;
+    border: tall $m-border-strong;
 }
 
 #btn-copy:hover {
-    background: """ + ACCENT_HOVER + """;
+    background: $m-text;
 }
 
 #btn-clear {
-    background: """ + ELEVATED + """;
-    color: """ + ERROR + """;
-    border: tall """ + BORDER + """;
+    background: $m-bg;
+    color: $m-error;
+    border: tall $m-border;
 }
 
 #btn-clear:hover {
-    background: """ + BORDER + """;
+    background: $m-bg;
 }
 
 #btn-stop-timer {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_SECONDARY + """;
-    border: tall """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text-3;
+    border: tall $m-border;
 }
 
 #countdown-label {
-    color: """ + WARNING + """;
+    color: $m-signal;
     text-style: bold;
     width: auto;
     padding: 0 0 0 2;
@@ -479,18 +606,18 @@ CollapsibleTitle:focus {
 }
 
 #copy-pwd {
-    background: """ + ELEVATED + """;
-    color: """ + ACCENT_DIM + """;
-    border: tall """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text-2;
+    border: tall $m-border;
 }
 
 #copy-pwd:hover {
-    color: """ + ACCENT + """;
-    background: """ + BORDER + """;
+    color: $m-selected;
+    background: $m-border;
 }
 
 #pwd-feedback {
-    color: """ + TEXT_DIM + """;
+    color: $m-text-3;
     height: auto;
     padding: 0 0 0 0;
 }
@@ -499,7 +626,7 @@ CollapsibleTitle:focus {
 
 .section-divider {
     height: 1;
-    color: """ + BORDER + """;
+    color: $m-text-4;
     margin: 1 0;
 }
 """

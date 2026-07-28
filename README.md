@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">MORPHEUS</h1>
   <p align="center">
-    Quantum-resistant encryption for text and files. No data touches the disk.<br>
+    Quantum-resistant encryption for text and files, in a terminal GUI anyone can operate.<br>
     <strong>AES-256-GCM + ChaCha20-Poly1305 + ML-KEM-768 | Argon2id | Terminal GUI</strong>
   </p>
   <p align="center">
@@ -28,7 +28,8 @@ in a terminal GUI that anyone can operate — no cryptography degree required.
 
 1. **Hybrid post-quantum encryption** — password + ML-KEM-768 lattice-based KEM
 2. **Cipher chaining** — AES-256-GCM *then* ChaCha20-Poly1305 with independent keys
-3. **Zero-disk, auto-clear workflow** — output self-destructs in 60 seconds, clipboard wiped
+3. **Self-describing authenticated format** — every header byte is covered by the AEAD tag,
+   so cipher, KDF, and parameters cannot be tampered with or downgraded
 
 ## At a Glance
 
@@ -38,9 +39,9 @@ in a terminal GUI that anyone can operate — no cryptography degree required.
 | Cipher chaining | AES + ChaCha | -- | -- | -- |
 | Terminal GUI | Full TUI with strength meter | -- | -- | -- |
 | File encryption | Up to 100 MiB (any type) | Yes | Yes | Yes |
-| Memory protection | `mlock` + `ctypes.memset` zeroing | -- | pinentry | -- |
-| Self-describing format | Versioned header with AAD | Yes | Yes | -- |
-| Auto-clear output | 60 s countdown + clipboard wipe | -- | -- | -- |
+| Memory protection | Best-effort `ctypes.memset` zeroing of key buffers | -- | pinentry | -- |
+| Self-describing format | Versioned header, fully AAD-authenticated | Yes | Yes | -- |
+| Auto-clear output | 60 s countdown in the TUI | -- | -- | -- |
 | KDF | Argon2id / Scrypt | scrypt | S2K | PBKDF2 |
 
 ## Quick Start
@@ -61,6 +62,11 @@ python morpheus.py -o encrypt -f secret.pdf
 
 > Post-quantum support: `pip install pqcrypto`
 
+> **Clipboard on Linux:** the TUI copies via `pyperclip` and falls back to
+> `xclip`/`xsel`/`wl-copy`. If none are installed, copying is unavailable and the
+> TUI offers to write the output to a temporary file instead. See
+> [What touches the disk](#what-touches-the-disk).
+
 ---
 
 ## How It Works
@@ -68,7 +74,7 @@ python morpheus.py -o encrypt -f secret.pdf
 ### The 30-Second Version
 
 1. You provide **text or a file** and a **strong password**
-2. The password is stretched through **Argon2id** (memory-hard, 64 MiB, ~1 s)
+2. The password is stretched through **Argon2id** (memory-hard: 64 MiB, t=3, p=4)
    into a 256-bit key
 3. Your data is encrypted with **AES-256-GCM** (authenticated encryption)
 4. The output is a single **base64 string** you can store anywhere
@@ -183,10 +189,16 @@ password is weak. Use `Back` or number keys to revisit any step.
 #### Step 6 — Output
 The result appears in a read-only text area:
 
-- **Copy**: Copies to system clipboard (falls back to file if unavailable)
+- **Copy**: Copies to system clipboard (falls back to a temporary file if no
+  clipboard backend is available)
 - **Save to file**: Writes output to a temporary file
-- **Auto-clear**: Wipes the output after 60 seconds for security (stop with the
+- **Auto-clear**: Clears the output display after 60 seconds (stop with the
   **Stop timer** button)
+
+> **Scope of auto-clear.** The countdown belongs to the Output step. It clears the
+> displayed text, and it is not a guarantee about data already copied elsewhere.
+> MORPHEUS does not clear your system clipboard, and leaving the Output step
+> cancels the timer. Use `Ctrl+L` to reset all wizard state.
 
 ### Keyboard Shortcuts
 
@@ -209,8 +221,8 @@ The result appears in a read-only text area:
 ## Using the CLI
 
 ```bash
-# Interactive mode
-python morpheus.py --cli
+# Interactive mode (prompts for operation, input, and password)
+python morpheus.py -o encrypt
 
 # Encrypt text
 python morpheus.py -o encrypt --data "sensitive text"
@@ -282,7 +294,8 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--save-config` | Save current cipher/KDF/flag preferences to `~/.morpheus/config.toml` for future sessions |
 | `--inspect` | Inspect a ciphertext header without decrypting (no password needed). Shows format, cipher, KDF, flags, sizes |
 | `--benchmark` | Benchmark cipher and KDF performance, recommend optimal config |
-| `--cli` | Force CLI mode (skip GUI) |
+
+Passing any flag runs the CLI. Running `python morpheus.py` with no arguments launches the GUI.
 
 </details>
 
@@ -294,21 +307,28 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 
 | Threat | Protection |
 |--------|-----------|
-| Offline password brute-force | Argon2id: 64 MiB memory, ~1 s per guess |
+| Offline password brute-force | Argon2id, 64 MiB memory-hard per guess (`t=3, p=4`). See the note below on cost |
 | Future quantum computers | Hybrid ML-KEM-768 layer (FIPS 203) |
-| Single-algorithm compromise | Cipher chaining (two independent algorithms) |
-| Memory forensics | `mlock()` + `ctypes.memset` zeroing of all key material |
+| Single-algorithm compromise | Cipher chaining (two independent algorithms, independent keys) |
+| Memory forensics | Best-effort `ctypes.memset` zeroing of key buffers after use. See limitations |
 | Ciphertext tampering | AEAD authentication tag (16 bytes) |
 | Algorithm downgrade | Header authenticated as AAD (v3: 18-byte binding incl. KDF params) |
+
+> **On brute-force cost.** The defence is memory-hardness, not wall-clock time. Each
+> guess costs 64 MiB, which is what constrains large-scale parallel attack on GPUs and
+> ASICs. Do not assume a fixed seconds-per-guess figure: on a 2024-class laptop a single
+> derivation takes roughly 30 ms, so a strong password remains essential. Raise
+> `time_cost` if your threat model needs a higher per-guess cost.
 
 ### What We Do Not Protect Against
 
 | Limitation | Why |
 |-----------|-----|
 | Compromised endpoint (malware, keylogger) | No user-space tool can defend against a hostile OS |
-| Python `str` immutability | Password briefly exists as immutable string before `bytearray` conversion; GC timing is unpredictable |
-| Clipboard history managers | We restore the previous clipboard on clear, but history extensions (Klipper, macOS Universal Clipboard) may retain copies |
-| Swap without `mlock` | If `RLIMIT_MEMLOCK` is insufficient, buffers may be swapped. The tool logs a warning |
+| Python `str` immutability | Password briefly exists as an immutable string before `bytearray` conversion; GC timing is unpredictable |
+| Immutable copies inside crypto bindings | `secure_zero` clears our own `bytearray` buffers, but OpenSSL and the argon2 bindings receive immutable `bytes` copies that cannot be zeroed |
+| Swap to disk | Key buffers are **not** `mlock`ed. On a machine under memory pressure they may be paged to swap. Use full-disk encryption |
+| Clipboard contents | MORPHEUS does **not** clear or restore your system clipboard. Anything you copy stays there until you or another application overwrites it, and history managers (Klipper, macOS Universal Clipboard) may retain copies |
 
 ### Why These Defaults?
 
@@ -321,6 +341,21 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | **Scrypt** | `n=2^17, r=8, p=1` | RFC 7914, ~128 MiB. Offered where Argon2 is unavailable |
 | **Salt** | 16 bytes | Standard for Argon2id/Scrypt. Prevents rainbow tables |
 | **Nonce** | 12 bytes | Standard for AES-GCM and ChaCha20. Random nonces safe for expected use |
+
+### What Touches the Disk
+
+Be precise about this rather than claiming a blanket guarantee.
+
+| Path | Writes to disk? |
+|------|-----------------|
+| CLI text mode (`--data`) | No. Input comes from argv or stdin, output goes to stdout |
+| CLI file mode (`--file`) | Yes, by design. Writes `FILE.enc` on encrypt, the original name on decrypt |
+| TUI text mode | Only if you press **Save to file**, or if **Copy** finds no clipboard backend and falls back to a temporary file |
+| `--save-config` | Yes. Writes `~/.morpheus/config.toml` (mode `0600`) |
+| Anything else | No temporary plaintext files are created |
+
+Output files inherit your umask. On a shared machine, set a restrictive umask before
+decrypting sensitive files.
 
 ---
 
@@ -378,7 +413,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**266 tests** across 12 test files:
+**308 tests** across 12 test files:
 
 | File | Scope |
 |------|-------|
@@ -388,9 +423,12 @@ python -m pytest tests/ -v
 | `test_pipeline.py` | All mode roundtrips (single/chained/hybrid/both), wrong password (`InvalidTag`), cross-compatibility, payload truncation, KEM length=0 bypass, header tampering |
 | `test_memory.py` | `secure_zero`, `SecureBuffer`, `secure_key` context manager |
 | `test_validation.py` | Password scoring (0-100), minimum requirements, edge cases |
+| `test_config.py` | Preference load/save, allow-list validation, file mode |
+| `test_fuzz.py` | Property-based fuzzing of the parser against hostile input (requires `hypothesis`) |
 | `test_cli.py` | File encrypt/decrypt roundtrip (text + binary), path traversal prevention |
-| `test_gui.py` | Wizard mount, step navigation, shortcuts, encrypt/decrypt roundtrip, clipboard fallbacks |
+| `test_gui.py` | Wizard mount, step transitions, shortcuts, encrypt/decrypt roundtrip, clipboard fallbacks |
 | `test_wizard_state.py` | State validation per step, step unlocking rules, edge cases |
+| `test_theme.py` | Palette contrast against the background, accent and low-contrast token restrictions parsed out of the stylesheet, and the rendered colour set pinned against an exported screenshot |
 
 Tests include **NIST SP 800-38D** and **RFC 8439** reference vectors verified
 against the `cryptography` library's validated implementations.
@@ -424,9 +462,9 @@ morpheus/
 │       ├── pipeline.py        # Orchestration: chaining, hybrid PQ, key lifecycle
 │       ├── formats.py         # Versioned binary format with AAD
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
-│       ├── memory.py          # mlock, ctypes.memset zeroing, SecureBuffer
+│       ├── memory.py          # ctypes.memset zeroing of key buffers
 │       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 266 tests (NIST/RFC vectors included)
+├── tests/                     # 308 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history
@@ -481,8 +519,13 @@ jurisdictions. You are responsible for compliance with all applicable laws.
 - **No telemetry or analytics**: MORPHEUS does not phone home or collect usage
   data. The only network connection is opt-in breach checking (`--check-leaks`),
   which uses k-anonymity and never sends your actual password.
-- **No data on disk**: Text-mode operations are entirely in-memory. File
-  encryption writes only the ciphertext output.
+- **Disk usage is narrow but not zero**: CLI text mode is entirely in-memory.
+  File mode writes only the ciphertext (or the decrypted original). The TUI
+  writes a temporary file if you press **Save to file**, or if **Copy** finds no
+  clipboard backend. `--save-config` writes `~/.morpheus/config.toml`. See
+  [What Touches the Disk](#what-touches-the-disk).
+- **Clipboard is not managed**: MORPHEUS does not clear or restore your system
+  clipboard. Anything you copy stays there until something else overwrites it.
 - **Plaintext length**: Without `--pad`, ciphertext length reveals approximate
   plaintext length. Use `--pad` for length-hiding (pads to buckets: 256B, 1K,
   4K, 16K, 64K). Bucket membership is still visible.

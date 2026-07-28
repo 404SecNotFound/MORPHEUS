@@ -6,6 +6,7 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Static, TextArea
 
+from .. import theme
 from ..clipboard import clipboard_copy, save_to_file
 from ..state import Mode, WizardState
 
@@ -42,9 +43,9 @@ class OutputStep(Vertical):
             )
 
         yield Static(
-            "[dim]Copy: use the Copy button, or select text with your mouse "
+            f"[{theme.TEXT_3}]Copy: use the Copy button, or select text with your mouse "
             "and Ctrl+Shift+C. Save: writes to a temporary file. "
-            "Auto-clear wipes the output after 60 seconds for security.[/dim]",
+            "Auto-clear wipes the output after 60 seconds for security.[/]",
             classes="step-hint",
         )
 

@@ -89,9 +89,10 @@ Your password: "MyStr0ng!Pass#2024"
 
 Step 1 — Key Derivation (making the lock)
    Your password + a random salt → run through Argon2id (a deliberately
-   slow process that takes about 1 second) → produces a 256-bit key.
-   This slowness is intentional — it means an attacker trying millions
-   of passwords would take years instead of seconds.
+   expensive process: every attempt costs 64 MiB of RAM) → produces a
+   256-bit key. That memory cost is the point. It is what stops an attacker
+   from testing millions of passwords in parallel on GPUs, because each
+   guess needs its own 64 MiB rather than just raw arithmetic.
 
 Step 2 — Encryption (locking the box)
    Your text + the 256-bit key → AES-256-GCM → scrambled ciphertext.
@@ -121,10 +122,14 @@ Step 4 — If the tag checks out → show your original text
 ### Why Can't Attackers Just Try Every Password?
 
 Because of **key derivation** (Step 1 above). Argon2id is designed to be:
-- **Slow**: Each attempt takes ~1 second
-- **Memory-hungry**: Each attempt uses 64 MB of RAM
-- **Non-parallelizable**: You can't easily split the work across thousands
-  of GPUs
+- **Memory-hungry**: Each attempt uses 64 MiB of RAM. This is the main defence
+- **Costly to parallelize**: That memory requirement is what makes running
+  thousands of guesses at once on GPUs or ASICs expensive
+- **Tunable**: Raise `time_cost` if you want a higher per-guess cost
+
+A single derivation takes roughly 30 ms on a 2024-class laptop, so do not rely
+on wall-clock time alone. A weak password is still weak. Password strength and
+the memory cost work together.
 
 An attacker trying 1 billion passwords would need ~31 years of continuous
 computation. With a strong password (16+ characters, mixed types), it would
@@ -232,10 +237,11 @@ As you type your password, a strength meter shows:
 ### Interactive Mode
 
 ```bash
-python morpheus.py --cli
+python morpheus.py -o encrypt
 ```
 
-Prompts you step by step for operation, text, and password.
+Prompts you step by step for the remaining input and the password. Passing any
+flag runs the CLI; running `python morpheus.py` with no arguments launches the GUI.
 
 ### Non-Interactive Mode
 
@@ -270,7 +276,6 @@ python morpheus.py -o decrypt --data "AgECAADE3f7a..."
 | `--pq-public-key` | Base64-encoded ML-KEM-768 public key (for hybrid encrypt) |
 | `--pq-secret-key` | Base64-encoded ML-KEM-768 secret key (for hybrid decrypt) |
 | `--generate-keypair` | Generate and display an ML-KEM-768 keypair |
-| `--cli` | Force CLI mode (skip GUI) |
 
 ---
 
@@ -711,17 +716,18 @@ python morpheus.py -o encrypt --data "same text"
 2. **Integrity**: Any modification to the ciphertext — even a single bit
    flip — is detected by the AEAD authentication tag. Decryption fails cleanly.
 
-3. **Memory protection**: Key material is stored in `mlock`'d buffers
-   (prevents the OS from swapping to disk) and zeroed after use via
-   `ctypes.memset`. KEM shared secrets and intermediate key material are
-   also zeroed.
+3. **Memory hygiene**: Key buffers are zeroed after use via `ctypes.memset`,
+   in `finally` blocks so it runs on the error path too. KEM shared secrets and
+   intermediate key material are also zeroed. This is best-effort, not a
+   guarantee: see the limitations below.
 
 4. **Forward uniqueness**: Every encryption produces unique output (random
    salt + nonce), even for identical inputs.
 
-5. **Header authentication**: The full 6-byte header (including reserved bytes)
-   is authenticated as AEAD additional data, preventing algorithm-downgrade
-   attacks.
+5. **Header authentication**: The full header is authenticated as AEAD
+   additional data: 6 bytes in format v2, and all 18 bytes in v3 including the
+   KDF parameters and reserved field. This prevents algorithm downgrade and
+   parameter tampering.
 
 ### Limitations (Honest About These)
 
@@ -734,20 +740,27 @@ python morpheus.py -o encrypt --data "same text"
    retain content in their scrollback buffer. We recommend using the GUI
    in a terminal that supports secure erase or clearing scrollback.
 
-3. **Clipboard security**: We clear the clipboard on output clear, but
-   clipboard managers (e.g., macOS Paste, Windows clipboard history) may
-   retain copies.
+3. **Clipboard security**: MORPHEUS does **not** clear or restore your system
+   clipboard. Anything you copy stays there until you or another application
+   overwrites it, and clipboard managers (macOS Paste, Windows clipboard
+   history, KDE Klipper) may retain their own copies. Clear it yourself after
+   pasting a password or a decrypted secret.
 
-4. **`mlock` availability**: If `RLIMIT_MEMLOCK` is insufficient, buffers
-   may be swapped to disk. The tool logs a warning when this happens, but
-   cannot guarantee all key material stays in RAM.
+4. **No memory locking**: Key buffers are **not** `mlock`ed. On a machine under
+   memory pressure they may be paged to swap and persist on disk after the
+   process exits. Use full-disk encryption if this is in your threat model.
 
-5. **KDF parameter mismatch**: KDF tuning parameters (time_cost, memory_cost)
-   are not stored in the ciphertext format. If you change KDF parameters
-   between encrypt and decrypt, the authentication tag will fail with a
+5. **Immutable copies inside crypto bindings**: `secure_zero` clears the
+   `bytearray` buffers MORPHEUS owns, but OpenSSL and the argon2 bindings
+   receive immutable `bytes` copies of key material that cannot be zeroed and
+   persist until garbage collection.
+
+6. **KDF parameter mismatch (format v2 only)**: In the legacy v2 format, KDF
+   tuning parameters are not stored in the ciphertext. If you change KDF
+   parameters between encrypt and decrypt, the authentication tag will fail with a
    generic error rather than a specific parameter mismatch message.
 
-6. **Single-user focus**: The hybrid PQ mode supports two-party encryption,
+7. **Single-user focus**: The hybrid PQ mode supports two-party encryption,
    but there's no built-in key distribution or PKI. You need to exchange
    ML-KEM public keys through a separate secure channel.
 
@@ -792,9 +805,11 @@ strictly validates that bytes 4-5 are `0x0000`.
 
 ### Encryption is slow
 
-Key derivation is intentionally slow (~1 second with Argon2id). This is a
-security feature, not a bug. The slowness makes password brute-forcing
-computationally expensive.
+Key derivation is intentionally expensive: Argon2id allocates 64 MiB and runs
+three passes over it for every derivation. This is a security feature, not a
+bug. It is what makes large-scale password brute-forcing costly. If it is too
+slow on your hardware, lower `memory_cost` only if you understand that you are
+trading away brute-force resistance.
 
 ### File too large
 

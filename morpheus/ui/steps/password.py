@@ -6,30 +6,38 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Checkbox, Input, Label, Static
 
-from ...core.validation import check_password_strength
+from ...core.validation import check_password_strength, strength_label
+from .. import theme
 from ..clipboard import clipboard_copy, clipboard_paste
 from ..state import Mode, WizardState
 
 
 class StrengthBar(Static):
-    """5-step discrete password strength indicator — Matrix palette."""
+    """5-step discrete password strength indicator.
+
+    Severity is carried by the text label, not by hue: the ramp only spans
+    TEXT, TEXT_2 and ERROR so the meter stays legible without competing with
+    the reserved accent. That makes the label load-bearing, so it comes from
+    validation.strength_label rather than a second copy of the ladder here.
+
+    The label sits inside the markup, not after it. Outside, it fell through to
+    Textual's default foreground and was the one word on the screen that came
+    from no token at all.
+    """
 
     score: reactive[int] = reactive(0)
 
     def render(self) -> str:
         filled = self.score // 10
         empty = 10 - filled
-        if self.score >= 80:
-            color, label = "#00FF41", "Excellent"
-        elif self.score >= 60:
-            color, label = "#00CC33", "Strong"
+        label = strength_label(self.score)
+        if self.score >= 60:
+            color = theme.TEXT
         elif self.score >= 40:
-            color, label = "#FFD700", "Fair"
-        elif self.score >= 20:
-            color, label = "#FF8800", "Weak"
+            color = theme.TEXT_2
         else:
-            color, label = "#FF3333", "Very weak"
-        return f"[{color}]{'█' * filled}{'░' * empty}[/] {label}"
+            color = theme.ERROR
+        return f"[{color}]{'█' * filled}{'░' * empty} {label}[/]"
 
 
 class PasswordStep(Vertical):
@@ -52,9 +60,9 @@ class PasswordStep(Vertical):
                 classes="step-subtitle",
             )
             yield Static(
-                "[dim]Tip: Use a long passphrase (4+ random words) for best security. "
+                f"[{theme.TEXT_3}]Tip: Use a long passphrase (4+ random words) for best security. "
                 "The strength meter updates as you type. "
-                "You must confirm the password below.[/dim]",
+                "You must confirm the password below.[/]",
                 classes="step-hint",
             )
         else:
@@ -64,8 +72,8 @@ class PasswordStep(Vertical):
                 classes="step-subtitle",
             )
             yield Static(
-                "[dim]Tip: To paste a password, Tab to the password field, "
-                "then use Ctrl+Shift+V (terminal paste) or the Paste button.[/dim]",
+                f"[{theme.TEXT_3}]Tip: To paste a password, Tab to the password field, "
+                "then use Ctrl+Shift+V (terminal paste) or the Paste button.[/]",
                 classes="step-hint",
             )
 
@@ -101,9 +109,9 @@ class PasswordStep(Vertical):
         yield Checkbox("Show password", id="show-pwd-check", value=False)
 
         yield Static(
-            "[dim]Paste button reads from system clipboard (requires xclip/xsel). "
+            f"[{theme.TEXT_3}]Paste button reads from system clipboard (requires xclip/xsel). "
             "If clipboard is unavailable, use Ctrl+Shift+V to paste directly "
-            "into the focused field.[/dim]",
+            "into the focused field.[/]",
             classes="step-hint",
         )
 
@@ -136,11 +144,22 @@ class PasswordStep(Vertical):
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id == "show-pwd-check":
-            self.query_one("#pwd-input", Input).password = not event.value
-            try:
-                self.query_one("#pwd-confirm", Input).password = not event.value
-            except Exception:
-                pass
+            self._set_revealed("#pwd-input", event.value)
+            self._set_revealed("#pwd-confirm", event.value)
+
+    def _set_revealed(self, input_id: str, revealed: bool) -> None:
+        """Unmask a password field and mark it as showing secret material.
+
+        The `-revealed` class is what paints the text SIGNAL. It is set here
+        rather than in CSS because Textual has no selector for `password=False`,
+        so the two have to be kept in step by hand.
+        """
+        try:
+            field = self.query_one(input_id, Input)
+        except Exception:
+            return  # confirm row is absent in decrypt mode
+        field.password = not revealed
+        field.set_class(revealed, "-revealed")
 
     def _paste_into(self, input_id: str) -> None:
         text = clipboard_paste()
@@ -186,7 +205,7 @@ class PasswordStep(Vertical):
             result = check_password_strength(pwd)
             bar.score = result.score
             if result.feedback:
-                fb.update("[dim]" + " · ".join(result.feedback[:2]) + "[/dim]")
+                fb.update(f"[{theme.TEXT_3}]" + " · ".join(result.feedback[:2]) + "[/]")
             else:
                 fb.update("")
         else:
@@ -200,8 +219,8 @@ class PasswordStep(Vertical):
         confirm = self._state.password_confirm
         indicator = self.query_one("#match-indicator", Static)
         if confirm and pwd == confirm:
-            indicator.update("[#00FF41]Match[/#00FF41]")
+            indicator.update(f"[{theme.TEXT}]Match[/]")
         elif confirm:
-            indicator.update("[#FF3333]No match[/#FF3333]")
+            indicator.update(f"[{theme.ERROR}]No match[/]")
         else:
             indicator.update("")

@@ -22,8 +22,15 @@ from .ciphers import (
     AES256GCM,
     CHAINED_CIPHER_ID,
     CIPHER_REGISTRY,
-    Cipher,
     ChaCha20Poly1305Cipher,
+    Cipher,
+)
+from .errors import (
+    ConfigurationError,
+    DecryptionError,
+    KDFParameterError,
+    PaddingError,
+    WrongPasswordError,
 )
 from .formats import (
     FLAG_CHAINED,
@@ -36,13 +43,6 @@ from .formats import (
     serialize,
 )
 from .kdf import KDF, KDF_REGISTRY, Argon2idKDF
-from .errors import (
-    ConfigurationError,
-    DecryptionError,
-    KDFParameterError,
-    PaddingError,
-    WrongPasswordError,
-)
 from .memory import secure_zero
 
 # ---------------------------------------------------------------------------

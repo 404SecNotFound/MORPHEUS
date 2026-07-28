@@ -20,12 +20,17 @@ from .core.errors import (
     WrongPasswordError,
 )
 from .core.formats import (
-    FORMAT_VERSION_3, FLAG_CHAINED, FLAG_HYBRID_PQ, FLAG_PADDED,
-    HEADER_SIZE, HEADER_SIZE_V3, KEY_CHECK_SIZE,
+    FLAG_CHAINED,
+    FLAG_HYBRID_PQ,
+    FLAG_PADDED,
+    FORMAT_VERSION_3,
+    HEADER_SIZE,
+    HEADER_SIZE_V3,
+    KEY_CHECK_SIZE,
     deserialize,
 )
 from .core.kdf import KDF_CHOICES, KDF_REGISTRY
-from .core.pipeline import PQ_AVAILABLE, EncryptionPipeline, _PAD_BUCKETS
+from .core.pipeline import _PAD_BUCKETS, PQ_AVAILABLE, EncryptionPipeline
 from .core.validation import (
     check_passphrase_strength,
     check_password_leaked,
@@ -491,6 +496,22 @@ def run_cli(argv: list[str] | None = None) -> None:
     if saved:
         apply_config_defaults(args, saved)
 
+    # --- Reject PQ keys without --hybrid-pq ---
+    # The key arguments are only consumed inside the hybrid-PQ branch, so
+    # accepting them here would silently produce password-only ciphertext
+    # while the user believed it was quantum-resistant. Checked before the
+    # password prompt so the failure costs nothing.
+    if (args.pq_public_key or args.pq_secret_key) and not args.hybrid_pq:
+        given = "--pq-public-key" if args.pq_public_key else "--pq-secret-key"
+        _print_status(
+            f"Error: {given} requires --hybrid-pq.\n"
+            "  Without it the post-quantum layer is not applied and the output "
+            "would be protected by the password alone.\n"
+            "  Add --hybrid-pq to enable hybrid post-quantum encryption.",
+            error=True,
+        )
+        sys.exit(1)
+
     # --- Save config ---
     if args.save_config:
         settings: dict[str, str | bool] = {}
@@ -529,8 +550,9 @@ def run_cli(argv: list[str] | None = None) -> None:
         if not PQ_AVAILABLE:
             _print_status("Error: pqcrypto not installed. Run: pip install pqcrypto", error=True)
             sys.exit(1)
-        from .core.pipeline import pq_generate_keypair
         import base64
+
+        from .core.pipeline import pq_generate_keypair
         pk, sk = pq_generate_keypair()
         print("ML-KEM-768 Keypair (base64-encoded)")
         print(f"Public key:  {base64.b64encode(pk).decode()}")
@@ -747,6 +769,39 @@ def _check_overwrite(path: str, force: bool) -> None:
         sys.exit(1)
 
 
+def _default_output_name(file_path: str) -> str:
+    """Derive a decrypt output path that is never the input path itself.
+
+    ``removesuffix('.enc')`` returns the path unchanged when the ciphertext is
+    not named ``*.enc``, which would otherwise make output == input.
+    """
+    import os
+
+    stripped = file_path.removesuffix(".enc")
+    if stripped != file_path:
+        return stripped
+    base = os.path.basename(file_path) or "decrypted_output"
+    return os.path.join(os.path.dirname(file_path), f"{base}.decrypted")
+
+
+def _reject_output_over_input(out_path: str, in_path: str) -> None:
+    """Abort if the output would be written over its own input file.
+
+    Decrypting onto the ciphertext destroys the only copy of it, so this is
+    refused outright rather than gated behind --force.
+    """
+    import os
+
+    if os.path.realpath(out_path) == os.path.realpath(in_path):
+        _print_status(
+            f"Error: refusing to write output over the input file: {in_path}\n"
+            "  This would destroy the ciphertext. Use --output to choose a "
+            "different path.",
+            error=True,
+        )
+        sys.exit(1)
+
+
 def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
     """Encrypt or decrypt a file."""
     import base64
@@ -845,14 +900,16 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
                     error=True,
                 )
                 sys.exit(1)
-            if "data" in envelope and "filename" in envelope:
+            if "data" in envelope:
                 raw_data = base64.b64decode(envelope["data"])
-                # Sanitize filename to prevent path traversal attacks
+                # 'filename' is absent when the sender used --no-filename.
+                # Sanitize it to prevent path traversal attacks
                 # (e.g., "../../.ssh/authorized_keys" -> "authorized_keys")
-                original_name = os.path.basename(envelope["filename"])
+                original_name = os.path.basename(envelope.get("filename") or "")
                 if not original_name:
-                    original_name = "decrypted_output"
+                    original_name = _default_output_name(file_path)
                 out_path = args.output or original_name
+                _reject_output_over_input(out_path, file_path)
                 _check_overwrite(out_path, args.force)
                 with open(out_path, "wb") as f:
                     f.write(raw_data)
@@ -864,7 +921,8 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             pass
 
         # Fallback: treat as plain text
-        out_path = args.output or file_path.removesuffix(".enc")
+        out_path = args.output or _default_output_name(file_path)
+        _reject_output_over_input(out_path, file_path)
         _check_overwrite(out_path, args.force)
         with open(out_path, "w") as f:
             f.write(decrypted)

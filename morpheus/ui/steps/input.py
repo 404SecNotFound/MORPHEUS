@@ -5,6 +5,7 @@ from __future__ import annotations
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static, TextArea
 
+from .. import theme
 from ..clipboard import clipboard_copy, clipboard_paste
 from ..state import InputMethod, Mode, WizardState
 
@@ -18,7 +19,6 @@ class InputStep(Vertical):
 
     def compose(self):
         is_encrypt = self._state.mode == Mode.ENCRYPT
-        mode_label = "encrypt" if is_encrypt else "decrypt"
 
         yield Static("Input", classes="step-title")
 
@@ -37,10 +37,10 @@ class InputStep(Vertical):
             )
 
         yield Static(
-            "[dim]Use Up/Down to switch between Text and File. "
+            f"[{theme.TEXT_3}]Use Up/Down to switch between Text and File. "
             "Tab to move into the editor. "
             "To paste: click the text area, then use Ctrl+Shift+V "
-            "(terminal paste).[/dim]",
+            "(terminal paste).[/]",
             classes="step-hint",
         )
 
@@ -72,8 +72,8 @@ class InputStep(Vertical):
             )
 
         yield Static(
-            "[dim]File path: use absolute path (e.g. /home/user/secret.txt). "
-            "Tab into the field and type or paste the path.[/dim]",
+            f"[{theme.TEXT_3}]File path: use absolute path (e.g. /home/user/secret.txt). "
+            "Tab into the field and type or paste the path.[/]",
             id="file-help",
             classes="field-help",
         )

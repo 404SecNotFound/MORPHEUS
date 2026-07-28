@@ -23,10 +23,12 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Footer, Static
 
+from .. import __version__
 from ..core.ciphers import CIPHER_CHOICES
 from ..core.kdf import KDF_CHOICES
 from ..core.pipeline import EncryptionPipeline
 from ..core.validation import validate_input_text
+from . import theme
 from .sidebar import Sidebar, SidebarItem
 from .state import (
     STEP_INPUT,
@@ -47,7 +49,6 @@ from .steps.output import OutputStep
 from .steps.password import PasswordStep
 from .steps.review import ReviewStep
 from .steps.settings import SettingsStep
-from .theme import WIZARD_CSS
 
 
 class MorpheusWizard(App):
@@ -60,8 +61,8 @@ class MorpheusWizard(App):
       - Escape focuses the sidebar for arrow-key browsing
     """
 
-    TITLE = "MORPHEUS v2.0"
-    CSS = WIZARD_CSS
+    TITLE = f"MORPHEUS v{__version__}"
+    CSS = theme.WIZARD_CSS
 
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
@@ -92,7 +93,10 @@ class MorpheusWizard(App):
     def compose(self) -> ComposeResult:
         # Top bar
         with Horizontal(id="top-bar"):
-            yield Static("[bold #00FF41]MORPHEUS[/] [#007018]v2.0[/]", id="top-title")
+            yield Static(
+                f"[bold {theme.TEXT}]MORPHEUS[/] [{theme.TEXT_3}]v{__version__}[/]",
+                id="top-title",
+            )
             yield Static(self._step_label(), id="top-step")
 
         # Body: sidebar + step panel
@@ -201,7 +205,7 @@ class MorpheusWizard(App):
             self.notify("Output is available after encryption/decryption", severity="warning")
             return
         if not self._state.is_step_unlocked(step):
-            self.notify(f"Complete earlier steps first", severity="warning")
+            self.notify("Complete earlier steps first", severity="warning")
             return
         # Mark all steps before the target as completed
         for i in range(step):

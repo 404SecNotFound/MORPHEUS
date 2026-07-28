@@ -5,16 +5,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [2.1.0] - 2026-02-10
 
+### Documentation
+- **Corrected three security claims that the code does not implement.** A
+  pre-publication review found the README and USAGE describing protections that
+  were never wired into the encrypt/decrypt path. Earlier changelog entries
+  (2.0.0, 2.0.1) still mention these as shipped; they describe the intent at the
+  time, not current behaviour. Specifically:
+  - **Memory locking**: `mlock_buffer`, `SecureBuffer`, and `secure_key` exist in
+    `core/memory.py` but have no call sites in the pipeline. Key buffers are
+    zeroed with `ctypes.memset`, and are **not** `mlock`ed. The documented
+    "logs a warning on `RLIMIT_MEMLOCK` failure" behaviour cannot occur. Docs now
+    say best-effort zeroing only.
+  - **Clipboard wiping**: no clipboard-clearing code exists. Docs no longer claim
+    the clipboard is wiped or the previous value restored.
+  - **"No data touches the disk"**: the TUI writes a temporary file when no
+    clipboard backend is available. Replaced with a per-path table of exactly what
+    is written to disk.
+- Corrected the documented `--cli` flag, which does not exist. Passing any flag
+  runs the CLI; no arguments launches the GUI.
+- Corrected test counts and the `Argon2id ~1 s per guess` figure, which measured
+  at roughly 30 ms. The brute-force defence is memory-hardness (64 MiB per guess),
+  not wall-clock time, and the docs now say so.
+
+### Fixed
+- `import tkinter` in `ui/clipboard.py` is now guarded. It was unconditional, so
+  the GUI failed to start on any Python built without Tk (Homebrew, slim Docker
+  images, Debian without `python3-tk`) and the collection error aborted the whole
+  test suite.
+- **Password-strength labels now agree across the app, and the weakest band is
+  named.** The threshold ladder was duplicated: the wizard's strength bar had
+  five bands and called anything under 20 "Very weak", while
+  `check_password_strength` had four and called the same password "Weak". One
+  password therefore read differently on the password step and the review step.
+  `validation.strength_label()` is now the single owner and every caller uses
+  it. **CLI-visible:** `morpheus encrypt` with a password scoring under 20 now
+  reports `too weak (Very weak)` where it previously said `too weak (Weak)`.
+  Only the label changed; the score, the acceptance threshold and the exit code
+  are untouched, so nothing that passed before now fails. The disagreement had
+  been masked by colour until both sub-40 bands were restyled to the same red,
+  which left the label as the only thing separating them.
+
 ### Changed
 - **Wizard GUI overhaul**: Replaced the single-page scrollable form with a
   6-step guided wizard (Mode → Settings → Input → Password → Review → Output).
-  2-pane layout: left sidebar with step completion markers (✓ done, ▸ current,
-  dim locked) and right panel for the active step
-- **Professional dark theme**: New palette — `#0F1115` background, `#5B8CFF`
-  accent, muted greens/ambers/reds. Replaces the neon color scheme
-- **Clipboard robustness**: Copy now uses Textual OSC 52 (terminal-native) as
-  primary method, with pyperclip and subprocess (xclip/xsel/wl-copy) fallbacks.
-  Paste buttons added to both password fields for password-manager workflows
+  2-pane layout: left sidebar with step markers (`[+]` done, `[>]` current,
+  step number when still locked) and right panel for the active step. A locked
+  step renders at `TEXT_3`, not a dimmed tier — it is keyboard-focusable and
+  carries a name and description, so it has to stay above AA
+- **Terminal visual system**: Warm-graphite palette replacing the Matrix
+  black-and-green theme. Amber `#f4b23e` is reserved for exposed secret
+  material (the output pane holding ciphertext or plaintext, and its auto-clear
+  countdown); selection and focus use near-white `#ecebe6`; text runs in tiers
+  so data reads brighter than chrome. Every token used for text clears WCAG AA
+  against the background, verified by `tests/test_theme.py` and re-runnable via
+  `scripts/check_contrast.py`. See
+  `docs/design/2026-07-28-terminal-visual-system.md`.
+- **Clipboard robustness**: Copy tries pyperclip first, then the system
+  utilities (xclip/xsel/wl-copy/pbcopy), then tkinter. Paste buttons added to
+  both password fields for password-manager workflows. MORPHEUS does not clear
+  the system clipboard afterwards
 - **Step validation**: Next button disabled until the current step is valid;
   Review step summarises all choices and shows password-strength warnings before
   the Run action
@@ -22,7 +71,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   help overlay. Existing `Ctrl+E/D/L/Q` shortcuts preserved
 - **New `ui/` package**: `theme.py`, `state.py`, `sidebar.py`, `app.py`,
   `steps/` — decoupled from crypto core
-- Test count: 241 → 266 (25 state-validation + 10 wizard integration tests)
+- Test count: 241 → 308 (state-validation, wizard integration, clipboard
+  fallback, and palette/contrast tests)
 
 ## [2.0.6] - 2026-02-10
 

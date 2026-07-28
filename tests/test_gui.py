@@ -9,43 +9,45 @@ from unittest.mock import patch
 import pytest
 from textual.widgets import Button, RadioButton, Static
 
+from morpheus import __version__
+from morpheus.core.validation import check_password_strength
+from morpheus.ui import theme
 from morpheus.ui.app import MorpheusWizard
 from morpheus.ui.clipboard import clipboard_copy, clipboard_paste
 from morpheus.ui.state import Mode
 from morpheus.ui.steps.password import StrengthBar
-
 
 # ── StrengthBar unit tests ──────────────────────────────────────
 
 class TestStrengthBar:
     """Unit tests for the password strength indicator widget."""
 
-    def test_weak_renders_orange(self):
+    def test_weak_renders_error(self):
         bar = StrengthBar()
         bar.score = 20
         rendered = bar.render()
-        assert "#FF8800" in rendered
+        assert theme.ERROR in rendered
         assert "Weak" in rendered
 
-    def test_fair_renders_gold(self):
+    def test_fair_renders_secondary(self):
         bar = StrengthBar()
         bar.score = 40
         rendered = bar.render()
-        assert "#FFD700" in rendered
+        assert theme.TEXT_2 in rendered
         assert "Fair" in rendered
 
-    def test_strong_renders_green(self):
+    def test_strong_renders_primary(self):
         bar = StrengthBar()
         bar.score = 60
         rendered = bar.render()
-        assert "#00CC33" in rendered
+        assert theme.TEXT in rendered
         assert "Strong" in rendered
 
-    def test_excellent_renders_matrix_green(self):
+    def test_excellent_renders_primary(self):
         bar = StrengthBar()
         bar.score = 80
         rendered = bar.render()
-        assert "#00FF41" in rendered
+        assert theme.TEXT in rendered
         assert "Excellent" in rendered
 
     def test_zero_score(self):
@@ -54,11 +56,28 @@ class TestStrengthBar:
         rendered = bar.render()
         assert "Very weak" in rendered
 
+    def test_label_agrees_with_validation_below_twenty(self):
+        """The password step and the review step must not disagree.
+
+        Both bands under 40 render in ERROR, so the label is the only thing
+        distinguishing them. "abc" scores 15, which is the range where the
+        widget used to say "Very weak" while review.py said "Weak".
+        """
+        result = check_password_strength("abc")
+        assert result.score < 20
+        bar = StrengthBar()
+        bar.score = result.score
+        assert result.label in bar.render()
+
 
 # ── Wizard app integration tests ────────────────────────────────
 
 class TestWizardApp:
     """Integration tests using Textual's async test harness."""
+
+    def test_window_title_tracks_the_package_version(self):
+        """TITLE is user-visible; two stale 'v2.0' labels shipped without this."""
+        assert MorpheusWizard.TITLE.endswith(__version__)
 
     @pytest.mark.asyncio
     async def test_app_mounts_with_sidebar(self):
@@ -206,12 +225,21 @@ class TestClipboardPaste:
             assert clipboard_paste() is None
 
     def test_tkinter_fallback(self):
+        # Patch the module object, not tk.Tk: tkinter is optional, so on a
+        # Python built without Tk `clipboard.tk` is None and has no attributes.
         with patch("morpheus.ui.clipboard._pyperclip", None), \
              patch("morpheus.ui.clipboard.subprocess.run", side_effect=FileNotFoundError), \
-             patch("morpheus.ui.clipboard.tk.Tk") as mock_tk:
-            tk_root = mock_tk.return_value
+             patch("morpheus.ui.clipboard.tk") as mock_tk:
+            tk_root = mock_tk.Tk.return_value
             tk_root.clipboard_get.return_value = "from-tkinter"
             assert clipboard_paste() == "from-tkinter"
+
+    def test_returns_none_when_tkinter_unavailable(self):
+        """Python without Tk must degrade gracefully, not raise."""
+        with patch("morpheus.ui.clipboard._pyperclip", None), \
+             patch("morpheus.ui.clipboard.subprocess.run", side_effect=FileNotFoundError), \
+             patch("morpheus.ui.clipboard.tk", None):
+            assert clipboard_paste() is None
 
 
 class TestClipboardCopy:
@@ -232,11 +260,21 @@ class TestClipboardCopy:
             assert ok is False
 
     def test_tkinter_fallback(self):
+        # Patch the module object, not tk.Tk: see the note in TestClipboardPaste.
         with patch("morpheus.ui.clipboard._pyperclip", None), \
              patch("morpheus.ui.clipboard.subprocess.Popen", side_effect=FileNotFoundError), \
-             patch("morpheus.ui.clipboard.tk.Tk") as mock_tk:
+             patch("morpheus.ui.clipboard.tk") as mock_tk:
             ok, method = clipboard_copy("test")
             assert ok is True
             assert method == "tkinter"
-            tk_root = mock_tk.return_value
+            tk_root = mock_tk.Tk.return_value
             tk_root.clipboard_append.assert_called_once_with("test")
+
+    def test_returns_false_when_tkinter_unavailable(self):
+        """Python without Tk must degrade gracefully, not raise."""
+        with patch("morpheus.ui.clipboard._pyperclip", None), \
+             patch("morpheus.ui.clipboard.subprocess.Popen", side_effect=FileNotFoundError), \
+             patch("morpheus.ui.clipboard.tk", None):
+            ok, method = clipboard_copy("test")
+            assert ok is False
+            assert method == ""
