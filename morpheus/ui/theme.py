@@ -339,6 +339,39 @@ RadioSet {
     border: none;
 }
 
+/* ── Textual widget internals ───────────────────────────────────────
+   Textual paints parts of these widgets through component classes, which a
+   plain type selector never reaches: the rules above set `color` on Checkbox
+   and RadioButton and it had no effect on either the glyph or the selected
+   row. Left alone, Textual's own theme supplies the colour, which is how a
+   blue selection band and a green bullet survived a palette rewrite. The
+   selectors below are taken from ToggleButton/RadioSet/SelectCurrent
+   DEFAULT_CSS on Textual 8.2.8; check them again on upgrade. */
+
+/* The selected row. Textual fills it with $block-cursor-background, which
+   resolves to primary blue and reads as a second accent. Selection is
+   near-white here, and on one background it needs no fill at all. */
+ToggleButton:focus > .toggle--label,
+RadioSet:focus > RadioButton.-selected > .toggle--label,
+RadioSet:blur > RadioButton.-selected > .toggle--label {
+    background: """ + BG + """;
+    color: """ + SELECTED + """;
+}
+
+/* The check/bullet glyph. Textual's $text-success is a green that means
+   nothing in this system; checked is a selection state, so it reads as one. */
+ToggleButton.-on > .toggle--button,
+RadioSet > RadioButton.-on .toggle--button {
+    color: """ + SELECTED + """;
+}
+
+/* The chosen value in a closed Select. Textual routes it through an inner
+   Static, so `SelectCurrent { color: ... }` above misses it and the value
+   rendered at Textual's default foreground instead of TEXT. */
+SelectCurrent.-has-value Static#label {
+    color: """ + TEXT + """;
+}
+
 Button {
     background: """ + BG + """;
     color: """ + TEXT_2 + """;

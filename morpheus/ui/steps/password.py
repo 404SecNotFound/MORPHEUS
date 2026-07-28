@@ -19,6 +19,10 @@ class StrengthBar(Static):
     TEXT, TEXT_2 and ERROR so the meter stays legible without competing with
     the reserved accent. That makes the label load-bearing, so it comes from
     validation.strength_label rather than a second copy of the ladder here.
+
+    The label sits inside the markup, not after it. Outside, it fell through to
+    Textual's default foreground and was the one word on the screen that came
+    from no token at all.
     """
 
     score: reactive[int] = reactive(0)
@@ -33,7 +37,7 @@ class StrengthBar(Static):
             color = theme.TEXT_2
         else:
             color = theme.ERROR
-        return f"[{color}]{'█' * filled}{'░' * empty}[/] {label}"
+        return f"[{color}]{'█' * filled}{'░' * empty} {label}[/]"
 
 
 class PasswordStep(Vertical):
