@@ -108,7 +108,7 @@ morpheus/
 │   ├── kdf.py          # Key derivation (Argon2id, Scrypt)
 │   ├── pipeline.py     # Orchestration: chaining, hybrid PQ, key lifecycle
 │   ├── formats.py      # Versioned binary format with AAD
-│   ├── memory.py       # mlock, ctypes.memset zeroing, SecureBuffer
+│   ├── memory.py       # ctypes.memset zeroing of key buffers
 │   └── validation.py   # Password scoring, input validation
 ├── gui.py              # Textual TUI application
 ├── cli.py              # CLI with text + file encryption
@@ -116,10 +116,12 @@ morpheus/
 └── __main__.py          # Entry point (auto-detects GUI vs CLI)
 ```
 
-**Key design principle**: The ciphertext format is self-describing. The
-6-byte header tells the decryptor which algorithms were used. Decrypt reads
-configuration from the header, not from the pipeline config (except KDF
-tuning parameters, which are not stored in the format).
+**Key design principle**: The ciphertext format is self-describing. The header
+tells the decryptor which algorithms were used, and Decrypt reads its
+configuration from there rather than from the pipeline config. Format v3 stores
+the KDF tuning parameters too, so they no longer have to match by convention;
+the legacy v2 format is 6 bytes and does not carry them. The whole header is
+authenticated as AEAD associated data, so none of it can be tampered with.
 
 ## Questions?
 
