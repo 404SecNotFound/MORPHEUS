@@ -140,11 +140,22 @@ class PasswordStep(Vertical):
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id == "show-pwd-check":
-            self.query_one("#pwd-input", Input).password = not event.value
-            try:
-                self.query_one("#pwd-confirm", Input).password = not event.value
-            except Exception:
-                pass
+            self._set_revealed("#pwd-input", event.value)
+            self._set_revealed("#pwd-confirm", event.value)
+
+    def _set_revealed(self, input_id: str, revealed: bool) -> None:
+        """Unmask a password field and mark it as showing secret material.
+
+        The `-revealed` class is what paints the text SIGNAL. It is set here
+        rather than in CSS because Textual has no selector for `password=False`,
+        so the two have to be kept in step by hand.
+        """
+        try:
+            field = self.query_one(input_id, Input)
+        except Exception:
+            return  # confirm row is absent in decrypt mode
+        field.password = not revealed
+        field.set_class(revealed, "-revealed")
 
     def _paste_into(self, input_id: str) -> None:
         text = clipboard_paste()

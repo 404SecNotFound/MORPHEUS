@@ -5,10 +5,11 @@ import re
 from pathlib import Path
 
 import pytest
+from textual.widgets import Checkbox
 
 from morpheus.ui import theme
 from morpheus.ui.app import MorpheusWizard
-from morpheus.ui.state import STEP_OUTPUT, TOTAL_STEPS, Mode
+from morpheus.ui.state import STEP_OUTPUT, STEP_PASSWORD, TOTAL_STEPS, Mode
 
 # theme.py's own source, read once at import rather than per call.
 #
@@ -108,7 +109,11 @@ class TestRestrictedTokenUsage:
     pass while checking nothing.
     """
 
-    SIGNAL_SELECTORS = {"#output-area", "#countdown-label"}
+    # The three sites the accent rule sanctions (spec §4), all of them exposed
+    # secret material: the output pane, its auto-clear countdown, and a password
+    # field the user has chosen to unmask. `Input.-revealed` is a class the
+    # checkbox handler applies, so it is amber only while the text is legible.
+    SIGNAL_SELECTORS = {"#output-area", "#countdown-label", "Input.-revealed"}
 
     # Two sanctioned TEXT_4 sites, for different reasons:
     #   .section-divider    decoration, a rule glyph rather than a string
@@ -251,6 +256,44 @@ class TestRenderedAmberIsReserved:
         assert near == {theme.SIGNAL}, (
             f"the output step should render SIGNAL ({theme.SIGNAL}) and no "
             f"other near-amber; got {sorted(near) or 'no amber at all'}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_revealed_password_is_amber_and_a_masked_one_is_not(self):
+        """The third sanctioned site, and the only one behind a toggle.
+
+        Both halves matter. Asserting only the revealed state passes just as
+        well on a field that is amber permanently, which would put the accent
+        on screen while nothing secret is legible and drain it of meaning.
+
+        `test_no_near_amber_renders_outside_the_output_step` covers the masked
+        default across every step; this pins the transition itself.
+        """
+        app = MorpheusWizard()
+        async with app.run_test(size=(110, 38)) as pilot:
+            app._state.mode = Mode.ENCRYPT
+            app._state.input_text = "review canary"
+            app._state.password = "T3st!Passw0rd#Str0ng"
+            app._state.password_confirm = "T3st!Passw0rd#Str0ng"
+            app._goto_step(STEP_PASSWORD)
+            await pilot.pause()
+            assert app._current_step == STEP_PASSWORD, (
+                "the password step was refused; this would assert on whatever "
+                "step happened to be showing"
+            )
+
+            masked = fills_on_rendered_glyphs(app.export_screenshot())
+            app.query_one("#show-pwd-check", Checkbox).value = True
+            await pilot.pause()
+            revealed = fills_on_rendered_glyphs(app.export_screenshot())
+
+        assert theme.SIGNAL not in masked, (
+            "a masked password field shows bullets, not secret material, and "
+            "must not take the accent"
+        )
+        assert theme.SIGNAL in revealed, (
+            f"a revealed password is exposed secret material and must render "
+            f"SIGNAL ({theme.SIGNAL}); got {sorted(revealed)}"
         )
 
 

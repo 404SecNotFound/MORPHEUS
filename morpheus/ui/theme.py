@@ -272,6 +272,14 @@ Input.-invalid {
     border: heavy """ + ERROR + """;
 }
 
+/* A revealed password is exposed secret material, so it takes the accent for
+   exactly as long as it is legible. Applied by the Show-password checkbox
+   handler, not by a pseudo-class: Textual has no selector for `password=False`.
+   Masked input keeps TEXT above, because bullets are not secret. */
+Input.-revealed {
+    color: """ + SIGNAL + """;
+}
+
 RadioButton.-on {
     color: """ + SELECTED + """;
     text-style: bold;
