@@ -341,36 +341,52 @@ Per the spec, the ramp drops gold (which would compete with the accent) and carr
 
 - [ ] **Step 1: Update the failing assertions first**
 
-In `tests/test_gui.py`, replace the four colour assertions:
+Assert on **token references, not hex literals**. `tests/test_theme.py` documents why hex
+matching is unsound here: `SELECTED` and `BORDER_FOCUS` are both `#ecebe6`, so hex cannot
+distinguish two tokens sharing a value. It also already owns exact-value pinning, so
+asserting hex here duplicates that badly and makes a harmless palette re-tune fail as a
+password-widget regression. Asserting `theme.ERROR` is not tautological: swapping the source
+to `theme.SIGNAL` renders `#f4b23e` and still fails.
+
+Add `from morpheus.ui import theme` to the imports, then replace the four colour assertions:
 
 ```python
     def test_weak_renders_error(self):
         bar = StrengthBar()
         bar.score = 20
         rendered = bar.render()
-        assert "#e5594f" in rendered
+        assert theme.ERROR in rendered
         assert "Weak" in rendered
 
     def test_fair_renders_secondary(self):
         bar = StrengthBar()
         bar.score = 40
         rendered = bar.render()
-        assert "#a3a29b" in rendered
+        assert theme.TEXT_2 in rendered
         assert "Fair" in rendered
 
     def test_strong_renders_primary(self):
         bar = StrengthBar()
         bar.score = 60
         rendered = bar.render()
-        assert "#f1f0ec" in rendered
+        assert theme.TEXT in rendered
         assert "Strong" in rendered
 
     def test_excellent_renders_primary(self):
         bar = StrengthBar()
         bar.score = 80
         rendered = bar.render()
-        assert "#f1f0ec" in rendered
+        assert theme.TEXT in rendered
         assert "Excellent" in rendered
+```
+
+Also add a version regression test. Both stale-`v2.0` bugs shipped because nothing asserted
+the version:
+
+```python
+    def test_window_title_tracks_the_package_version(self):
+        from morpheus import __version__
+        assert MorpheusWizard.TITLE.endswith(__version__)
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -442,30 +458,42 @@ the text label, per the design system's severity-as-text rule."
 
 - [ ] **Step 1: Add the guard test**
 
+Do **not** write this as a blocklist of Matrix-era hex. That only catches yesterday's
+mistake. It would not catch `color: #f4b23e` hardcoded into the wrong rule, which is the
+live risk now: the amber guard in `TestRestrictedTokenUsage` matches token *names*, so raw
+hex slips past it entirely.
+
+Invert it. Forbid any hex literal under `morpheus/` outside the token definitions, which
+forces every colour through the token system and closes the legacy hole and the
+hardcoded-accent hole with one rule:
+
 ```python
 import pathlib
 import re
 
-LEGACY_HEX = {
-    "#00ff41", "#6cff8c", "#00aa28", "#00a82b", "#103010",
-    "#00cc33", "#72ff95", "#39ff14", "#ffd700", "#ff3333",
-    "#ff8800", "#020402", "#061006", "#0a180a", "#135a13",
-    "#00e63a", "#007018",
-}
 
+class TestAllColoursGoThroughTokens:
+    """theme.py is the only place a colour may be written as a literal."""
 
-class TestNoLegacyPalette:
-    def test_no_matrix_era_hex_anywhere_in_the_package(self):
+    def test_no_hex_literals_outside_the_token_block(self):
         pkg = pathlib.Path(__file__).resolve().parent.parent / "morpheus"
         offenders = []
-        for path in pkg.rglob("*.py"):
-            for lineno, line in enumerate(path.read_text().splitlines(), 1):
-                for match in re.findall(r"#[0-9A-Fa-f]{6}", line):
-                    if match.lower() in LEGACY_HEX:
-                        rel = path.relative_to(pkg.parent)
-                        offenders.append(f"{rel}:{lineno} {match}")
-        assert not offenders, "legacy palette hex found:\n  " + "\n  ".join(offenders)
+        for path in sorted(pkg.rglob("*.py")):
+            source = path.read_text()
+            # theme.py legitimately defines the palette; skip only its token block.
+            if path.name == "theme.py":
+                source = source.partition("WIZARD_CSS = ")[2]
+            for lineno, line in enumerate(source.splitlines(), 1):
+                for match in re.findall(r"#[0-9A-Fa-f]{6}\b", line):
+                    offenders.append(f"{path.relative_to(pkg.parent)}: {match}")
+        assert not offenders, (
+            "colours must come from theme tokens, not hex literals:\n  "
+            + "\n  ".join(offenders)
+        )
 ```
+
+Note the line numbers are approximate for `theme.py` because of the `partition`, which is
+acceptable: the message names the file and the offending colour, which is enough to find it.
 
 - [ ] **Step 2: Run it**
 
