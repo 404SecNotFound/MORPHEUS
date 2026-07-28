@@ -1,27 +1,40 @@
-"""Theme tokens and CSS for the MORPHEUS wizard UI — Matrix Edition."""
+"""Theme tokens and CSS for the MORPHEUS wizard UI.
+
+Visual system: docs/design/2026-07-28-terminal-visual-system.md
+Translated from Replicant's `signal-instrument` spec. Warm graphite surfaces,
+one semantic accent, data brighter than chrome.
+"""
 
 from __future__ import annotations
 
-# -- Matrix colour palette ---------------------------------------------------
-BG              = "#020402"    # Near-black
-SURFACE         = "#061006"    # Green-black surface
-ELEVATED        = "#0A180A"    # Elevated card background
-BORDER          = "#135A13"    # Green border
-BORDER_BRIGHT   = "#00E63A"    # Bright green border (focus / active)
+# -- Surfaces ----------------------------------------------------------------
+# One background only. The source system's four surface tiers sit 1.06-1.10:1
+# apart, which reads as depth in a browser (large fills, hairlines, shadows) and
+# as one flat colour in a terminal. Borders carry elevation here instead.
+BG              = "#0e0e11"    # warm graphite, deliberately not blue-black
 
-TEXT_PRIMARY     = "#00FF41"   # Classic Matrix phosphor green
-TEXT_BODY        = "#6CFF8C"   # Readable body text
-TEXT_SECONDARY   = "#00AA28"   # Labels / secondary info
-TEXT_DIM         = "#00A82B"   # Dim hints
-DISABLED         = "#103010"   # Barely visible
+# Borders are the source system's alpha hairlines composited onto BG, since
+# Textual has no alpha channel.
+BORDER          = "#212124"    # rgba(255,255,255,.08) over BG
+BORDER_STRONG   = "#303032"    # rgba(255,255,255,.14) over BG
+BORDER_FOCUS    = "#ecebe6"    # focus must be unmistakable; see the spec
 
-ACCENT          = "#00FF41"    # Bright Matrix green
-ACCENT_HOVER    = "#72FF95"    # Hover state
-ACCENT_DIM      = "#00CC33"    # Muted accent
+# -- Text tiers --------------------------------------------------------------
+# Data is the brightest thing on screen; chrome recedes. This replaces the
+# source system's mono-vs-sans distinction, which a terminal cannot express.
+TEXT            = "#f1f0ec"    # data and values          16.90:1 AAA
+TEXT_2          = "#a3a29b"    # body prose                7.52:1 AAA
+TEXT_3          = "#8f8d84"    # uppercase micro-labels    5.79:1 AA
+TEXT_4          = "#5f5e58"    # decoration + disabled controls    2.96:1
 
-SUCCESS         = "#39FF14"    # Neon green
-WARNING         = "#FFD700"    # Gold (stands out intentionally)
-ERROR           = "#FF3333"    # Red
+# -- Semantic ----------------------------------------------------------------
+SELECTED        = "#ecebe6"    # active step, primary button, selection
+SIGNAL          = "#f4b23e"    # EXPOSED SECRET MATERIAL ONLY. Nothing else.
+ERROR           = "#e5594f"    # errors, refusals, weak-password floor
+
+# Tokens that may render informational text. TEXT_4 is absent by design: it
+# fails AA and is bounded to decoration and non-focusable disabled controls.
+TEXT_TOKENS = frozenset({"TEXT", "TEXT_2", "TEXT_3", "SELECTED", "SIGNAL", "ERROR"})
 
 WIZARD_CSS = """
 Screen {
@@ -29,13 +42,13 @@ Screen {
 }
 
 Header {
-    background: """ + SURFACE + """;
-    color: """ + TEXT_PRIMARY + """;
+    background: """ + BG + """;
+    color: """ + TEXT + """;
 }
 
 Footer {
-    background: """ + SURFACE + """;
-    color: """ + TEXT_SECONDARY + """;
+    background: """ + BG + """;
+    color: """ + TEXT_3 + """;
 }
 
 /* ── Top bar ────────────────────────────────────────────────────── */
@@ -43,28 +56,28 @@ Footer {
 #top-bar {
     dock: top;
     height: 3;
-    background: """ + SURFACE + """;
-    color: """ + TEXT_SECONDARY + """;
+    background: """ + BG + """;
+    color: """ + TEXT_3 + """;
     padding: 1 2;
     border-bottom: heavy """ + BORDER + """;
 }
 
 #top-title {
     width: 1fr;
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
     text-style: bold;
 }
 
 #top-step {
     width: auto;
-    color: """ + TEXT_SECONDARY + """;
+    color: """ + TEXT_3 + """;
 }
 
 /* ── Sidebar ────────────────────────────────────────────────────── */
 
 #sidebar {
     width: 28;
-    background: """ + SURFACE + """;
+    background: """ + BG + """;
     border-right: heavy """ + BORDER + """;
     padding: 1 0;
     overflow-y: auto;
@@ -73,28 +86,28 @@ Footer {
 .sidebar-item {
     height: 2;
     padding: 0 1;
-    color: """ + TEXT_DIM + """;
+    color: """ + TEXT_3 + """;
     margin: 0 0 1 0;
 }
 
 .sidebar-item:focus {
-    background: """ + ELEVATED + """;
-    color: """ + ACCENT + """;
+    background: """ + BG + """;
+    color: """ + SELECTED + """;
     text-style: bold reverse;
 }
 
 .sidebar-item.--current {
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
     text-style: bold;
-    background: """ + ELEVATED + """;
+    background: """ + BG + """;
 }
 
 .sidebar-item.--completed {
-    color: """ + ACCENT_DIM + """;
+    color: """ + TEXT_2 + """;
 }
 
 .sidebar-item.--locked {
-    color: """ + DISABLED + """;
+    color: """ + TEXT_3 + """;
 }
 
 /* ── Step panel (right pane) ────────────────────────────────────── */
@@ -108,27 +121,27 @@ Footer {
 }
 
 .step-title {
-    color: """ + TEXT_PRIMARY + """;
+    color: """ + TEXT + """;
     text-style: bold underline;
     padding: 0 0 1 0;
     width: 100%;
 }
 
 .step-subtitle {
-    color: """ + TEXT_BODY + """;
+    color: """ + TEXT_2 + """;
     padding: 0 0 1 0;
     width: 100%;
 }
 
 .step-hint {
-    color: """ + TEXT_DIM + """;
+    color: """ + TEXT_3 + """;
     padding: 0 0 1 0;
     width: 100%;
     height: auto;
 }
 
 .field-label {
-    color: """ + TEXT_SECONDARY + """;
+    color: """ + TEXT_3 + """;
     width: 16;
     padding: 0 1 0 0;
 }
@@ -141,7 +154,7 @@ Footer {
 }
 
 .field-help {
-    color: """ + TEXT_DIM + """;
+    color: """ + TEXT_3 + """;
     padding: 0 0 1 2;
     height: auto;
     width: 100%;
@@ -155,7 +168,7 @@ Footer {
     align: center middle;
     padding: 0 2;
     dock: bottom;
-    background: """ + SURFACE + """;
+    background: """ + BG + """;
     border-top: heavy """ + BORDER + """;
 }
 
@@ -165,130 +178,112 @@ Footer {
 }
 
 #btn-back {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_SECONDARY + """;
+    background: """ + BG + """;
+    color: """ + TEXT_3 + """;
     border: heavy """ + BORDER + """;
 }
 
 #btn-back:hover {
     background: """ + BORDER + """;
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
 }
 
 #btn-next {
-    background: """ + ACCENT + """;
+    background: """ + SELECTED + """;
     color: """ + BG + """;
     text-style: bold;
-    border: heavy """ + ACCENT_DIM + """;
+    border: heavy """ + BORDER_STRONG + """;
 }
 
 #btn-next:hover {
-    background: """ + ACCENT_HOVER + """;
+    background: """ + TEXT + """;
 }
 
 #btn-next:disabled {
-    background: """ + DISABLED + """;
-    color: """ + TEXT_DIM + """;
-    border: heavy """ + DISABLED + """;
+    background: """ + BG + """;
+    color: """ + TEXT_4 + """;
+    border: heavy """ + BORDER + """;
 }
 
 #btn-run {
-    background: """ + ACCENT + """;
+    background: """ + SELECTED + """;
     color: """ + BG + """;
     text-style: bold;
-    border: heavy """ + ACCENT_DIM + """;
+    border: heavy """ + BORDER_STRONG + """;
 }
 
 #btn-run:hover {
-    background: """ + ACCENT_HOVER + """;
+    background: """ + TEXT + """;
 }
 
 /* ── Shared widget styles ───────────────────────────────────────── */
 
 Input {
-    background: """ + ELEVATED + """;
+    background: """ + BG + """;
     border: heavy """ + BORDER + """;
-    color: """ + TEXT_PRIMARY + """;
+    color: """ + TEXT + """;
 }
 
 Input:focus {
-    border: heavy """ + ACCENT + """;
+    border: heavy """ + BORDER_FOCUS + """;
 }
 
 Input.-invalid {
     border: heavy """ + ERROR + """;
 }
 
-TextArea {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_PRIMARY + """;
-    border: heavy """ + BORDER + """;
-}
-
-TextArea:focus {
-    border: heavy """ + ACCENT + """;
-}
-
-RadioButton {
-    color: """ + TEXT_BODY + """;
-}
-
 RadioButton.-on {
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
     text-style: bold;
 }
 
-#output-actions Button {
-    min-width: 14;
-}
-
 TextArea {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_PRIMARY + """;
+    background: """ + BG + """;
+    color: """ + TEXT + """;
     border: tall """ + BORDER + """;
 }
 
 TextArea:focus {
-    border: tall """ + ACCENT + """;
+    border: tall """ + BORDER_FOCUS + """;
 }
 
 Select {
-    background: """ + ELEVATED + """;
+    background: """ + BG + """;
     border: tall """ + BORDER + """;
-    color: """ + TEXT_PRIMARY + """;
+    color: """ + TEXT + """;
 }
 
 Select:focus {
-    border: tall """ + ACCENT + """;
+    border: tall """ + BORDER_FOCUS + """;
 }
 
 SelectOverlay {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_PRIMARY + """;
+    background: """ + BG + """;
+    color: """ + TEXT + """;
     border: solid """ + BORDER + """;
 }
 
 SelectCurrent {
-    color: """ + TEXT_PRIMARY + """;
+    color: """ + TEXT + """;
 }
 
 Checkbox {
     background: transparent;
-    color: """ + TEXT_BODY + """;
+    color: """ + TEXT_2 + """;
     padding: 0 0 0 0;
 }
 
 Checkbox:focus {
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
 }
 
 RadioButton {
     background: transparent;
-    color: """ + TEXT_BODY + """;
+    color: """ + TEXT_2 + """;
 }
 
 RadioButton:focus {
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
 }
 
 RadioSet {
@@ -297,18 +292,18 @@ RadioSet {
 }
 
 Button {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_BODY + """;
+    background: """ + BG + """;
+    color: """ + TEXT_2 + """;
     border: tall """ + BORDER + """;
 }
 
 Button:hover {
     background: """ + BORDER + """;
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
 }
 
 Button:focus {
-    border: tall """ + ACCENT + """;
+    border: tall """ + BORDER_FOCUS + """;
 }
 
 Collapsible {
@@ -318,17 +313,17 @@ Collapsible {
 }
 
 CollapsibleTitle {
-    color: """ + TEXT_SECONDARY + """;
+    color: """ + TEXT_3 + """;
     background: transparent;
     padding: 1 0 0 0;
 }
 
 CollapsibleTitle:hover {
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
 }
 
 CollapsibleTitle:focus {
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
 }
 
 /* ── Step-specific ──────────────────────────────────────────────── */
@@ -368,7 +363,7 @@ CollapsibleTitle:focus {
 }
 
 #input-stats {
-    color: """ + TEXT_SECONDARY + """;
+    color: """ + TEXT_3 + """;
     text-align: right;
     height: 1;
     width: 100%;
@@ -387,7 +382,7 @@ CollapsibleTitle:focus {
 }
 
 #match-indicator {
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
     padding: 0 0 0 2;
 }
 
@@ -404,27 +399,28 @@ CollapsibleTitle:focus {
 
 .review-key {
     width: 18;
-    color: """ + TEXT_SECONDARY + """;
+    color: """ + TEXT_3 + """;
 }
 
 .review-val {
     width: 1fr;
-    color: """ + TEXT_PRIMARY + """;
+    color: """ + TEXT + """;
 }
 
 .warning-text {
-    color: """ + WARNING + """;
+    color: """ + ERROR + """;
     padding: 1 0 0 0;
 }
 
 #output-area {
     height: 10;
     min-height: 6;
+    color: """ + SIGNAL + """;
 }
 
 #output-status {
     height: 1;
-    color: """ + TEXT_SECONDARY + """;
+    color: """ + TEXT_3 + """;
 }
 
 #output-actions {
@@ -434,38 +430,39 @@ CollapsibleTitle:focus {
 }
 
 #output-actions Button {
+    min-width: 14;
     margin: 0 1 0 0;
 }
 
 #btn-copy {
-    background: """ + ACCENT + """;
+    background: """ + SELECTED + """;
     color: """ + BG + """;
     text-style: bold;
-    border: tall """ + ACCENT_DIM + """;
+    border: tall """ + BORDER_STRONG + """;
 }
 
 #btn-copy:hover {
-    background: """ + ACCENT_HOVER + """;
+    background: """ + TEXT + """;
 }
 
 #btn-clear {
-    background: """ + ELEVATED + """;
+    background: """ + BG + """;
     color: """ + ERROR + """;
     border: tall """ + BORDER + """;
 }
 
 #btn-clear:hover {
-    background: """ + BORDER + """;
+    background: """ + BG + """;
 }
 
 #btn-stop-timer {
-    background: """ + ELEVATED + """;
-    color: """ + TEXT_SECONDARY + """;
+    background: """ + BG + """;
+    color: """ + TEXT_3 + """;
     border: tall """ + BORDER + """;
 }
 
 #countdown-label {
-    color: """ + WARNING + """;
+    color: """ + SIGNAL + """;
     text-style: bold;
     width: auto;
     padding: 0 0 0 2;
@@ -479,18 +476,18 @@ CollapsibleTitle:focus {
 }
 
 #copy-pwd {
-    background: """ + ELEVATED + """;
-    color: """ + ACCENT_DIM + """;
+    background: """ + BG + """;
+    color: """ + TEXT_2 + """;
     border: tall """ + BORDER + """;
 }
 
 #copy-pwd:hover {
-    color: """ + ACCENT + """;
+    color: """ + SELECTED + """;
     background: """ + BORDER + """;
 }
 
 #pwd-feedback {
-    color: """ + TEXT_DIM + """;
+    color: """ + TEXT_3 + """;
     height: auto;
     padding: 0 0 0 0;
 }
@@ -499,7 +496,7 @@ CollapsibleTitle:focus {
 
 .section-divider {
     height: 1;
-    color: """ + BORDER + """;
+    color: """ + TEXT_4 + """;
     margin: 1 0;
 }
 """
