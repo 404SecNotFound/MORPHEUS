@@ -11,6 +11,7 @@ from textual.widgets import Checkbox
 from morpheus.ui import theme
 from morpheus.ui.app import MorpheusWizard
 from morpheus.ui.state import STEP_OUTPUT, STEP_PASSWORD, TOTAL_STEPS, Mode
+from tests.support import settle
 
 # The spec pins an exact value for each token, and the CSS variable each token
 # is published as. Kept module level so the value test, the completeness check
@@ -487,41 +488,6 @@ def terminal_content(svg: str) -> str:
         "probably changed"
     )
     return svg[match.end():]
-
-
-async def settle(app, pilot) -> None:
-    """Wait until the step panel is mounted and focus has landed on it.
-
-    A single `pause()` snapshots the frame part-way through a step change. The
-    panel is mounted by an exclusive worker and focus is handed over by a
-    `call_after_refresh` that runs after it, so one pause sometimes caught the
-    step's first control focused and sometimes the nav bar. A focused `Input`
-    paints its selection band, so the rendered palette differed between runs
-    and these guards failed about one run in five.
-
-    Waiting for the mount worker and then pumping until focus stops moving
-    pins one state. It must stay pinned to the state a *user* sees, which is
-    the step's own control focused, not the nav bar: the whole point of these
-    guards is to render what ships.
-
-    Settling on "focus stopped changing" rather than a fixed number of pauses
-    is deliberate. A fixed count is a magic number that silently stops being
-    enough the next time a step gains a widget, and the symptom would be this
-    same intermittent failure returning. If focus never settles this raises
-    instead of sampling a half-painted frame.
-    """
-    await app.workers.wait_for_complete()
-    previous = object()
-    for _ in range(12):
-        await pilot.pause()
-        current = app.focused
-        if current is previous:
-            return
-        previous = current
-    raise AssertionError(
-        "focus never settled, so the screenshot would be sampled mid-change; "
-        f"last saw {app.focused!r}"
-    )
 
 
 def fills_on_rendered_cells(svg: str) -> set[str]:
