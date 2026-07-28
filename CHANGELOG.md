@@ -32,6 +32,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   the GUI failed to start on any Python built without Tk (Homebrew, slim Docker
   images, Debian without `python3-tk`) and the collection error aborted the whole
   test suite.
+- **Password-strength labels now agree across the app, and the weakest band is
+  named.** The threshold ladder was duplicated: the wizard's strength bar had
+  five bands and called anything under 20 "Very weak", while
+  `check_password_strength` had four and called the same password "Weak". One
+  password therefore read differently on the password step and the review step.
+  `validation.strength_label()` is now the single owner and every caller uses
+  it. **CLI-visible:** `morpheus encrypt` with a password scoring under 20 now
+  reports `too weak (Very weak)` where it previously said `too weak (Weak)`.
+  Only the label changed; the score, the acceptance threshold and the exit code
+  are untouched, so nothing that passed before now fails. The disagreement had
+  been masked by colour until both sub-40 bands were restyled to the same red,
+  which left the label as the only thing separating them.
 
 ### Changed
 - **Wizard GUI overhaul**: Replaced the single-page scrollable form with a
