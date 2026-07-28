@@ -9,6 +9,15 @@ without seeding `completed_steps`, the app refused the jump, and step 6
 silently re-captured step 5 while the script still reported success. A
 verification tool that returns green for something it never looked at is
 worse than no tool, so identical output is now a hard failure.
+
+Captures are taken from a settled frame, not from the first one available.
+A single `pilot.pause()` is one hop short of settled once a step change moves
+focus: Textual's `Footer` redraws its key bar from a `call_after_refresh`, so
+the frame immediately after the change can still show the previous step's
+bindings. Sampling mid-transition made steps 4 and 6 hash two different ways
+across runs while the app itself was deterministic — `Screen.active_bindings`
+was identical every time. `settle` waits for the export to stop changing, so
+what lands on disk is what a user would actually be looking at.
 """
 
 import asyncio
@@ -31,6 +40,26 @@ SAMPLE_OUTPUT = (
 )
 
 
+async def settle(app, pilot, limit: int = 8) -> None:
+    """Pause until two consecutive exports agree, or `limit` pauses pass.
+
+    Deliberately compares rendered output rather than counting pauses: the
+    number needed is a property of whatever Textual defers internally, and a
+    magic number here would quietly stop being enough on an upgrade.
+    """
+    previous = None
+    for _ in range(limit):
+        await pilot.pause()
+        current = app.export_screenshot()
+        if current == previous:
+            return
+        previous = current
+    raise SystemExit(
+        f"the screen was still changing after {limit} pauses; capturing it "
+        "would record whichever frame happened to win"
+    )
+
+
 async def capture(outdir: Path) -> list[Path]:
     outdir.mkdir(parents=True, exist_ok=True)
     app = MorpheusWizard()
@@ -46,7 +75,7 @@ async def capture(outdir: Path) -> list[Path]:
         app._state.completed_steps.add(STEP_OUTPUT)
         for index in range(TOTAL_STEPS):
             app._goto_step(index)
-            await pilot.pause()
+            await settle(app, pilot)
             if app._current_step != index:
                 raise SystemExit(
                     f"step {index + 1} was refused: the app stayed on step "

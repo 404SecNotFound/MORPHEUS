@@ -72,6 +72,19 @@ Screen {
     background: $m-bg;
 }
 
+/* Textual answers "what is focused" twice: a border, and
+   `background-tint: $foreground 5%`, which lifts the surface to a second
+   near-black. The spec allows exactly one background (§1) and makes focus the
+   near-white BORDER_FOCUS ring (§5), so the tint is switched off rather than
+   repointed. It had never rendered before, because nothing in the wizard ever
+   held focus; once a step takes the keyboard it appears on every focusable
+   widget. Two off-palette values stop rendering as a result: the lifted
+   surface, and the closed dropdown's arrow, which is `$foreground 50%` and so
+   composites against whatever sits behind it. */
+*:focus {
+    background-tint: $m-bg 0%;
+}
+
 Header {
     background: $m-bg;
     color: $m-text;
@@ -334,6 +347,21 @@ Select {
 
 Select:focus {
     border: tall $m-border-focus;
+}
+
+/* The focus ring on a closed dropdown. Textual draws it on the inner
+   SelectCurrent rather than on the widget itself, so the rule above never
+   reaches it and it stayed at Textual's own $border, a saturated blue. Same
+   class of miss as the toggle rules further down: a component the type
+   selector cannot see. Invisible until a step started taking focus, because
+   the blurred state resolves to a grey that was already accounted for.
+
+   The tint goes here too, and cannot be left to the `*:focus` rule near the
+   top: the pseudo-class sits on the outer widget while the tint lands on this
+   inner one, so the universal selector never matches it. */
+Select:focus > SelectCurrent {
+    border: tall $m-border-focus;
+    background-tint: $m-bg 0%;
 }
 
 SelectOverlay {
