@@ -10,6 +10,7 @@ import pytest
 from textual.widgets import Button, RadioButton, Static
 
 from morpheus import __version__
+from morpheus.core.validation import check_password_strength
 from morpheus.ui import theme
 from morpheus.ui.app import MorpheusWizard
 from morpheus.ui.clipboard import clipboard_copy, clipboard_paste
@@ -54,6 +55,19 @@ class TestStrengthBar:
         bar.score = 0
         rendered = bar.render()
         assert "Very weak" in rendered
+
+    def test_label_agrees_with_validation_below_twenty(self):
+        """The password step and the review step must not disagree.
+
+        Both bands under 40 render in ERROR, so the label is the only thing
+        distinguishing them. "abc" scores 15, which is the range where the
+        widget used to say "Very weak" while review.py said "Weak".
+        """
+        result = check_password_strength("abc")
+        assert result.score < 20
+        bar = StrengthBar()
+        bar.score = result.score
+        assert result.label in bar.render()
 
 
 # ── Wizard app integration tests ────────────────────────────────

@@ -6,7 +6,7 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Checkbox, Input, Label, Static
 
-from ...core.validation import check_password_strength
+from ...core.validation import check_password_strength, strength_label
 from .. import theme
 from ..clipboard import clipboard_copy, clipboard_paste
 from ..state import Mode, WizardState
@@ -17,7 +17,8 @@ class StrengthBar(Static):
 
     Severity is carried by the text label, not by hue: the ramp only spans
     TEXT, TEXT_2 and ERROR so the meter stays legible without competing with
-    the reserved accent.
+    the reserved accent. That makes the label load-bearing, so it comes from
+    validation.strength_label rather than a second copy of the ladder here.
     """
 
     score: reactive[int] = reactive(0)
@@ -25,16 +26,13 @@ class StrengthBar(Static):
     def render(self) -> str:
         filled = self.score // 10
         empty = 10 - filled
-        if self.score >= 80:
-            color, label = theme.TEXT, "Excellent"
-        elif self.score >= 60:
-            color, label = theme.TEXT, "Strong"
+        label = strength_label(self.score)
+        if self.score >= 60:
+            color = theme.TEXT
         elif self.score >= 40:
-            color, label = theme.TEXT_2, "Fair"
-        elif self.score >= 20:
-            color, label = theme.ERROR, "Weak"
+            color = theme.TEXT_2
         else:
-            color, label = theme.ERROR, "Very weak"
+            color = theme.ERROR
         return f"[{color}]{'█' * filled}{'░' * empty}[/] {label}"
 
 

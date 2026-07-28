@@ -26,9 +26,30 @@ _SCORE_LENGTH_EXCELLENT = 24
 class PasswordStrength:
     """Result of password strength analysis."""
     score: int            # 0-100
-    label: str            # "Weak", "Fair", "Strong", "Excellent"
+    label: str            # see strength_label() for the band vocabulary
     feedback: list[str]   # Human-readable improvement suggestions
     is_acceptable: bool   # Meets minimum requirements
+
+
+def strength_label(score: int) -> str:
+    """Map a 0-100 strength score to its band label.
+
+    This is the single owner of the threshold ladder. check_password_strength,
+    check_passphrase_strength and the GUI's StrengthBar all call it, so the
+    label shown on the password step cannot disagree with the one the review
+    step shows for the same password.
+
+    Bands are the five in docs/design/2026-07-28-terminal-visual-system.md.
+    """
+    if score >= 80:
+        return "Excellent"
+    if score >= 60:
+        return "Strong"
+    if score >= 40:
+        return "Fair"
+    if score >= 20:
+        return "Weak"
+    return "Very weak"
 
 
 def check_password_strength(password: str) -> PasswordStrength:
@@ -47,7 +68,7 @@ def check_password_strength(password: str) -> PasswordStrength:
 
     if length == 0:
         return PasswordStrength(
-            score=0, label="Weak",
+            score=0, label=strength_label(0),
             feedback=["Password cannot be empty"],
             is_acceptable=False,
         )
@@ -114,15 +135,7 @@ def check_password_strength(password: str) -> PasswordStrength:
 
     score = min(score, 100)
 
-    # Determine label
-    if score >= 80:
-        label = "Excellent"
-    elif score >= 60:
-        label = "Strong"
-    elif score >= 40:
-        label = "Fair"
-    else:
-        label = "Weak"
+    label = strength_label(score)
 
     # Minimum bar
     is_acceptable = (
@@ -154,7 +167,7 @@ def check_passphrase_strength(passphrase: str) -> PasswordStrength:
     """
     if not passphrase:
         return PasswordStrength(
-            score=0, label="Weak",
+            score=0, label=strength_label(0),
             feedback=["Passphrase cannot be empty"],
             is_acceptable=False,
         )
@@ -166,7 +179,7 @@ def check_passphrase_strength(passphrase: str) -> PasswordStrength:
 
     if word_count == 0:
         return PasswordStrength(
-            score=0, label="Weak",
+            score=0, label=strength_label(0),
             feedback=["Passphrase must contain words"],
             is_acceptable=False,
         )
@@ -219,14 +232,7 @@ def check_passphrase_strength(passphrase: str) -> PasswordStrength:
 
     score = min(score, 100)
 
-    if score >= 80:
-        label = "Excellent"
-    elif score >= 60:
-        label = "Strong"
-    elif score >= 40:
-        label = "Fair"
-    else:
-        label = "Weak"
+    label = strength_label(score)
 
     is_acceptable = word_count >= 4 and total_len >= 20
 

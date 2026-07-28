@@ -6,6 +6,7 @@ from morpheus.core.validation import (
     check_passphrase_strength,
     check_password_leaked,
     check_password_strength,
+    strength_label,
     validate_input_text,
 )
 
@@ -25,7 +26,7 @@ class TestPasswordStrength:
     def test_weak_short_password(self):
         result = check_password_strength("abc")
         assert not result.is_acceptable
-        assert result.label == "Weak"
+        assert result.label == "Very weak"
 
     def test_no_uppercase_fails(self):
         result = check_password_strength("lowercaseonly1!!")
@@ -157,6 +158,24 @@ class TestPassphraseStrength:
         for f in result.feedback:
             assert "digit" not in f.lower()
             assert "special" not in f.lower()
+
+
+class TestStrengthLabelOwnership:
+    """strength_label owns the ladder; nothing may return a label contradicting it.
+
+    Early returns are the trap: each one hardcoded a label, and each was a
+    chance to disagree with the ladder. This test covers the guarded paths
+    (empty, whitespace-only, punctuation-only) as well as the scored ones.
+    """
+
+    def test_no_path_returns_a_label_disagreeing_with_the_ladder(self):
+        for value in ["", "   ", "...", "abc", "a b", "correct horse battery staple"]:
+            for fn in (check_password_strength, check_passphrase_strength):
+                result = fn(value)
+                assert result.label == strength_label(result.score), (
+                    f"{fn.__name__}({value!r}) returned {result.label!r} "
+                    f"but score {result.score} maps to {strength_label(result.score)!r}"
+                )
 
 
 class TestPasswordLeakCheck:
