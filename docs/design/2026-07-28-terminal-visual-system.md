@@ -91,6 +91,12 @@ It appears in exactly three places:
 - the auto-clear countdown attached to that output
 - the password field when the user has toggled it visible
 
+A selection repaints the text it covers, so the Output pane and the revealed password
+field each need a second rule to keep the accent while highlighted. Textual selects an
+Input's whole value on focus, so for the password field that is the default state rather
+than an edge case. Those are the same places, not new ones: the stylesheet carries five
+sanctioned selectors for these three sites.
+
 Everything else that a designer would reach for an accent to express uses near-white
 `#ecebe6`: the selected step in the rail, the primary button, focus, active states.
 

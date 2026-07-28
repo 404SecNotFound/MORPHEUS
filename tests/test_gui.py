@@ -267,7 +267,7 @@ class TestOutputAreaWrapsDeterministically:
             app._state.password_confirm = "T3st!Passw0rd#Str0ng"
             # Step 6 is gated on the run having happened, so seed the result
             # and the completion marker or `_goto_step` refuses the jump.
-            app._state.output = self.CIPHERTEXT
+            app._state.record_output(self.CIPHERTEXT)
             app._state.completed_steps.add(STEP_OUTPUT)
             for _ in range(self.VISITS):
                 app._goto_step(STEP_OUTPUT)
@@ -326,7 +326,7 @@ async def _wizard_on_step(step: int):
         app._state.password_confirm = "T3st!Passw0rd#Str0ng"
         # Step 6 is gated on the run having happened, so seed the result and
         # the completion marker or `_goto_step` refuses the jump.
-        app._state.output = "MORPHEUS-v1:c2FtcGxlIGNpcGhlcnRleHQ="
+        app._state.record_output("MORPHEUS-v1:c2FtcGxlIGNpcGhlcnRleHQ=")
         app._state.completed_steps.add(STEP_OUTPUT)
         app._goto_step(step)
         await pilot.pause()
@@ -621,3 +621,40 @@ class TestClipboardCopy:
             ok, method = clipboard_copy("test")
             assert ok is False
             assert method == ""
+
+
+class TestExecuteWorkerIsExclusive:
+    """Pressing Execute twice must not start a second KDF run.
+
+    Without `exclusive`, N presses spawned N concurrent Argon2id workers.
+    Two completions landing in one event-loop turn then killed the app with
+    `NoMatches: No nodes match '#output-area'`, losing the ciphertext that had
+    just been produced. There is no busy indicator, which is exactly why a
+    user presses again.
+    """
+
+    @pytest.mark.parametrize("method_name", ["_do_encrypt", "_do_decrypt"])
+    def test_worker_is_threaded_and_exclusive(self, method_name):
+        import inspect
+
+        func = getattr(MorpheusWizard, method_name)
+        closure = inspect.getclosurevars(func).nonlocals
+        # Guard against the decorator's internals changing shape underneath
+        # this test and leaving it asserting nothing.
+        assert "exclusive" in closure and "thread" in closure
+        assert closure["thread"] is True
+        assert closure["exclusive"] is True, (
+            f"{method_name} must be exclusive so a second Execute press "
+            "cancels rather than races the first"
+        )
+
+    async def test_execute_button_disables_while_running(self):
+        """The button must go dead for the duration of the run."""
+        app = MorpheusWizard()
+        async with app.run_test() as pilot:
+            app._set_execute_enabled(False)
+            await pilot.pause()
+            assert app.query_one("#btn-run", Button).disabled is True
+            app._set_execute_enabled(True)
+            await pilot.pause()
+            assert app.query_one("#btn-run", Button).disabled is False

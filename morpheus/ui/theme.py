@@ -442,6 +442,39 @@ Input > .input--cursor {
     color: $m-bg;
 }
 
+/* The selection band. Textual's Input selects its whole value the moment the
+   field takes focus, so this is not an edge case reached by dragging: it is on
+   screen every time the user reaches the password step. Left at Textual's
+   defaults it painted $primary-lighten-1 at 40% behind the value and
+   $foreground on it, neither of which is in the palette, and the rendered
+   guard caught them only on the runs where focus won the race.
+   BORDER_STRONG reads as a raised band without competing with the caret.
+   Listed for both widgets for the same reason as the caret above.
+   The two offending values are named by variable rather than quoted as hex:
+   a raw literal here would trip the no-raw-hex guard, and writing up a leak
+   by quoting it verbatim is how one got re-introduced before. */
+TextArea > .text-area--selection,
+Input > .input--selection {
+    background: $m-border-strong;
+    color: $m-text;
+}
+
+/* A revealed password is exposed secret material whether or not it happens to
+   be selected, so the selection must not repaint it back to ordinary text.
+   Without this, selecting a revealed password renders it at TEXT and the
+   accent rule silently stops holding exactly where it matters most. */
+Input.-revealed > .input--selection {
+    color: $m-signal;
+}
+
+/* Same rule, same reason, for the other field that holds secret material.
+   Selecting the output pane to copy it by hand is an ordinary thing to do, and
+   without this the ciphertext loses the accent for exactly as long as it is
+   highlighted. SIGNAL on BORDER_STRONG is 7.08:1. */
+#output-area > .text-area--selection {
+    color: $m-signal;
+}
+
 /* The chosen value in a closed Select. Textual routes it through an inner
    Static, so `SelectCurrent { color: ... }` above misses it and the value
    rendered at Textual's default foreground instead of TEXT. */

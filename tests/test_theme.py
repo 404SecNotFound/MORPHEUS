@@ -242,11 +242,25 @@ class TestRestrictedTokenUsage:
     nothing.
     """
 
-    # The three sites the accent rule sanctions (spec §4), all of them exposed
-    # secret material: the output pane, its auto-clear countdown, and a password
-    # field the user has chosen to unmask. `Input.-revealed` is a class the
-    # checkbox handler applies, so it is amber only while the text is legible.
-    SIGNAL_SELECTORS = {"#output-area", "#countdown-label", "Input.-revealed"}
+    # The sites the accent rule sanctions (spec §4), all of them exposed secret
+    # material: the output pane, its auto-clear countdown, and a password field
+    # the user has chosen to unmask. `Input.-revealed` is a class the checkbox
+    # handler applies, so it is amber only while the text is legible.
+    #
+    # The last two entries are the selection bands over those same fields, and
+    # they are not new sites. A selection repaints the text it covers, so
+    # without them highlighting a revealed password or the output pane drops
+    # the accent for as long as the highlight lasts, which is the one case the
+    # rule exists to cover. Textual selects an Input's whole value on focus, so
+    # for the password field this is the default state, not an edge case. Five
+    # selectors, still three sites.
+    SIGNAL_SELECTORS = {
+        "#output-area",
+        "#countdown-label",
+        "Input.-revealed",
+        "Input.-revealed > .input--selection",
+        "#output-area > .text-area--selection",
+    }
 
     # Two sanctioned TEXT_4 sites, for different reasons:
     #   .section-divider    decoration, a rule glyph rather than a string
@@ -387,7 +401,12 @@ class TestTheGuardsSurviveReformatting:
 }"""
         mutated = theme.WIZARD_CSS.replace(self.INPUT_RULE, nested)
         mutated = mutated.replace(self.REVEALED_RULE, "")
-        assert "Input.-revealed" not in mutated, "the standalone rule should be gone"
+        # Checks the exact standalone rule is gone, rather than the substring
+        # "Input.-revealed": the sanctioned selection rule is a different rule
+        # that legitimately contains that substring, and a `.replace()` whose
+        # anchor had drifted would otherwise pass here by doing nothing.
+        assert self.REVEALED_RULE not in mutated, "the standalone rule should be gone"
+        assert "&.-revealed" in mutated, "the nested form should have replaced it"
         assert _signal_selectors(mutated) == TestRestrictedTokenUsage.SIGNAL_SELECTORS
 
     def test_a_comment_naming_the_token_is_not_a_usage(self):
@@ -470,6 +489,41 @@ def terminal_content(svg: str) -> str:
     return svg[match.end():]
 
 
+async def settle(app, pilot) -> None:
+    """Wait until the step panel is mounted and focus has landed on it.
+
+    A single `pause()` snapshots the frame part-way through a step change. The
+    panel is mounted by an exclusive worker and focus is handed over by a
+    `call_after_refresh` that runs after it, so one pause sometimes caught the
+    step's first control focused and sometimes the nav bar. A focused `Input`
+    paints its selection band, so the rendered palette differed between runs
+    and these guards failed about one run in five.
+
+    Waiting for the mount worker and then pumping until focus stops moving
+    pins one state. It must stay pinned to the state a *user* sees, which is
+    the step's own control focused, not the nav bar: the whole point of these
+    guards is to render what ships.
+
+    Settling on "focus stopped changing" rather than a fixed number of pauses
+    is deliberate. A fixed count is a magic number that silently stops being
+    enough the next time a step gains a widget, and the symptom would be this
+    same intermittent failure returning. If focus never settles this raises
+    instead of sampling a half-painted frame.
+    """
+    await app.workers.wait_for_complete()
+    previous = object()
+    for _ in range(12):
+        await pilot.pause()
+        current = app.focused
+        if current is previous:
+            return
+        previous = current
+    raise AssertionError(
+        "focus never settled, so the screenshot would be sampled mid-change; "
+        f"last saw {app.focused!r}"
+    )
+
+
 def fills_on_rendered_cells(svg: str) -> set[str]:
     """Every colour that paints a visible cell: glyph fills and cell backgrounds.
 
@@ -521,11 +575,14 @@ class TestRenderedAmberIsReserved:
             app._state.input_text = "review canary"
             app._state.password = "T3st!Passw0rd#Str0ng"
             app._state.password_confirm = "T3st!Passw0rd#Str0ng"
-            app._state.output = "MORPHEUS-v1:c2FtcGxlIGNpcGhlcnRleHQ="
+            # record_output, not a bare assignment: it stamps the inputs that
+            # produced the result, which is what marks it current. A bare
+            # assignment leaves it fingerprint-less and so permanently stale.
+            app._state.record_output("MORPHEUS-v1:c2FtcGxlIGNpcGhlcnRleHQ=")
             app._state.completed_steps.add(STEP_OUTPUT)
             for index in range(TOTAL_STEPS):
                 app._goto_step(index)
-                await pilot.pause()
+                await settle(app, pilot)
                 assert app._current_step == index, (
                     f"step {index + 1} was refused; the guard would silently "
                     f"check step {app._current_step + 1} twice"
@@ -592,7 +649,7 @@ class TestRenderedAmberIsReserved:
             app._state.password = "T3st!Passw0rd#Str0ng"
             app._state.password_confirm = "T3st!Passw0rd#Str0ng"
             app._goto_step(STEP_PASSWORD)
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._current_step == STEP_PASSWORD, (
                 "the password step was refused; this would assert on whatever "
                 "step happened to be showing"
@@ -600,7 +657,7 @@ class TestRenderedAmberIsReserved:
 
             masked = fills_on_rendered_cells(app.export_screenshot())
             app.query_one("#show-pwd-check", Checkbox).value = True
-            await pilot.pause()
+            await settle(app, pilot)
             revealed = fills_on_rendered_cells(app.export_screenshot())
 
         assert theme.SIGNAL not in masked, (
