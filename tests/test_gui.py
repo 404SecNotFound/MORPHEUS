@@ -351,15 +351,19 @@ class TestStepContentTakesFocus:
     below pins that. Focus was the defect.
     """
 
-    # Every step that composes a focusable control, with the one that must take
-    # it. Listed in full rather than for one step, because the fix walks the
-    # panel for the first focusable widget and each of these finds a different
-    # widget type: RadioSet, Select, RadioSet, Input, TextArea.
+    # Every step, and the control that must take the keyboard on arrival. All
+    # six, not a sample: the earlier version covered two, and the one step it
+    # happened to miss was the one that was wrong. Between them these exercise
+    # five widget types and both branches of the fix — RadioSet, Select,
+    # RadioSet, Input, a nav-bar Button, TextArea.
     FIRST_CONTROLS = [
         (STEP_MODE, "mode-radio"),
         (STEP_SETTINGS, "cipher-select"),
         (STEP_INPUT, "input-tabs"),
         (STEP_PASSWORD, "pwd-input"),
+        # Review composes only Static text, so its keyboard target is the
+        # action it exists to reach. See the fallback test below.
+        (STEP_REVIEW, "btn-run"),
         (STEP_OUTPUT, "output-area"),
     ]
 
@@ -370,25 +374,48 @@ class TestStepContentTakesFocus:
             panel = app.query_one("#step-container").children[0]
             focused = app.focused
             assert focused is not None, "nothing is focused"
-            assert panel in focused.ancestors, (
+
+            ancestors = focused.ancestors
+            assert app.query_one("#sidebar") not in ancestors, (
+                f"step {step + 1} left focus on the sidebar "
+                f"({focused.id}); the keyboard drives the step list, not the step"
+            )
+            assert panel in ancestors or app.query_one("#nav-bar") in ancestors, (
                 f"focus is on {focused.__class__.__name__}#{focused.id}, which "
-                f"is outside the step panel; the keyboard drives that instead "
-                f"of step {step + 1}"
+                f"is neither in step {step + 1} nor one of its actions"
             )
             assert focused.id == control
 
     @pytest.mark.asyncio
-    async def test_a_step_with_no_focusable_control_falls_back_to_the_sidebar(self):
-        """Review composes none, and must not raise or strand the keyboard."""
+    async def test_a_step_with_no_content_falls_back_to_its_primary_action(self):
+        """Review's whole purpose is Execute, and Execute is not in the panel.
+
+        Its nav-bar target cannot be found by DOM order. The bar is laid out
+        Back, Next, Execute, so "first visible button" picks Back — which is
+        how the keyboard ended up somewhere useless here in the first place.
+        """
         async with _wizard_on_step(STEP_REVIEW) as (app, _):
             panel = app.query_one("#step-container").children[0]
             assert not [w for w in panel.query("*") if w.focusable], (
                 "Review has gained a focusable control, so this no longer "
                 "covers the empty case it was written for"
             )
-            focused = app.focused
-            assert focused is not None and focused.id == f"sb-{STEP_REVIEW}", (
-                f"expected the sidebar row for the current step, got {focused}"
+            run = app.query_one("#btn-run", Button)
+            assert run.display and not run.disabled, "Execute is not offered"
+            assert app.focused is run, (
+                f"expected Execute to take the keyboard, got {app.focused}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_a_step_with_no_action_either_leaves_the_sidebar_focused(self):
+        """The last resort still has to be reached, and still must not raise."""
+        async with _wizard_on_step(STEP_REVIEW) as (app, pilot):
+            for button in app.query_one("#nav-bar").query(Button):
+                button.display = False
+            app._focus_step_content(app._step_panel)
+            await pilot.pause()
+            assert app.focused is not None and app.focused.id == f"sb-{STEP_REVIEW}", (
+                f"expected the sidebar row for the current step, got {app.focused}"
             )
 
     @pytest.mark.asyncio

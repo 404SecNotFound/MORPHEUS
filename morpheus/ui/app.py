@@ -189,10 +189,41 @@ class MorpheusWizard(App):
                 self.set_focus(widget)
                 return
 
-        # Review composes no focusable control at all. Fall back to the
-        # sidebar so the keyboard still reaches something, rather than leaving
-        # it on a widget this step has just replaced.
+        # Review composes only Static text; its one action, Execute, sits in
+        # the nav bar outside the panel. Landing on the sidebar there would be
+        # the very thing this method exists to stop, on the step whose whole
+        # purpose is pressing a button.
+        if self._focus_nav_action():
+            return
+
+        # Nothing focusable in the step or the nav bar. Leave the keyboard on
+        # the sidebar rather than on a widget this step has just replaced.
         self.action_focus_sidebar()
+
+    def _focus_nav_action(self) -> bool:
+        """Focus the step's primary nav-bar action. True if one was found.
+
+        Ordered by intent, not by DOM order. The bar is laid out Back, Next,
+        Execute, so "first visible button" would hand Review the Back button —
+        the opposite of what the step is for. A step with no content of its own
+        wants whatever carries it forward, falling back to Back only when there
+        is no forward action to take (an incomplete Review disables Execute,
+        and going back is then the right move).
+
+        `display` is tested separately because `Widget.focusable` does not
+        consider it: `#btn-run` reports focusable on every step, including the
+        five where `_update_nav` has hidden it. Only `disabled` is covered.
+        Callers must therefore run this after `_update_nav`, never before.
+        """
+        for selector in ("#btn-run", "#btn-next", "#btn-back"):
+            try:
+                button = self.query_one(selector, Button)
+            except Exception:
+                continue
+            if button.display and button.focusable:
+                self.set_focus(button)
+                return True
+        return False
 
     def _build_step(self, step: int):
         if step == STEP_MODE:
