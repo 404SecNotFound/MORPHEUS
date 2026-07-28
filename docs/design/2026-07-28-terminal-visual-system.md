@@ -47,15 +47,27 @@ Background is a single value. See section 5 for why the surface tiers collapse.
 | `TEXT` | `#f1f0ec` | data, values, the thing the user came for | 16.90:1 AAA |
 | `TEXT_2` | `#a3a29b` | body prose, descriptions | 7.52:1 AAA |
 | `TEXT_3` | `#8f8d84` | uppercase micro-labels, hints | 5.79:1 AA |
-| `TEXT_4` | `#5f5e58` | **decoration only**, never text | 2.96:1 fails, by design |
+| `TEXT_4` | `#5f5e58` | rules, dividers, and non-focusable disabled controls. **Never informational text** | 2.96:1 fails, by design |
 | `SELECTED` | `#ecebe6` | active step, primary button, selection | 16.15:1 AAA |
 | `SIGNAL` | `#f4b23e` | **exposed secret material only** | 10.36:1 AAA |
 | `ERROR` | `#e5594f` | errors, refusals, weak-password floor | 5.39:1 AA |
 
-Measured with the WCAG 2.1 relative-luminance formula. Every token used for text passes AA
-or better. `TEXT_4` fails and is therefore restricted to rules and dividers, matching
-Replicant's own "decoration only, never body text" constraint. This is enforced by comment
-in `theme.py` and is not used for any string.
+Measured with the WCAG 2.1 relative-luminance formula. Every token used for informational
+text passes AA or better.
+
+**`TEXT_4` deliberately fails**, so its use is bounded. Two cases only:
+
+1. **Decoration**: rules and dividers, matching Replicant's "decoration only, never body
+   text" constraint.
+2. **Non-focusable disabled controls**, such as the label on a disabled button. WCAG 1.4.3
+   exempts inactive components, and a disabled control should look unavailable.
+
+It must never render informational text, and specifically never text the user can focus.
+A locked wizard step is the trap here: it looks inactive but carries a step name and
+description and is keyboard-focusable, so it takes `TEXT_3` (5.79:1), not `TEXT_4`.
+
+This bound is enforced by `tests/test_theme.py`, which fails the build if `TEXT_4` appears
+in a `color:` declaration outside the allow-list.
 
 **Borders are derived, not invented.** Replicant's borders are alpha hairlines
 (`rgba(255,255,255,.08)` and `.14`). Textual has no alpha, so they are composited onto

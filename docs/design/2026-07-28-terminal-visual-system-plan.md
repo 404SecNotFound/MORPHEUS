@@ -40,7 +40,8 @@
 | `TEXT_BODY` | `TEXT_2` | `#a3a29b` | |
 | `TEXT_SECONDARY` | `TEXT_3` | `#8f8d84` | |
 | `TEXT_DIM` | `TEXT_3` | `#8f8d84` | |
-| `DISABLED` (as text) | `TEXT_4` | `#5f5e58` | disabled controls are WCAG-exempt |
+| `DISABLED` (as text, focusable) | `TEXT_3` | `#8f8d84` | locked sidebar steps carry prose and are `can_focus=True`, so AA applies |
+| `DISABLED` (as text, non-focusable) | `TEXT_4` | `#5f5e58` | disabled button labels; WCAG 1.4.3 exempts inactive components |
 | `DISABLED` (as background) | `BG` | `#0e0e11` | |
 | `ACCENT` | `SELECTED` | `#ecebe6` | |
 | `ACCENT_HOVER` | `TEXT` | `#f1f0ec` | |
@@ -190,7 +191,7 @@ A blanket rename here produces unreadable text. Each line number is from the cur
 
 ```
 line  93  .sidebar-item.--completed   color:  ACCENT_DIM  ->  TEXT_2
-line  97  .sidebar-item.--locked      color:  DISABLED    ->  TEXT_4
+line  97  .sidebar-item.--locked      color:  DISABLED    ->  TEXT_3   (see note)
 line 182  #btn-next                   border: ACCENT_DIM  ->  BORDER_STRONG
 line 190  #btn-next:disabled          background: DISABLED -> BG
 line 191  #btn-next:disabled          color:  TEXT_DIM    ->  TEXT_4
@@ -199,6 +200,20 @@ line 199  #btn-run                    border: ACCENT_DIM  ->  BORDER_STRONG
 line 444  #btn-copy                   border: ACCENT_DIM  ->  BORDER_STRONG
 line 483  #copy-pwd                   color:  ACCENT_DIM  ->  TEXT_2
 ```
+
+The two "disabled" sites resolve differently, and this is the easiest thing to get wrong:
+
+- **Line 97, `.sidebar-item.--locked`, takes `TEXT_3`, not `TEXT_4`.** It looks like a
+  disabled control but is not one. `sidebar.py:80-81` renders a step name and description
+  through it, and `SidebarItem` is declared `can_focus=True`, making it focusable
+  informational text. WCAG 1.4.3's inactive-component exemption does not cover that, so
+  `TEXT_4` at 2.96:1 is a real accessibility failure. `TEXT_3` gives 5.79:1 and still reads
+  as the dimmest of the three sidebar states (current `#ecebe6`, completed `#a3a29b`,
+  locked `#8f8d84`).
+- **Line 191, `#btn-next:disabled`, does take `TEXT_4`.** The label belongs to a genuinely
+  inactive control, is WCAG-exempt, and should look unavailable. Note this is an exception
+  to the Step 4 table, which maps `TEXT_DIM` to `TEXT_3`: apply Step 4 first, then correct
+  this one line.
 
 - [ ] **Step 3: Apply the two semantic decisions**
 
