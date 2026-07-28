@@ -4,17 +4,18 @@ Uses Textual's built-in testing framework (app.run_test()) to verify
 widget interactions without a real terminal.
 """
 
+import math
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, RadioButton, Static
+from textual.widgets import Button, RadioButton, Static, TextArea
 
 from morpheus import __version__
 from morpheus.core.validation import check_password_strength
 from morpheus.ui import theme
 from morpheus.ui.app import MorpheusWizard
 from morpheus.ui.clipboard import clipboard_copy, clipboard_paste
-from morpheus.ui.state import Mode
+from morpheus.ui.state import STEP_MODE, STEP_OUTPUT, Mode
 from morpheus.ui.steps.password import StrengthBar
 
 # ── StrengthBar unit tests ──────────────────────────────────────
@@ -199,6 +200,97 @@ class TestWizardApp:
             await pilot.pause()
 
             assert app._state.output == plaintext
+
+
+# ── Output step rendering ────────────────────────────────────────
+
+class TestOutputAreaWrapsDeterministically:
+    """The ciphertext must wrap to the pane, on every run.
+
+    It used to do so about half the time. Textual wraps a TextArea against
+    `wrap_width`, which comes from the widget's compositor region; a widget
+    being mounted has no region, so text written in `on_mount` was wrapped at
+    width 0 — one long line, clipped at the pane edge. Textual's correction
+    runs on the `Resize` message, and that message is delivered asynchronously
+    with no ordering guarantee against the next paint, so the same ciphertext
+    rendered wrapped or clipped depending on which won.
+
+    These assert the property rather than a screenshot hash. A hash would be a
+    proxy for the real invariant, would repeat six full captures per run to
+    prove determinism, and would fail on every unrelated copy or palette edit;
+    `tests/test_theme.py` already owns rendered-SVG guarding. What actually
+    broke is "the document is wrapped at the width the widget really has", and
+    that is checkable directly and cheaply.
+    """
+
+    # One unbroken base64-ish token, wide enough to need several visual lines
+    # at the pane width.
+    CIPHERTEXT = "MORPHEUS-v1:" + "QUJDREVGR0hJSktM" * 12
+
+    # Each visit re-mounts the step, and each re-mount is an independent roll:
+    # measured against the unfixed code, a visit wrapped at width 0 about 28%
+    # of the time. Jumping straight to step 6 from a freshly started app never
+    # lost the race — the first layout pass always delivered its Resize in
+    # time — so a visit has to *replace* a step already on screen to be a real
+    # trial. 20 of them leaves roughly a 1-in-1000 chance of a broken build
+    # looking clean.
+    VISITS = 20
+
+    async def _visit_output_repeatedly(self) -> list[tuple[int, int]]:
+        """Return to step 6 repeatedly, reporting (wrap width, line count)."""
+        app = MorpheusWizard()
+        seen = []
+        async with app.run_test(size=(110, 38)) as pilot:
+            app._state.mode = Mode.ENCRYPT
+            app._state.input_text = "canary"
+            app._state.password = "T3st!Passw0rd#Str0ng"
+            app._state.password_confirm = "T3st!Passw0rd#Str0ng"
+            # Step 6 is gated on the run having happened, so seed the result
+            # and the completion marker or `_goto_step` refuses the jump.
+            app._state.output = self.CIPHERTEXT
+            app._state.completed_steps.add(STEP_OUTPUT)
+            for _ in range(self.VISITS):
+                app._goto_step(STEP_OUTPUT)
+                await pilot.pause()
+                assert app._current_step == STEP_OUTPUT, (
+                    "the jump to step 6 was refused, so this would measure "
+                    f"step {app._current_step + 1} instead"
+                )
+                area = app.query_one("#output-area", TextArea)
+                seen.append((area.wrap_width, area.wrapped_document.height))
+                # Leave, so the next arrival replaces a mounted step rather
+                # than being a no-op.
+                app._goto_step(STEP_MODE)
+                await pilot.pause()
+        return seen
+
+    @pytest.mark.asyncio
+    async def test_the_output_pane_always_renders_the_same_way(self):
+        """Width settled, text wrapped, and identical on every visit.
+
+        Asserted together because they are one property measured once: the
+        helper is the slow part, and splitting it would triple the runtime to
+        re-derive the same list.
+        """
+        seen = await self._visit_output_repeatedly()
+
+        assert len(set(seen)) == 1, (
+            "the same ciphertext wrapped differently across identical visits, "
+            f"so the render depends on event ordering: {sorted(set(seen))}"
+        )
+
+        wrap_width, height = seen[0]
+        assert wrap_width > 0, (
+            "the output pane reports no width, so its contents are wrapped "
+            "against nothing and render as one clipped line"
+        )
+
+        expected = math.ceil(len(self.CIPHERTEXT) / wrap_width)
+        assert height == expected > 1, (
+            f"{len(self.CIPHERTEXT)} characters at width {wrap_width} need "
+            f"{expected} visual lines but the document reports {height}; "
+            "1 means the text sits on a single line running off the pane"
+        )
 
 
 # ── Clipboard helpers ────────────────────────────────────────────

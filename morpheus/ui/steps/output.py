@@ -13,6 +13,35 @@ from ..state import Mode, WizardState
 AUTO_CLEAR_SECONDS = 60
 
 
+class OutputArea(TextArea):
+    """A TextArea that re-wraps the instant its width is known.
+
+    Textual wraps a TextArea's document against `wrap_width`, which is derived
+    from the widget's compositor region. A freshly mounted widget has no region,
+    so anything written during `on_mount` is wrapped at width 0 — one long line
+    that clips at the pane edge. Textual's own correction is `_on_resize`, and
+    that is where the flicker came from: the `Resize` *message* is delivered
+    asynchronously and is not guaranteed to be processed before the next paint,
+    so the ciphertext rendered wrapped or clipped roughly 50/50 per run.
+
+    `_size_updated` is the synchronous call inside layout where the width
+    actually becomes known — it is what decides whether a `Resize` is worth
+    posting at all. Re-wrapping there removes the race rather than betting on
+    message ordering. Guarding on the last width wrapped at keeps this to one
+    re-wrap per genuine width change.
+    """
+
+    _wrapped_at: int = -1
+
+    def _size_updated(self, *args, **kwargs) -> bool:
+        changed = super()._size_updated(*args, **kwargs)
+        width = self.wrap_width
+        if width and width != self._wrapped_at:
+            self._wrapped_at = width
+            self._rewrap_and_refresh_virtual_size()
+        return changed
+
+
 class OutputStep(Vertical):
     """Read-only output area with copy, clear, and countdown."""
 
@@ -50,7 +79,7 @@ class OutputStep(Vertical):
         )
 
         yield Static("", id="output-status")
-        yield TextArea(id="output-area", read_only=True)
+        yield OutputArea(id="output-area", read_only=True)
         with Horizontal(id="output-actions"):
             yield Button("Copy", id="btn-copy")
             yield Button("Save to file", id="btn-save")
@@ -61,8 +90,13 @@ class OutputStep(Vertical):
     def on_mount(self) -> None:
         if self._state.output:
             area = self.query_one("#output-area", TextArea)
-            area.clear()
-            area.insert(self._state.output)
+            # `load_text` rebuilds the document and re-wraps all of it against
+            # the current width. `clear()` + `insert()` does not: the insert
+            # path re-wraps only the edited range, and it does so against the
+            # width cached by the last full wrap, which at mount time is 0. So
+            # the old pair wrote text that stayed wrapped at 0 even once the
+            # real width was known.
+            area.load_text(self._state.output)
             status = self.query_one("#output-status", Static)
             status.update(f"{len(self._state.output)} characters")
             self._start_countdown()
