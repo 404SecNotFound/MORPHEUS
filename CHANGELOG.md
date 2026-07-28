@@ -59,7 +59,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   help overlay. Existing `Ctrl+E/D/L/Q` shortcuts preserved
 - **New `ui/` package**: `theme.py`, `state.py`, `sidebar.py`, `app.py`,
   `steps/` — decoupled from crypto core
-- Test count: 241 → 291 (state-validation, wizard integration, clipboard
+- Test count: 241 → 308 (state-validation, wizard integration, clipboard
   fallback, and palette/contrast tests)
 
 ## [2.0.6] - 2026-02-10

@@ -503,7 +503,7 @@ Expected: PASS if Tasks 2 to 4 are complete. If it FAILS, the output names the e
 - [ ] **Step 3: Run the full suite**
 
 Run: `python -m pytest tests/ -q`
-Expected: 282 passed.
+Expected: 308 passed.
 
 - [ ] **Step 4: Commit**
 
@@ -697,7 +697,7 @@ Find the `**Matrix dark theme**` bullet under `## [2.1.0]` and replace it:
 - [ ] **Step 2: Run the full suite one last time**
 
 Run: `python -m pytest tests/ -q`
-Expected: 282 passed.
+Expected: 308 passed.
 
 - [ ] **Step 3: Confirm the other gates**
 
@@ -719,7 +719,7 @@ git commit -m "docs: record the terminal visual system in the changelog"
 
 ## Verification checklist
 
-- [ ] 282 tests pass
+- [ ] 308 tests pass
 - [ ] `ruff check morpheus/ tests/` exits 0
 - [ ] `bandit -r morpheus/ -ll -q` exits 0
 - [ ] coverage at or above 74

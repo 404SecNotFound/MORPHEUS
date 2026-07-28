@@ -413,7 +413,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**272 tests** across 11 test files:
+**308 tests** across 12 test files:
 
 | File | Scope |
 |------|-------|
@@ -428,6 +428,7 @@ python -m pytest tests/ -v
 | `test_cli.py` | File encrypt/decrypt roundtrip (text + binary), path traversal prevention |
 | `test_gui.py` | Wizard mount, step transitions, shortcuts, encrypt/decrypt roundtrip, clipboard fallbacks |
 | `test_wizard_state.py` | State validation per step, step unlocking rules, edge cases |
+| `test_theme.py` | Palette contrast against the background, accent and low-contrast token restrictions parsed out of the stylesheet, and the rendered colour set pinned against an exported screenshot |
 
 Tests include **NIST SP 800-38D** and **RFC 8439** reference vectors verified
 against the `cryptography` library's validated implementations.
@@ -463,7 +464,7 @@ morpheus/
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # ctypes.memset zeroing of key buffers
 │       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 272 tests (NIST/RFC vectors included)
+├── tests/                     # 308 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

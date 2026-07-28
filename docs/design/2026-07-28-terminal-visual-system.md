@@ -139,8 +139,24 @@ matters. Hardcoded hex values live outside `theme.py` and would survive a token-
 | `morpheus/ui/steps/password.py:203-205` | Match / No match indicators | re-point to `TEXT` / `ERROR` |
 | `tests/test_gui.py:26,33,40,47` | 4 assertions on exact Matrix hex | update to the new ramp |
 
-So: 4 source files and 4 test assertions, not one file and no tests. Still small, and no
-widget structure, step flow, or behaviour changes.
+That was the estimate. It was still too small. Three further groups turned up once the work
+was under way, and they are recorded here rather than left to the commit log:
+
+| Location | What | Why it was not foreseen |
+|---|---|---|
+| `morpheus/ui/steps/{mode,settings,input,output}.py` | hint prose wrapped in Rich `[dim]` | `[dim]` is not hex, so grepping for colour literals never surfaced it. It renders chrome-grey through Rich rather than through a token, which is the same problem in a different spelling. Re-pointed to `TEXT_3`. |
+| `morpheus/core/validation.py` | the password-strength threshold ladder | Not a colour change at all. Re-styling the ramp put both bands under 40 into `ERROR`, so the label became the only thing separating them, and that exposed `StrengthBar` and `check_password_strength` disagreeing about where the bands sit. Colour had been masking a real defect. |
+| `scripts/check_contrast.py`, `scripts/screenshot_wizard.py` | new verification tooling | Section 8 needs contrast re-checkable and the screens reviewable; neither existed. |
+
+So the true reach is 8 source files, 2 new scripts and 3 test files. Still no widget
+structure or step-flow changes, but the claim of "no behaviour changes" does not survive:
+consolidating the ladder changed the label below score 20 from "Weak" to "Very weak", and
+`morpheus encrypt` prints it.
+
+The lesson worth keeping is that this section has now been wrong twice, in the same
+direction both times. A visual system reaches further than the files that name colours,
+because it also reaches everything that was quietly relying on a colour to carry a
+distinction.
 
 `theme.py` exports only `WIZARD_CSS` to `app.py`; the token names are otherwise unreferenced,
 so renaming them is free.
@@ -155,7 +171,7 @@ so renaming them is free.
 
 ## 8. Verification
 
-1. All 294 tests pass. The suite grew from 278 during this work: the 4 updated assertions
+1. All 308 tests pass. The suite grew from 278 during this work: the 4 updated assertions
    in `test_gui.py` were the smallest part of it, and `tests/test_theme.py` was added to
    hold the guards described below.
 2. `ruff` and `bandit` stay at exit 0.
