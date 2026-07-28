@@ -1,9 +1,14 @@
 """Guards for the terminal visual system (docs/design/2026-07-28-terminal-visual-system.md)."""
 
+import math
 import re
 from pathlib import Path
 
+import pytest
+
 from morpheus.ui import theme
+from morpheus.ui.app import MorpheusWizard
+from morpheus.ui.state import STEP_OUTPUT, TOTAL_STEPS, Mode
 
 # theme.py's own source, read once at import rather than per call.
 #
@@ -135,6 +140,117 @@ class TestRestrictedTokenUsage:
         assert not offenders, (
             f"TEXT_4 is {ratio:.2f}:1 and must not render informational text:\n  "
             + "\n  ".join(offenders)
+        )
+
+
+def _rgb(hex_colour: str) -> tuple[int, int, int]:
+    h = hex_colour.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def rgb_distance(a: str, b: str) -> float:
+    """Plain Euclidean RGB distance. Crude, but enough to catch 'looks amber'."""
+    return math.dist(_rgb(a), _rgb(b))
+
+
+def fills_on_rendered_glyphs(svg: str) -> set[str]:
+    """Every colour that actually paints a visible character in an exported SVG.
+
+    Scoped to the terminal matrix, so the fake window chrome Textual draws
+    around the screenshot (title bar, traffic lights) is not mistaken for app
+    output.
+    """
+    class_fill = dict(
+        re.findall(r"\.(terminal-\d+-r\d+)\s*\{[^}]*?fill:\s*(#[0-9A-Fa-f]{6})", svg)
+    )
+    body = svg.partition("-matrix")[2]
+    used = set()
+    for cls, text in re.findall(
+        r'<text[^>]*class="(terminal-\d+-r\d+)"[^>]*>(.*?)</text>', body, re.S
+    ):
+        if text.replace("&#160;", " ").strip():
+            used.add(class_fill.get(cls, ""))
+    return {colour for colour in used if colour}
+
+
+class TestRenderedAmberIsReserved:
+    """The source-level guards cannot see colour that Textual supplies itself.
+
+    `test_signal_appears_only_on_the_allowed_selectors` matches the token name
+    SIGNAL in theme.py. Textual's default footer key cap is #ffa62b, which is
+    neither the string "SIGNAL" nor the hex #f4b23e, so it passed every guard
+    while sitting on all six screens. It is perceptually amber, and the design
+    rests on amber meaning exposed secret material, so it broke the rule the
+    guards exist to protect. This one renders the app and asserts on pixels.
+
+    Checking theme.py's CSS instead would not have caught it: the colour was
+    never in our stylesheet.
+    """
+
+    # #ffa62b, the regression this test exists for, is 25.0 from SIGNAL.
+    # ERROR is the nearest legitimate token at 91.8. 50 separates them with
+    # roughly 2x margin either side.
+    NEAR_DISTANCE = 50.0
+
+    async def _render_steps(self) -> dict[int, set[str]]:
+        app = MorpheusWizard()
+        rendered = {}
+        async with app.run_test(size=(110, 38)) as pilot:
+            app._state.mode = Mode.ENCRYPT
+            app._state.input_text = "review canary"
+            app._state.password = "T3st!Passw0rd#Str0ng"
+            app._state.password_confirm = "T3st!Passw0rd#Str0ng"
+            app._state.output = "MORPHEUS-v1:c2FtcGxlIGNpcGhlcnRleHQ="
+            app._state.completed_steps.add(STEP_OUTPUT)
+            for index in range(TOTAL_STEPS):
+                app._goto_step(index)
+                await pilot.pause()
+                assert app._current_step == index, (
+                    f"step {index + 1} was refused; the guard would silently "
+                    f"check step {app._current_step + 1} twice"
+                )
+                rendered[index] = fills_on_rendered_glyphs(app.export_screenshot())
+        return rendered
+
+    def test_the_distance_threshold_separates_the_regression_from_the_palette(self):
+        """Pin the threshold, so widening it later is a visible decision."""
+        assert rgb_distance("#ffa62b", theme.SIGNAL) < self.NEAR_DISTANCE
+        assert rgb_distance(theme.ERROR, theme.SIGNAL) > self.NEAR_DISTANCE
+
+    @pytest.mark.asyncio
+    async def test_no_near_amber_renders_outside_the_output_step(self):
+        rendered = await self._render_steps()
+
+        offenders = []
+        for index in range(STEP_OUTPUT):
+            for colour in sorted(rendered[index]):
+                distance = rgb_distance(colour, theme.SIGNAL)
+                if distance < self.NEAR_DISTANCE:
+                    offenders.append(
+                        f"step {index + 1}: {colour} is {distance:.1f} from SIGNAL"
+                    )
+        assert not offenders, (
+            "amber is reserved for exposed secret material, and these render "
+            "close enough to read as amber:\n  " + "\n  ".join(offenders)
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_output_step_uses_the_signal_token_itself(self):
+        """Step 6 may show amber, but only the real token, and it must show it.
+
+        The second half matters: without it this whole class passes when the
+        output step renders no amber at all, which is what happened when the
+        screenshot script silently captured step 5 twice.
+        """
+        rendered = await self._render_steps()
+        near = {
+            colour
+            for colour in rendered[STEP_OUTPUT]
+            if rgb_distance(colour, theme.SIGNAL) < self.NEAR_DISTANCE
+        }
+        assert near == {theme.SIGNAL}, (
+            f"the output step should render SIGNAL ({theme.SIGNAL}) and no "
+            f"other near-amber; got {sorted(near) or 'no amber at all'}"
         )
 
 

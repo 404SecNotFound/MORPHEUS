@@ -51,6 +51,46 @@ Footer {
     color: """ + TEXT_3 + """;
 }
 
+/* Footer renders its bindings through FooterKey, which carries its own
+   component classes and its own background. Styling `Footer` alone leaves
+   both at Textual's defaults, and the default key cap is a saturated amber
+   close enough to the reserved accent to break the "amber means exposed
+   secret material" rule on every screen. The key cap is the affordance, so
+   it takes TEXT_2; the description is supporting prose, so it takes TEXT_3.
+   Guarded by TestRenderedAmberIsReserved, which checks the rendered pixels
+   rather than this file. */
+
+FooterKey {
+    background: """ + BG + """;
+}
+
+FooterKey .footer-key--key {
+    background: """ + BG + """;
+    color: """ + TEXT_2 + """;
+    text-style: bold;
+}
+
+FooterKey .footer-key--description {
+    background: """ + BG + """;
+    color: """ + TEXT_3 + """;
+}
+
+FooterKey:hover {
+    background: """ + BORDER + """;
+    color: """ + SELECTED + """;
+}
+
+/* Textual draws this divider with `vkey $foreground 20%`, which composites to
+   an off-palette grey. Name the token instead. */
+FooterKey.-command-palette {
+    border-left: vkey """ + BORDER_STRONG + """;
+}
+
+FooterLabel {
+    background: """ + BG + """;
+    color: """ + TEXT_3 + """;
+}
+
 /* ── Top bar ────────────────────────────────────────────────────── */
 
 #top-bar {
