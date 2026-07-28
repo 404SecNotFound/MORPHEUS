@@ -27,6 +27,7 @@ from morpheus.ui.state import (
     Mode,
 )
 from morpheus.ui.steps.password import StrengthBar
+from tests.support import settle
 
 # ── StrengthBar unit tests ──────────────────────────────────────
 
@@ -329,7 +330,7 @@ async def _wizard_on_step(step: int):
         app._state.record_output("MORPHEUS-v1:c2FtcGxlIGNpcGhlcnRleHQ=")
         app._state.completed_steps.add(STEP_OUTPUT)
         app._goto_step(step)
-        await pilot.pause()
+        await settle(app, pilot)
         assert app._current_step == step, (
             f"step {step + 1} was refused; this would assert about step "
             f"{app._current_step + 1} instead"
