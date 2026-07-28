@@ -3,6 +3,7 @@
 import math
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 from textual.widgets import Checkbox
@@ -11,26 +12,32 @@ from morpheus.ui import theme
 from morpheus.ui.app import MorpheusWizard
 from morpheus.ui.state import STEP_OUTPUT, STEP_PASSWORD, TOTAL_STEPS, Mode
 
-# theme.py's own source, read once at import rather than per call.
+# The spec pins an exact value for each token, and the CSS variable each token
+# is published as. Kept module level so the value test, the completeness check
+# and the CSS guards below share one source of truth.
 #
-# The CSS guards below need the token NAMES, which survive only in the source:
-# WIZARD_CSS is assembled by string concatenation, so as a value it holds
-# resolved hex and the names are gone. Matching hex instead would not work
-# either, because SELECTED and BORDER_FOCUS are both #ecebe6, and hex cannot
-# tell a selection from a focus ring.
-_THEME_SOURCE = Path(theme.__file__).read_text(encoding="utf-8")
-
-# Scope the scan to the CSS literal. The token definition block sits above it
-# and mentions every name legitimately, which would otherwise read as usage.
-_CSS_SOURCE = _THEME_SOURCE.partition("WIZARD_CSS = ")[2]
-
-# The spec pins an exact value for each token. Kept module level so the value
-# test and the completeness check share one source of truth.
+# The guards need token NAMES, not values: SELECTED and BORDER_FOCUS are both
+# #ecebe6, and hex cannot tell a selection from a focus ring. The stylesheet
+# names its colours as Textual variables, so the names are present in
+# WIZARD_CSS itself and these guards parse real CSS. They used to parse
+# theme.py's source text and reconstruct string concatenation, which was blind
+# to `"""+SIGNAL+"""` written without spaces and named the wrong selector for
+# several ordinary reformattings.
 SPEC_TOKENS = {
     "BG": "#0e0e11", "BORDER": "#212124", "BORDER_STRONG": "#303032",
     "BORDER_FOCUS": "#ecebe6", "TEXT": "#f1f0ec", "TEXT_2": "#a3a29b",
     "TEXT_3": "#8f8d84", "TEXT_4": "#5f5e58", "SELECTED": "#ecebe6",
     "SIGNAL": "#f4b23e", "ERROR": "#e5594f",
+}
+
+# Python token name -> the CSS variable it is published as. The `m-` prefix is
+# load-bearing: Textual 8.2.8 defines $text, $border and $error itself, so the
+# unprefixed names would repoint every Textual widget rather than our own rules.
+TOKEN_VARS = {
+    "BG": "$m-bg", "BORDER": "$m-border", "BORDER_STRONG": "$m-border-strong",
+    "BORDER_FOCUS": "$m-border-focus", "TEXT": "$m-text", "TEXT_2": "$m-text-2",
+    "TEXT_3": "$m-text-3", "TEXT_4": "$m-text-4", "SELECTED": "$m-selected",
+    "SIGNAL": "$m-signal", "ERROR": "$m-error",
 }
 
 
@@ -51,20 +58,115 @@ def contrast(fg: str, bg: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
-def rules_using(token_name):
-    """Yield (selector, declaration) pairs for CSS rules referencing a token.
+def stylesheet_body(css: str = None) -> str:
+    """WIZARD_CSS with the `$m-*: #hex;` declaration block taken out.
 
-    Matches the token name on word boundaries rather than the literal spelling
-    with surrounding spaces. Removing those spaces is identical Python, so a
-    substring match would let a real violation through unseen.
+    Those lines are the one place a hex may appear and the one place a variable
+    name is a definition rather than a use, so tests about the rules themselves
+    look at what is left.
     """
-    selector = "?"
-    for line in _CSS_SOURCE.splitlines():
-        stripped = line.strip()
-        if stripped.endswith("{"):
-            selector = stripped[:-1].strip()
-        elif re.search(rf"\b{token_name}\b", line):
-            yield selector, stripped
+    css = theme.WIZARD_CSS if css is None else css
+    return re.sub(r"^\$[\w-]+:[^;]*;\n?", "", css, flags=re.M)
+
+
+class Declaration(NamedTuple):
+    """One `property: value` pair, attributed to one fully resolved selector."""
+
+    selector: str
+    prop: str
+    value: str
+
+    def __str__(self) -> str:
+        return f"{self.selector} {{ {self.prop}: {self.value}; }}"
+
+
+def _resolve(raw: str, parents: tuple[str, ...]) -> tuple[str, ...]:
+    """Expand one selector list against its enclosing selectors.
+
+    A grouped selector yields one entry per comma-separated part, so a
+    declaration under `#output-area, #countdown-label` is attributed to both
+    rather than to the literal string with the comma in it. A nested part
+    containing `&` is substituted into the parent; one without is a descendant.
+    """
+    parts = [" ".join(part.split()) for part in raw.split(",")]
+    parts = [part for part in parts if part]
+    if not parents:
+        return tuple(parts)
+    return tuple(
+        part.replace("&", parent) if "&" in part else f"{parent} {part}"
+        for parent in parents
+        for part in parts
+    )
+
+
+def declarations(css: str = None) -> list[Declaration]:
+    """Parse the stylesheet into declarations, tracking nesting by brace depth.
+
+    Counting braces rather than matching line shapes is what makes the guards
+    survive reformatting. The previous parser read a line ending in `{` as a
+    selector and everything else as a declaration, so a trailing comment after
+    the brace, a brace on its own line, a declaration sharing the selector's
+    line, a grouped selector or a nested block each silently misattributed the
+    rules that followed.
+
+    Declarations at depth 0 are the variable definitions themselves and are not
+    usages, so they are skipped: `$m-signal: #f4b23e;` defines the accent, it
+    does not spend it.
+    """
+    css = theme.WIZARD_CSS if css is None else css
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)  # comments are not usage
+
+    found: list[Declaration] = []
+    stack: list[tuple[str, ...]] = []
+    buf: list[str] = []
+
+    def flush() -> None:
+        text = "".join(buf).strip()
+        del buf[:]
+        if not text or not stack:
+            return
+        prop, _, value = text.partition(":")
+        for selector in stack[-1]:
+            found.append(
+                Declaration(selector, " ".join(prop.split()), " ".join(value.split()))
+            )
+
+    for char in css:
+        if char == "{":
+            raw = "".join(buf).strip()
+            del buf[:]
+            stack.append(_resolve(raw, stack[-1] if stack else ()))
+        elif char == "}":
+            flush()
+            if stack:
+                stack.pop()
+        elif char == ";":
+            flush()
+        else:
+            buf.append(char)
+
+    if stack:
+        raise AssertionError(f"unbalanced braces in WIZARD_CSS: {stack[-1]} left open")
+    return found
+
+
+def rules_using(token_name: str) -> list[Declaration]:
+    """Every declaration whose value references the variable for a token.
+
+    The variable name is matched with a trailing `(?![\\w-])` guard rather than
+    `\\b`, because `\\b` treats the hyphen in `$m-text-2` as a boundary and would
+    report every use of it as a use of `$m-text`.
+
+    Spacing is irrelevant here: `color:$m-signal;` and `color: $m-signal;` parse
+    to the same declaration, so the no-spaces spelling cannot slip past.
+    """
+    var = TOKEN_VARS[token_name]
+    pattern = re.compile(rf"{re.escape(var)}(?![\w-])")
+    return [decl for decl in declarations() if pattern.search(decl.value)]
+
+
+def selectors_using(token_name: str) -> set[str]:
+    return {decl.selector for decl in rules_using(token_name)}
 
 
 class TestPaletteContrast:
@@ -99,14 +201,45 @@ class TestTokenValues:
             f"{sorted(declared ^ set(SPEC_TOKENS))}"
         )
 
+    def test_the_css_variables_carry_the_token_values(self):
+        """The variable block is generated, so this pins that it stays generated.
+
+        Hand-editing a hex into the declarations would give the CSS a second
+        source of truth that the Python constants no longer control, and every
+        other guard here reads the constants.
+        """
+        declared = dict(re.findall(r"^(\$[\w-]+):\s*(#[0-9a-f]{6});$",
+                                   theme.WIZARD_CSS, re.M))
+        expected = {var: SPEC_TOKENS[name] for name, var in TOKEN_VARS.items()}
+        assert declared == expected
+
+    def test_the_stylesheet_body_contains_no_raw_hex(self):
+        """Every colour in a rule goes through a variable, so the guards see it.
+
+        A hex spliced straight into a declaration is invisible to every
+        name-matching guard in this file, which is exactly how an accent
+        violation would get through.
+        """
+        assert re.findall(r"#[0-9A-Fa-f]{6}\b", stylesheet_body()) == []
+
+    def test_no_declared_variable_is_unused(self):
+        """A variable nothing references is a token the guards cannot police."""
+        body = stylesheet_body()
+        unused = [
+            var for var in TOKEN_VARS.values()
+            if not re.search(rf"{re.escape(var)}(?![\w-])", body)
+        ]
+        assert unused == []
+
 
 class TestRestrictedTokenUsage:
     """Which selectors may reference the two restricted tokens.
 
     SIGNAL marks exposed secret material and nothing else; TEXT_4 is below AA
-    and must not render informational text. The first test guards the parser
-    itself, since a parser that silently matches nothing would make both rules
-    pass while checking nothing.
+    and must not render informational text. The first test pins the exact
+    selector set for both, which also guards the parser: one that silently
+    matched nothing would otherwise make every rule here pass while checking
+    nothing.
     """
 
     # The three sites the accent rule sanctions (spec §4), all of them exposed
@@ -120,15 +253,25 @@ class TestRestrictedTokenUsage:
     #   #btn-next:disabled  non-focusable disabled control, WCAG 1.4.3 exempt
     TEXT_4_SELECTORS = {".section-divider", "#btn-next:disabled"}
 
-    def test_the_parser_actually_matches_something(self):
-        assert list(rules_using("SIGNAL")), "SIGNAL parser matched nothing"
-        assert list(rules_using("TEXT_4")), "TEXT_4 parser matched nothing"
+    def test_the_restricted_tokens_are_used_on_exactly_the_sanctioned_selectors(self):
+        """Both directions at once, which also makes the parser non-vacuous.
+
+        This replaces an older `test_the_parser_actually_matches_something`,
+        which asserted only that the match list was non-empty. Pinning the exact
+        selector set is strictly stronger: a parser that matched nothing fails
+        here too, and so does one that quietly drops a sanctioned site. The
+        equality is deliberate in the other direction as well, so deleting the
+        amber on the output pane is a decision that has to be made here rather
+        than a silent loss of the one place the accent earns its meaning.
+        """
+        assert selectors_using("SIGNAL") == self.SIGNAL_SELECTORS
+        assert selectors_using("TEXT_4") == self.TEXT_4_SELECTORS
 
     def test_signal_appears_only_on_the_allowed_selectors(self):
         offenders = [
-            f"{sel}: {decl}"
-            for sel, decl in rules_using("SIGNAL")
-            if sel not in self.SIGNAL_SELECTORS
+            str(decl)
+            for decl in rules_using("SIGNAL")
+            if decl.selector not in self.SIGNAL_SELECTORS
         ]
         assert not offenders, (
             "amber is reserved for exposed secret material:\n  "
@@ -137,15 +280,152 @@ class TestRestrictedTokenUsage:
 
     def test_text_4_renders_no_informational_text(self):
         offenders = [
-            f"{sel}: {decl}"
-            for sel, decl in rules_using("TEXT_4")
-            if decl.startswith("color:") and sel not in self.TEXT_4_SELECTORS
+            str(decl)
+            for decl in rules_using("TEXT_4")
+            if decl.prop == "color" and decl.selector not in self.TEXT_4_SELECTORS
         ]
         ratio = contrast(theme.TEXT_4, theme.BG)
         assert not offenders, (
             f"TEXT_4 is {ratio:.2f}:1 and must not render informational text:\n  "
             + "\n  ".join(offenders)
         )
+
+
+def _signal_selectors(css: str) -> set[str]:
+    pattern = re.compile(r"\$m-signal(?![\w-])")
+    return {decl.selector for decl in declarations(css) if pattern.search(decl.value)}
+
+
+class TestTheGuardsSurviveReformatting:
+    """Reformatting a rule must not change the verdict; hiding one must not either.
+
+    This class is the reason the stylesheet names its colours as CSS variables.
+    The guards used to parse theme.py's source text and rebuild the Python
+    concatenation from it, which meant they keyed off the shape of a line: a
+    line ending in `{` was a selector, anything else was a declaration. Every
+    reformatting below broke that, two of them by reporting a violation against
+    a selector that was not the one the declaration belonged to. Counting braces
+    over real CSS makes the whole class structurally impossible.
+    """
+
+    OUTPUT_RULE = """#output-area {
+    height: 10;
+    min-height: 6;
+    color: $m-signal;
+}"""
+
+    INPUT_RULE = """Input {
+    background: $m-bg;
+    border: heavy $m-border;
+    color: $m-text;
+}"""
+
+    REVEALED_RULE = """Input.-revealed {
+    color: $m-signal;
+}"""
+
+    TITLE_ANCHOR = ".step-title {\n    color: $m-text;"
+
+    @pytest.mark.parametrize(
+        "reformatting",
+        [
+            pytest.param(
+                """#output-area {  /* pane holding exposed secret material */
+    height: 10;
+    min-height: 6;
+    color: $m-signal;
+}""",
+                id="trailing-comment-after-brace",
+            ),
+            pytest.param(
+                """#output-area
+{
+    height: 10;
+    min-height: 6;
+    color: $m-signal;
+}""",
+                id="brace-on-its-own-line",
+            ),
+            pytest.param(
+                """#output-area { color: $m-signal;
+    height: 10;
+    min-height: 6;
+}""",
+                id="declaration-on-the-selector-line",
+            ),
+            pytest.param(
+                """#output-area, #countdown-label {
+    color: $m-signal;
+}
+
+#output-area {
+    height: 10;
+    min-height: 6;
+}""",
+                id="grouped-selector",
+            ),
+        ],
+    )
+    def test_reformatting_a_sanctioned_rule_keeps_it_sanctioned(self, reformatting):
+        mutated = theme.WIZARD_CSS.replace(self.OUTPUT_RULE, reformatting)
+        assert mutated != theme.WIZARD_CSS, "the rule this test reformats has moved"
+        assert _signal_selectors(mutated) == TestRestrictedTokenUsage.SIGNAL_SELECTORS
+
+    def test_a_nested_block_is_resolved_against_its_parent(self):
+        """`&.-revealed` inside `Input` is `Input.-revealed`, which is sanctioned.
+
+        The old parser read the nested selector literally and reported a
+        violation against `&.-revealed`, a selector that does not exist.
+        """
+        nested = """Input {
+    background: $m-bg;
+    border: heavy $m-border;
+    color: $m-text;
+    &.-revealed {
+        color: $m-signal;
+    }
+}"""
+        mutated = theme.WIZARD_CSS.replace(self.INPUT_RULE, nested)
+        mutated = mutated.replace(self.REVEALED_RULE, "")
+        assert "Input.-revealed" not in mutated, "the standalone rule should be gone"
+        assert _signal_selectors(mutated) == TestRestrictedTokenUsage.SIGNAL_SELECTORS
+
+    def test_a_comment_naming_the_token_is_not_a_usage(self):
+        commented = "/* $m-signal is spent here and nowhere else */\n" + self.OUTPUT_RULE
+        mutated = theme.WIZARD_CSS.replace(self.OUTPUT_RULE, commented)
+        assert _signal_selectors(mutated) == TestRestrictedTokenUsage.SIGNAL_SELECTORS
+
+    @pytest.mark.parametrize(
+        "violation",
+        [
+            # The evasion that started this: identical CSS, no spaces to key off.
+            pytest.param(".step-title {\n    color:$m-signal;", id="no-spaces"),
+            pytest.param(".step-title {\n    color: $m-signal;", id="ordinary-spacing"),
+            pytest.param(
+                ".step-title {\n    &:hover { color:$m-signal; }\n    color: $m-text;",
+                id="buried-in-a-nested-block",
+            ),
+        ],
+    )
+    def test_an_accent_violation_is_caught_however_it_is_written(self, violation):
+        mutated = theme.WIZARD_CSS.replace(self.TITLE_ANCHOR, violation, 1)
+        assert mutated != theme.WIZARD_CSS, "the rule this test mutates has moved"
+        offenders = _signal_selectors(mutated) - TestRestrictedTokenUsage.SIGNAL_SELECTORS
+        assert offenders, "an accent violation went unnoticed"
+
+    def test_a_violation_hidden_in_a_grouped_selector_is_caught(self):
+        """Grouping an unsanctioned selector onto a sanctioned rule is not a loophole."""
+        mutated = theme.WIZARD_CSS.replace(
+            "#output-area {\n    height: 10;",
+            "#output-area, .step-title {\n    color: $m-signal;\n}\n\n"
+            "#output-area {\n    height: 10;",
+            1,
+        )
+        assert ".step-title" in _signal_selectors(mutated)
+
+    def test_unbalanced_braces_are_an_error_rather_than_a_silent_pass(self):
+        with pytest.raises(AssertionError, match="unbalanced braces"):
+            declarations(theme.WIZARD_CSS + "\n.oops {\n")
 
 
 def _rgb(hex_colour: str) -> tuple[int, int, int]:

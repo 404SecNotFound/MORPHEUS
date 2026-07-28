@@ -36,25 +36,50 @@ ERROR           = "#e5594f"    # errors, refusals, weak-password floor
 # fails AA and is bounded to decoration and non-focusable disabled controls.
 TEXT_TOKENS = frozenset({"TEXT", "TEXT_2", "TEXT_3", "SELECTED", "SIGNAL", "ERROR"})
 
-# One caution when editing the prose below. bandit's B608 scans concatenated
-# string literals for SQL and its pattern is `select\\s.*from\\s` with DOTALL,
-# so a `Select` selector anywhere above the word "from" anywhere below reads as
-# SELECT ... FROM and fails the build at exit 1. Say "mirrors" or "taken out of"
-# instead. The finding is spurious, but suppressing it would mean a blanket
-# nosec over 500 lines of CSS, which is worse than avoiding one word.
-WIZARD_CSS = """
+# The stylesheet names its colours as Textual CSS variables rather than splicing
+# hex in with `""" + BG + """`. The names then survive into WIZARD_CSS itself,
+# so the guards in tests/test_theme.py parse real CSS instead of reconstructing
+# Python concatenation from this file's source text. That closes two whole
+# classes of bug: `"""+SIGNAL+"""` written without spaces was identical Python
+# but invisible to the old source parser, and ordinary reformatting (a grouped
+# selector, a brace on its own line) made it name the wrong selector.
+#
+# The `m-` prefix is not decoration. Textual 8.2.8 ships 168 built-in CSS
+# variables and `$text`, `$border` and `$error` are three of them, so declaring
+# those names unprefixed would silently repoint every Textual widget in the app,
+# not just our own rules. Namespacing keeps the blast radius at our stylesheet.
+#
+# Declared here out of the constants above, so the hex still has exactly one
+# home and the Python names stay importable by the steps and the tests.
+_VARS = "\n".join(
+    f"${name}: {value};"
+    for name, value in (
+        ("m-bg", BG), ("m-border", BORDER), ("m-border-strong", BORDER_STRONG),
+        ("m-border-focus", BORDER_FOCUS), ("m-text", TEXT), ("m-text-2", TEXT_2),
+        ("m-text-3", TEXT_3), ("m-text-4", TEXT_4), ("m-selected", SELECTED),
+        ("m-signal", SIGNAL), ("m-error", ERROR),
+    )
+)
+
+# One caution when editing the prose below. bandit's B608 scans string literals
+# for SQL and its pattern is `select\\s.*from\\s` with DOTALL, so a `Select`
+# selector anywhere above the word "from" anywhere below reads as SELECT ... FROM
+# and fails the build at exit 1. Say "mirrors" or "taken out of" instead. The
+# finding is spurious, but suppressing it would mean a blanket nosec over 500
+# lines of CSS, which is worse than avoiding one word.
+WIZARD_CSS = _VARS + """
 Screen {
-    background: """ + BG + """;
+    background: $m-bg;
 }
 
 Header {
-    background: """ + BG + """;
-    color: """ + TEXT + """;
+    background: $m-bg;
+    color: $m-text;
 }
 
 Footer {
-    background: """ + BG + """;
-    color: """ + TEXT_3 + """;
+    background: $m-bg;
+    color: $m-text-3;
 }
 
 /* Footer renders its bindings through FooterKey, which carries its own
@@ -67,34 +92,34 @@ Footer {
    rather than this file. */
 
 FooterKey {
-    background: """ + BG + """;
+    background: $m-bg;
 }
 
 FooterKey .footer-key--key {
-    background: """ + BG + """;
-    color: """ + TEXT_2 + """;
+    background: $m-bg;
+    color: $m-text-2;
     text-style: bold;
 }
 
 FooterKey .footer-key--description {
-    background: """ + BG + """;
-    color: """ + TEXT_3 + """;
+    background: $m-bg;
+    color: $m-text-3;
 }
 
 FooterKey:hover {
-    background: """ + BORDER + """;
-    color: """ + SELECTED + """;
+    background: $m-border;
+    color: $m-selected;
 }
 
 /* Textual draws this divider with `vkey $foreground 20%`, which composites to
    an off-palette grey. Name the token instead. */
 FooterKey.-command-palette {
-    border-left: vkey """ + BORDER_STRONG + """;
+    border-left: vkey $m-border-strong;
 }
 
 FooterLabel {
-    background: """ + BG + """;
-    color: """ + TEXT_3 + """;
+    background: $m-bg;
+    color: $m-text-3;
 }
 
 /* ── Top bar ────────────────────────────────────────────────────── */
@@ -102,29 +127,29 @@ FooterLabel {
 #top-bar {
     dock: top;
     height: 3;
-    background: """ + BG + """;
-    color: """ + TEXT_3 + """;
+    background: $m-bg;
+    color: $m-text-3;
     padding: 1 2;
-    border-bottom: heavy """ + BORDER + """;
+    border-bottom: heavy $m-border;
 }
 
 #top-title {
     width: 1fr;
-    color: """ + SELECTED + """;
+    color: $m-selected;
     text-style: bold;
 }
 
 #top-step {
     width: auto;
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
 }
 
 /* ── Sidebar ────────────────────────────────────────────────────── */
 
 #sidebar {
     width: 28;
-    background: """ + BG + """;
-    border-right: heavy """ + BORDER + """;
+    background: $m-bg;
+    border-right: heavy $m-border;
     padding: 1 0;
     overflow-y: auto;
 }
@@ -132,28 +157,28 @@ FooterLabel {
 .sidebar-item {
     height: 2;
     padding: 0 1;
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
     margin: 0 0 1 0;
 }
 
 .sidebar-item:focus {
-    background: """ + BG + """;
-    color: """ + SELECTED + """;
+    background: $m-bg;
+    color: $m-selected;
     text-style: bold reverse;
 }
 
 .sidebar-item.--current {
-    color: """ + SELECTED + """;
+    color: $m-selected;
     text-style: bold;
-    background: """ + BG + """;
+    background: $m-bg;
 }
 
 .sidebar-item.--completed {
-    color: """ + TEXT_2 + """;
+    color: $m-text-2;
 }
 
 .sidebar-item.--locked {
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
 }
 
 /* ── Step panel (right pane) ────────────────────────────────────── */
@@ -162,32 +187,32 @@ FooterLabel {
     width: 1fr;
     height: 1fr;
     padding: 1 2;
-    background: """ + BG + """;
+    background: $m-bg;
     overflow-y: auto;
 }
 
 .step-title {
-    color: """ + TEXT + """;
+    color: $m-text;
     text-style: bold underline;
     padding: 0 0 1 0;
     width: 100%;
 }
 
 .step-subtitle {
-    color: """ + TEXT_2 + """;
+    color: $m-text-2;
     padding: 0 0 1 0;
     width: 100%;
 }
 
 .step-hint {
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
     padding: 0 0 1 0;
     width: 100%;
     height: auto;
 }
 
 .field-label {
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
     width: 16;
     padding: 0 1 0 0;
 }
@@ -200,7 +225,7 @@ FooterLabel {
 }
 
 .field-help {
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
     padding: 0 0 1 2;
     height: auto;
     width: 100%;
@@ -214,8 +239,8 @@ FooterLabel {
     align: center middle;
     padding: 0 2;
     dock: bottom;
-    background: """ + BG + """;
-    border-top: heavy """ + BORDER + """;
+    background: $m-bg;
+    border-top: heavy $m-border;
 }
 
 #nav-bar Button {
@@ -224,58 +249,58 @@ FooterLabel {
 }
 
 #btn-back {
-    background: """ + BG + """;
-    color: """ + TEXT_3 + """;
-    border: heavy """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text-3;
+    border: heavy $m-border;
 }
 
 #btn-back:hover {
-    background: """ + BORDER + """;
-    color: """ + SELECTED + """;
+    background: $m-border;
+    color: $m-selected;
 }
 
 #btn-next {
-    background: """ + SELECTED + """;
-    color: """ + BG + """;
+    background: $m-selected;
+    color: $m-bg;
     text-style: bold;
-    border: heavy """ + BORDER_STRONG + """;
+    border: heavy $m-border-strong;
 }
 
 #btn-next:hover {
-    background: """ + TEXT + """;
+    background: $m-text;
 }
 
 #btn-next:disabled {
-    background: """ + BG + """;
-    color: """ + TEXT_4 + """;
-    border: heavy """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text-4;
+    border: heavy $m-border;
 }
 
 #btn-run {
-    background: """ + SELECTED + """;
-    color: """ + BG + """;
+    background: $m-selected;
+    color: $m-bg;
     text-style: bold;
-    border: heavy """ + BORDER_STRONG + """;
+    border: heavy $m-border-strong;
 }
 
 #btn-run:hover {
-    background: """ + TEXT + """;
+    background: $m-text;
 }
 
 /* ── Shared widget styles ───────────────────────────────────────── */
 
 Input {
-    background: """ + BG + """;
-    border: heavy """ + BORDER + """;
-    color: """ + TEXT + """;
+    background: $m-bg;
+    border: heavy $m-border;
+    color: $m-text;
 }
 
 Input:focus {
-    border: heavy """ + BORDER_FOCUS + """;
+    border: heavy $m-border-focus;
 }
 
 Input.-invalid {
-    border: heavy """ + ERROR + """;
+    border: heavy $m-error;
 }
 
 /* A revealed password is exposed secret material, so it takes the accent for
@@ -283,61 +308,61 @@ Input.-invalid {
    handler, not by a pseudo-class: Textual has no selector for `password=False`.
    Masked input keeps TEXT above, because bullets are not secret. */
 Input.-revealed {
-    color: """ + SIGNAL + """;
+    color: $m-signal;
 }
 
 RadioButton.-on {
-    color: """ + SELECTED + """;
+    color: $m-selected;
     text-style: bold;
 }
 
 TextArea {
-    background: """ + BG + """;
-    color: """ + TEXT + """;
-    border: tall """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text;
+    border: tall $m-border;
 }
 
 TextArea:focus {
-    border: tall """ + BORDER_FOCUS + """;
+    border: tall $m-border-focus;
 }
 
 Select {
-    background: """ + BG + """;
-    border: tall """ + BORDER + """;
-    color: """ + TEXT + """;
+    background: $m-bg;
+    border: tall $m-border;
+    color: $m-text;
 }
 
 Select:focus {
-    border: tall """ + BORDER_FOCUS + """;
+    border: tall $m-border-focus;
 }
 
 SelectOverlay {
-    background: """ + BG + """;
-    color: """ + TEXT + """;
-    border: solid """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text;
+    border: solid $m-border;
 }
 
 SelectCurrent {
-    color: """ + TEXT + """;
+    color: $m-text;
 }
 
 Checkbox {
     background: transparent;
-    color: """ + TEXT_2 + """;
+    color: $m-text-2;
     padding: 0 0 0 0;
 }
 
 Checkbox:focus {
-    color: """ + SELECTED + """;
+    color: $m-selected;
 }
 
 RadioButton {
     background: transparent;
-    color: """ + TEXT_2 + """;
+    color: $m-text-2;
 }
 
 RadioButton:focus {
-    color: """ + SELECTED + """;
+    color: $m-selected;
 }
 
 RadioSet {
@@ -360,37 +385,37 @@ RadioSet {
 ToggleButton:focus > .toggle--label,
 RadioSet:focus > RadioButton.-selected > .toggle--label,
 RadioSet:blur > RadioButton.-selected > .toggle--label {
-    background: """ + BG + """;
-    color: """ + SELECTED + """;
+    background: $m-bg;
+    color: $m-selected;
 }
 
 /* The check/bullet glyph. Textual's $text-success is a green that means
    nothing in this system; checked is a selection state, so it reads as one. */
 ToggleButton.-on > .toggle--button,
 RadioSet > RadioButton.-on .toggle--button {
-    color: """ + SELECTED + """;
+    color: $m-selected;
 }
 
 /* The chosen value in a closed Select. Textual routes it through an inner
    Static, so `SelectCurrent { color: ... }` above misses it and the value
    rendered at Textual's default foreground instead of TEXT. */
 SelectCurrent.-has-value Static#label {
-    color: """ + TEXT + """;
+    color: $m-text;
 }
 
 Button {
-    background: """ + BG + """;
-    color: """ + TEXT_2 + """;
-    border: tall """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text-2;
+    border: tall $m-border;
 }
 
 Button:hover {
-    background: """ + BORDER + """;
-    color: """ + SELECTED + """;
+    background: $m-border;
+    color: $m-selected;
 }
 
 Button:focus {
-    border: tall """ + BORDER_FOCUS + """;
+    border: tall $m-border-focus;
 }
 
 Collapsible {
@@ -400,17 +425,17 @@ Collapsible {
 }
 
 CollapsibleTitle {
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
     background: transparent;
     padding: 1 0 0 0;
 }
 
 CollapsibleTitle:hover {
-    color: """ + SELECTED + """;
+    color: $m-selected;
 }
 
 CollapsibleTitle:focus {
-    color: """ + SELECTED + """;
+    color: $m-selected;
 }
 
 /* ── Step-specific ──────────────────────────────────────────────── */
@@ -450,7 +475,7 @@ CollapsibleTitle:focus {
 }
 
 #input-stats {
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
     text-align: right;
     height: 1;
     width: 100%;
@@ -469,7 +494,7 @@ CollapsibleTitle:focus {
 }
 
 #match-indicator {
-    color: """ + SELECTED + """;
+    color: $m-selected;
     padding: 0 0 0 2;
 }
 
@@ -486,28 +511,28 @@ CollapsibleTitle:focus {
 
 .review-key {
     width: 18;
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
 }
 
 .review-val {
     width: 1fr;
-    color: """ + TEXT + """;
+    color: $m-text;
 }
 
 .warning-text {
-    color: """ + ERROR + """;
+    color: $m-error;
     padding: 1 0 0 0;
 }
 
 #output-area {
     height: 10;
     min-height: 6;
-    color: """ + SIGNAL + """;
+    color: $m-signal;
 }
 
 #output-status {
     height: 1;
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
 }
 
 #output-actions {
@@ -522,34 +547,34 @@ CollapsibleTitle:focus {
 }
 
 #btn-copy {
-    background: """ + SELECTED + """;
-    color: """ + BG + """;
+    background: $m-selected;
+    color: $m-bg;
     text-style: bold;
-    border: tall """ + BORDER_STRONG + """;
+    border: tall $m-border-strong;
 }
 
 #btn-copy:hover {
-    background: """ + TEXT + """;
+    background: $m-text;
 }
 
 #btn-clear {
-    background: """ + BG + """;
-    color: """ + ERROR + """;
-    border: tall """ + BORDER + """;
+    background: $m-bg;
+    color: $m-error;
+    border: tall $m-border;
 }
 
 #btn-clear:hover {
-    background: """ + BG + """;
+    background: $m-bg;
 }
 
 #btn-stop-timer {
-    background: """ + BG + """;
-    color: """ + TEXT_3 + """;
-    border: tall """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text-3;
+    border: tall $m-border;
 }
 
 #countdown-label {
-    color: """ + SIGNAL + """;
+    color: $m-signal;
     text-style: bold;
     width: auto;
     padding: 0 0 0 2;
@@ -563,18 +588,18 @@ CollapsibleTitle:focus {
 }
 
 #copy-pwd {
-    background: """ + BG + """;
-    color: """ + TEXT_2 + """;
-    border: tall """ + BORDER + """;
+    background: $m-bg;
+    color: $m-text-2;
+    border: tall $m-border;
 }
 
 #copy-pwd:hover {
-    color: """ + SELECTED + """;
-    background: """ + BORDER + """;
+    color: $m-selected;
+    background: $m-border;
 }
 
 #pwd-feedback {
-    color: """ + TEXT_3 + """;
+    color: $m-text-3;
     height: auto;
     padding: 0 0 0 0;
 }
@@ -583,7 +608,7 @@ CollapsibleTitle:focus {
 
 .section-divider {
     height: 1;
-    color: """ + TEXT_4 + """;
+    color: $m-text-4;
     margin: 1 0;
 }
 """
