@@ -160,6 +160,9 @@ class OutputStep(Vertical):
         self.query_one("#output-status", Static).update("")
         self.query_one("#countdown-label", Static).update("")
         self._state.output = ""
+        # Drop the provenance stamp too, so the wiped result cannot read as
+        # current if the inputs happen to be unchanged.
+        self._state.output_fingerprint = None
 
     # -- Countdown --
 

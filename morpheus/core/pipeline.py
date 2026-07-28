@@ -264,14 +264,23 @@ def _get_kdf_params(kdf: KDF) -> tuple[int, int, int]:
 
 
 # KDF parameter limits to prevent resource exhaustion from malformed headers.
-# These are generous upper bounds that cover all reasonable use cases.
+#
+# The v3 header is consumed *before* the AEAD tag can be verified, so an
+# attacker picks these values and the victim allocates on them with no
+# password required. Bounds are therefore enforced twice: once per parameter,
+# and once on the memory the combination implies. Per-parameter bounds alone
+# are not sufficient, because Scrypt's cost is a product.
+_MAX_KDF_WORKING_SET = 1 << 30  # 1 GiB; generous for any legitimate header
+
 _ARGON2_LIMITS = {
-    "time_cost": (1, 100),         # iterations
-    "memory_cost": (1024, 4194304),  # 1 MiB to 4 GiB in KiB
+    "time_cost": (1, 100),           # iterations
+    "memory_cost": (1024, 1048576),  # 1 MiB to 1 GiB, expressed in KiB
     "parallelism": (1, 64),
 }
 _SCRYPT_LIMITS = {
-    "n": (2**10, 2**25),  # ~1 MiB to ~1 GiB
+    # Scrypt allocates 128 * n * r, so this ceiling on n only bounds memory
+    # at r == 1. The working-set check is what actually bounds the product.
+    "n": (2**10, 2**23),
     "r": (1, 64),
     "p": (1, 64),
 }
@@ -292,13 +301,32 @@ def _build_kdf_from_params(kdf_id: int, params: tuple[int, int, int]) -> KDF:
         _validate_param("Argon2id time_cost", p1, *_ARGON2_LIMITS["time_cost"])
         _validate_param("Argon2id memory_cost", p2, *_ARGON2_LIMITS["memory_cost"])
         _validate_param("Argon2id parallelism", p3, *_ARGON2_LIMITS["parallelism"])
+        # memory_cost is in KiB and parallelism does not multiply it.
+        _reject_excessive_working_set("Argon2id", p2 * 1024)
         return kdf_cls(time_cost=p1, memory_cost=p2, parallelism=p3)
     if kdf_id == 0x01:  # Scrypt
         _validate_param("Scrypt n", p1, *_SCRYPT_LIMITS["n"])
         _validate_param("Scrypt r", p2, *_SCRYPT_LIMITS["r"])
         _validate_param("Scrypt p", p3, *_SCRYPT_LIMITS["p"])
+        # Scrypt's large buffer is 128 * n * r, plus 128 * r * p for the
+        # parallel blocks. Neither n nor r bounds this on its own.
+        _reject_excessive_working_set("Scrypt", 128 * p2 * (p1 + p3))
         return kdf_cls(n=p1, r=p2, p=p3)
     return kdf_cls()
+
+
+def _reject_excessive_working_set(name: str, nbytes: int) -> None:
+    """Raise KDFParameterError if the implied allocation exceeds the cap.
+
+    Catches parameter combinations that are individually in range but whose
+    product is not, which is the only bound that matters for Scrypt.
+    """
+    if nbytes > _MAX_KDF_WORKING_SET:
+        gib = 1 << 30
+        raise KDFParameterError(
+            f"{name} parameters imply a {nbytes / gib:.2f} GiB working set, "
+            f"above the {_MAX_KDF_WORKING_SET / gib:.2f} GiB limit"
+        )
 
 
 def _validate_param(name: str, value: int, lo: int, hi: int) -> None:

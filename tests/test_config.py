@@ -1,13 +1,11 @@
 """Tests for persistent preferences (config.toml)."""
 
-import argparse
 import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 from morpheus.core.config import (
-    apply_config_defaults,
     load_config,
     save_config,
 )
@@ -26,7 +24,6 @@ class TestSaveLoadConfig:
                     "kdf": "Scrypt",
                     "chain": True,
                     "pad": True,
-                    "passphrase": True,
                 }
                 save_config(settings)
                 loaded = load_config()
@@ -34,7 +31,6 @@ class TestSaveLoadConfig:
                 assert loaded["kdf"] == "Scrypt"
                 assert loaded["chain"] is True
                 assert loaded["pad"] is True
-                assert loaded["passphrase"] is True
 
     def test_missing_file_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -63,13 +59,12 @@ class TestSaveLoadConfig:
     def test_boolean_parsing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
-            cfg_file.write_text("chain = true\npad = false\nfixed_size = yes\ncheck_leaks = 0\n")
+            cfg_file.write_text("chain = true\npad = false\nfixed_size = yes\n")
             with patch("morpheus.core.config._CONFIG_FILE", cfg_file):
                 loaded = load_config()
                 assert loaded["chain"] is True
                 assert loaded["pad"] is False
                 assert loaded["fixed_size"] is True
-                assert loaded["check_leaks"] is False
 
     def test_comments_and_empty_lines_ignored(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -89,40 +84,45 @@ class TestSaveLoadConfig:
                 assert mode == "0o600"
 
 
-class TestApplyConfigDefaults:
-    """Test that config defaults are applied correctly to argparse namespace."""
+class TestSecuritySettingsAreNotPersistable:
+    """Settings that change security behaviour must not live in a config file.
 
-    def test_config_fills_unset_values(self):
-        args = argparse.Namespace(
-            cipher="AES-256-GCM",  # argparse default
-            kdf="Argon2id",  # argparse default
-            chain=False,
-            pad=False,
-            passphrase=False,
-        )
-        config = {"cipher": "ChaCha20-Poly1305", "chain": True}
-        apply_config_defaults(args, config)
-        assert args.cipher == "ChaCha20-Poly1305"
-        assert args.chain is True
+    A config file is a soft target: nothing prompts about it and nothing used
+    to announce it. `passphrase` swaps the password policy for a weaker
+    word-based one, and `check_leaks` sends a hash of every password to a
+    third party. Both stay available as explicit CLI flags.
 
-    def test_cli_overrides_config(self):
-        args = argparse.Namespace(
-            cipher="ChaCha20-Poly1305",  # user explicitly chose this
-            kdf="Argon2id",
-            chain=True,  # user explicitly set this
-            pad=False,
-        )
-        config = {"cipher": "AES-256-GCM", "chain": False, "pad": True}
-        apply_config_defaults(args, config)
-        # cipher was explicitly set to non-default, so it stays
-        assert args.cipher == "ChaCha20-Poly1305"
-        # chain was explicitly set to True, so config's False doesn't override
-        assert args.chain is True
-        # pad was not set by user (False), so config's True applies
-        assert args.pad is True
+    Precedence itself is now argparse's job (``parser.set_defaults`` before
+    ``parse_args``) and is covered end-to-end by
+    ``tests/test_cli.py::TestConfigPrecedence``.
+    """
 
-    def test_empty_config_no_changes(self):
-        args = argparse.Namespace(cipher="AES-256-GCM", kdf="Argon2id", chain=False)
-        apply_config_defaults(args, {})
-        assert args.cipher == "AES-256-GCM"
-        assert args.chain is False
+    def test_planted_security_keys_are_ignored_on_load(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_file = Path(tmpdir) / "config.toml"
+            cfg_file.write_text(
+                "passphrase = true\ncheck_leaks = true\ncipher = \"Scrypt\"\n"
+                "chain = true\n"
+            )
+            with patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+                loaded = load_config()
+            assert "passphrase" not in loaded
+            assert "check_leaks" not in loaded
+            # A legitimate key from the same file still loads, so this test
+            # cannot pass merely because parsing failed outright.
+            assert loaded["chain"] is True
+
+    def test_they_are_not_written_even_if_passed_to_save(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_file = Path(tmpdir) / "config.toml"
+            with patch("morpheus.core.config._CONFIG_DIR", Path(tmpdir)), \
+                 patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+                save_config({
+                    "cipher": "AES-256-GCM",
+                    "passphrase": True,
+                    "check_leaks": True,
+                })
+            written = cfg_file.read_text()
+            assert "passphrase" not in written
+            assert "check_leaks" not in written
+            assert "cipher" in written

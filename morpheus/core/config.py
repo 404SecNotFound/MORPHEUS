@@ -15,8 +15,15 @@ from pathlib import Path
 _CONFIG_DIR = Path.home() / ".morpheus"
 _CONFIG_FILE = _CONFIG_DIR / "config.toml"
 
-# Keys that map to boolean CLI flags
-_BOOL_KEYS = frozenset({"chain", "pad", "fixed_size", "no_filename", "check_leaks", "passphrase"})
+# Keys that map to boolean CLI flags.
+#
+# `passphrase` and `check_leaks` are deliberately absent. Both change
+# security behaviour rather than output format, and a config file is a soft
+# target: `passphrase` swaps the 12-char/4-class policy for a weaker
+# word-based one, and `check_leaks` sends a hash of every password to a third
+# party over the network. Neither should be reachable by editing a file that
+# nothing prompts about. They remain available as explicit CLI flags.
+_BOOL_KEYS = frozenset({"chain", "pad", "fixed_size", "no_filename"})
 
 # Keys that map to string CLI arguments
 _STRING_KEYS = frozenset({"cipher", "kdf"})
@@ -105,25 +112,3 @@ def save_config(settings: dict[str, str | bool]) -> Path:
     _CONFIG_FILE.write_text("\n".join(lines), encoding="utf-8")
     os.chmod(_CONFIG_FILE, 0o600)  # user-only read/write
     return _CONFIG_FILE
-
-
-def apply_config_defaults(args, config: dict[str, str | bool]) -> None:
-    """Apply saved config as defaults for unset CLI arguments.
-
-    Only fills in values that were not explicitly provided on the command line.
-    Modifies args namespace in place.
-    """
-    for key, value in config.items():
-        if key in _BOOL_KEYS:
-            # Boolean flags default to False; only apply if user didn't set them
-            if not getattr(args, key, False):
-                setattr(args, key, value)
-        elif key in _STRING_KEYS:
-            # String args: only apply if user kept the parser default
-            attr_name = key
-            current = getattr(args, attr_name, None)
-            # Check if the current value is the argparse default
-            if key == "cipher" and current == "AES-256-GCM":
-                setattr(args, attr_name, value)
-            elif key == "kdf" and current == "Argon2id":
-                setattr(args, attr_name, value)

@@ -60,6 +60,56 @@ class WizardState:
     # Internal
     completed_steps: set[int] = field(default_factory=set)
 
+    # Snapshot of the inputs that produced `output`. None when no run has
+    # completed. Compared rather than invalidated on events, because widget
+    # mounts fire the same change events a user edit does, and reacting to
+    # those would discard a valid result merely for navigating back to look.
+    output_fingerprint: tuple | None = None
+
+    def input_fingerprint(self) -> tuple:
+        """Every field that changes what a run would produce."""
+        return (
+            self.mode,
+            self.cipher,
+            self.kdf,
+            self.chain,
+            self.hybrid_pq,
+            self.pad,
+            self.fixed_size,
+            self.no_filename,
+            self.input_method,
+            self.input_text,
+            self.input_file,
+            self.password,
+        )
+
+    def record_output(self, result: str) -> None:
+        """Store a run's result together with the inputs that produced it."""
+        self.output = result
+        self.output_fingerprint = self.input_fingerprint()
+
+    def invalidate_output(self) -> None:
+        """Discard a result that no longer matches the current inputs.
+
+        `output` is only ever overwritten by a new run, so without this the
+        Output step keeps presenting the previous run's result as current:
+        encrypt A, change the input to B, and the pane still shows A's
+        ciphertext with a live Copy button and a fresh countdown.
+
+        A no-op when the inputs are unchanged, so moving back and forth
+        without editing anything keeps the result. Review is un-completed
+        alongside Output because the review summary describes the inputs that
+        produced the discarded result.
+        """
+        if not self.output:
+            return
+        if self.output_fingerprint == self.input_fingerprint():
+            return
+        self.output = ""
+        self.output_fingerprint = None
+        self.completed_steps.discard(STEP_OUTPUT)
+        self.completed_steps.discard(STEP_REVIEW)
+
     # -------------------------------------------------------------------
     # Validation per step
     # -------------------------------------------------------------------

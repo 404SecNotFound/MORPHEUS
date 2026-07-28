@@ -142,13 +142,17 @@ class MorpheusWizard(App):
         except Exception:
             pass
 
-        # Rebuild right pane
+        # Rebuild right pane.
+        #
+        # `remove_children` completes asynchronously. Mounting the new panel
+        # without waiting for it lets two step changes in one event-loop turn
+        # interleave, and a later `query_one("#output-area")` then raises
+        # NoMatches and takes the app down with the result still unsaved.
+        # `_mount_step` does the same work in order.
         container = self.query_one("#step-container", Vertical)
-        container.remove_children()
-
         panel = self._build_step(step)
         self._step_panel = panel
-        container.mount(panel)
+        self._mount_step(container, panel)
 
         # Update sidebar indicators
         if self._sidebar:
@@ -157,9 +161,26 @@ class MorpheusWizard(App):
         # Update nav buttons
         self._update_nav()
 
-        # Hand the keyboard to the step itself. Deferred because a widget's
-        # composed children do not exist until after the mount completes:
-        # querying `panel` here finds nothing at all.
+    @work(exclusive=True, group="step-mount")
+    async def _mount_step(self, container: Vertical, panel: Widget) -> None:
+        """Clear the pane, mount *panel*, then hand it the keyboard.
+
+        Exclusive and grouped, so a rapid Left/Right burst cancels the pending
+        mount instead of racing it. If this call has already been superseded
+        by a newer step change, drop it rather than mount a stale panel.
+
+        The focus handoff belongs here rather than in `_show_step`. A widget's
+        composed children do not exist until the mount completes, and once
+        mounting moved into this worker a `call_after_refresh` scheduled by
+        `_show_step` could run first, find `panel.query("*")` empty, and fall
+        through to the nav-bar fallback. Focus then landed on Back/Next
+        instead of the step, non-deterministically, depending on which won the
+        turn.
+        """
+        await container.remove_children()
+        if panel is not self._step_panel:
+            return
+        await container.mount(panel)
         # Routed through the screen rather than `panel.call_next`, so a panel
         # removed before the callback runs cannot swallow it with its queue.
         self.call_after_refresh(self._focus_step_content, panel)
@@ -386,23 +407,47 @@ class MorpheusWizard(App):
 
     # ── Step change events (from child widgets) ──────────────────
 
+    def _on_earlier_step_changed(self) -> None:
+        """Discard a stale result, then re-evaluate nav.
+
+        Any edit on a step before Output means the result on the Output step
+        no longer describes the current inputs. Keeping it would let the user
+        copy the previous run's ciphertext believing it matched what they can
+        see on screen.
+        """
+        if self._current_step < STEP_OUTPUT:
+            self._state.invalidate_output()
+        self._update_nav()
+
     def on_radio_set_changed(self, event) -> None:
         """Re-evaluate nav after any radio/checkbox change."""
-        self._update_nav()
+        self._on_earlier_step_changed()
 
     def on_select_changed(self, event) -> None:
-        self._update_nav()
+        self._on_earlier_step_changed()
 
     def on_checkbox_changed(self, event) -> None:
-        self._update_nav()
+        self._on_earlier_step_changed()
 
     def on_input_changed(self, event) -> None:
-        self._update_nav()
+        self._on_earlier_step_changed()
 
     def on_text_area_changed(self, event) -> None:
-        self._update_nav()
+        self._on_earlier_step_changed()
 
     # ── Run encrypt / decrypt ────────────────────────────────────
+
+    def _set_execute_enabled(self, enabled: bool) -> None:
+        """Enable or disable the Execute button.
+
+        The KDF is deliberately slow, and there is no busy indicator, so a
+        dead button is the only feedback that the run has started. Tolerates
+        the button being absent: the nav bar is rebuilt on every step change.
+        """
+        try:
+            self.query_one("#btn-run", Button).disabled = not enabled
+        except Exception:
+            pass
 
     def _run_operation(self) -> None:
         ok, reason = self._state.validate_review()
@@ -410,12 +455,15 @@ class MorpheusWizard(App):
             self.notify(reason, severity="error")
             return
         self._state.completed_steps.add(STEP_REVIEW)
+        # Belt and braces with `exclusive=True` below: the flag cancels a
+        # second worker, this stops the second press registering at all.
+        self._set_execute_enabled(False)
         if self._state.mode == Mode.ENCRYPT:
             self._do_encrypt()
         else:
             self._do_decrypt()
 
-    @work(thread=True)
+    @work(thread=True, exclusive=True)
     def _do_encrypt(self) -> None:
         s = self._state
         try:
@@ -433,12 +481,14 @@ class MorpheusWizard(App):
             else:
                 result = self._encrypt_file(pipeline)
 
-            s.output = result
+            s.record_output(result)
             self.call_from_thread(self._goto_output)
         except Exception as exc:
             self.call_from_thread(self.notify, f"Encryption failed: {exc}", severity="error")
+        finally:
+            self.call_from_thread(self._set_execute_enabled, True)
 
-    @work(thread=True)
+    @work(thread=True, exclusive=True)
     def _do_decrypt(self) -> None:
         s = self._state
         try:
@@ -449,7 +499,7 @@ class MorpheusWizard(App):
             else:
                 result = self._decrypt_file(pipeline)
 
-            s.output = result
+            s.record_output(result)
             self.call_from_thread(self._goto_output)
         except Exception as exc:
             self.call_from_thread(
@@ -457,6 +507,8 @@ class MorpheusWizard(App):
                 f"Decryption failed: {exc}",
                 severity="error",
             )
+        finally:
+            self.call_from_thread(self._set_execute_enabled, True)
 
     def _goto_output(self) -> None:
         self._state.completed_steps.add(STEP_OUTPUT)

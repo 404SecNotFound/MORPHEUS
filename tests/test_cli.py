@@ -1,6 +1,7 @@
 """Tests for CLI file encryption/decryption."""
 
 import base64
+import contextlib
 import io
 import json
 import os
@@ -11,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from morpheus.__main__ import main
 from morpheus.cli import (
     _diagnose_ciphertext,
     _padding_hint,
@@ -23,7 +25,11 @@ from morpheus.core.errors import (
     FormatError,
     WrongPasswordError,
 )
-from morpheus.core.pipeline import EncryptionPipeline
+from morpheus.core.pipeline import (
+    PQ_AVAILABLE,
+    EncryptionPipeline,
+    pq_generate_keypair,
+)
 
 
 class TestFileEncryption:
@@ -341,16 +347,34 @@ class TestSaveConfig:
     """Test --save-config flag."""
 
     def test_save_config_creates_file(self, capsys):
-        """--save-config should write config.toml."""
+        """--save-config should write config.toml.
+
+        Uses --pad rather than --chain for the boolean: --chain is only valid
+        with AES-256-GCM, and persisting it alongside ChaCha20-Poly1305 would
+        store a combination that fails on every later run.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
             with patch("morpheus.cli.save_config") as mock_save:
                 mock_save.return_value = cfg_file
-                run_cli(["--save-config", "--cipher", "ChaCha20-Poly1305", "--chain"])
+                run_cli(["--save-config", "--cipher", "ChaCha20-Poly1305", "--pad"])
             mock_save.assert_called_once()
             call_args = mock_save.call_args[0][0]
             assert call_args["cipher"] == "ChaCha20-Poly1305"
-            assert call_args["chain"] is True
+            assert call_args["pad"] is True
+
+    def test_save_config_refuses_an_unusable_combination(self, capsys):
+        """--chain with a non-AES cipher must not be persisted.
+
+        Saving it would produce a config that makes every later invocation
+        fail with an error naming flags the user is no longer passing.
+        """
+        with patch("morpheus.cli.save_config") as mock_save:
+            with pytest.raises(SystemExit) as exc:
+                run_cli(["--save-config", "--cipher", "ChaCha20-Poly1305",
+                         "--chain"])
+            assert exc.value.code == 2
+        assert not mock_save.called
 
 
 class TestCheckLeaks:
@@ -741,3 +765,361 @@ class TestPQKeyRequiresHybridFlag:
         finally:
             sys.stdin = old_stdin
         assert "--hybrid-pq" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX file modes, O_NOFOLLOW and unprivileged symlinks; "
+           "Windows is in the CI matrix and has none of the three",
+)
+class TestOutputFilePermissions:
+    """Output files must be owner-only and never reached through a symlink.
+
+    Both the ciphertext and the decrypted plaintext were previously created
+    with a bare ``open()``, so they inherited the umask (``-rw-r--r--`` under
+    the default 022) and followed a symlink sitting at the output path.
+    """
+
+    @pytest.fixture(autouse=True)
+    def permissive_umask(self):
+        """Pin a permissive umask so the mode assertions cannot pass by luck.
+
+        Under ``umask 077`` a bare ``open()`` already yields 0600, which would
+        make these tests green against the unfixed code.
+        """
+        old = os.umask(0o022)
+        yield
+        os.umask(old)
+
+    def _encrypt_to(self, src, dst):
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(f"{PW}\n{PW}\n")
+        try:
+            run_cli(["-o", "encrypt", "-f", src, "--output", dst])
+        finally:
+            sys.stdin = old_stdin
+
+    def _decrypt_to(self, src, dst):
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(f"{PW}\n")
+        try:
+            run_cli(["-o", "decrypt", "-f", src, "--output", dst])
+        finally:
+            sys.stdin = old_stdin
+
+    @staticmethod
+    def _make_source(tmpdir):
+        src = os.path.join(tmpdir, "secret.txt")
+        with open(src, "w") as f:
+            f.write("classified contents\n")
+        return src
+
+    def test_ciphertext_is_owner_only(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = self._make_source(tmpdir)
+            enc = os.path.join(tmpdir, "secret.txt.enc")
+            self._encrypt_to(src, enc)
+            assert os.stat(enc).st_mode & 0o777 == 0o600
+
+    def test_decrypted_plaintext_is_owner_only(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = self._make_source(tmpdir)
+            enc = os.path.join(tmpdir, "secret.txt.enc")
+            dec = os.path.join(tmpdir, "out.txt")
+            self._encrypt_to(src, enc)
+            self._decrypt_to(enc, dec)
+            assert os.stat(dec).st_mode & 0o777 == 0o600
+
+    def test_decrypt_refuses_dangling_symlink_output(self):
+        """A dangling symlink at the output path must not be followed.
+
+        ``os.path.exists()`` is False for a dangling link, so the overwrite
+        guard never fires; without O_NOFOLLOW the plaintext lands on the
+        link's target. The target here stands in for a file outside the
+        directory the user thought they were writing to.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = self._make_source(tmpdir)
+            enc = os.path.join(tmpdir, "secret.txt.enc")
+            self._encrypt_to(src, enc)
+
+            target = os.path.join(tmpdir, "PWNED.target")
+            link = os.path.join(tmpdir, "notes.txt")
+            os.symlink(target, link)
+            assert not os.path.exists(target)
+
+            with pytest.raises(SystemExit) as exc:
+                self._decrypt_to(enc, link)
+            assert exc.value.code != 0
+            assert not os.path.exists(target), "write followed the symlink"
+
+
+class TestStdoutIsPipeable:
+    """stdout must carry the payload and nothing else.
+
+    The banner was printed to stdout ahead of the ciphertext, so the obvious
+    `encrypt | decrypt --data -` round-trip failed with "This doesn't look
+    like MORPHEUS ciphertext".
+    """
+
+    def test_encrypt_output_round_trips_through_stdout(self, capsys):
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(f"{PW}\n{PW}\n")
+        try:
+            run_cli(["-o", "encrypt", "--data", "piped secret"])
+        finally:
+            sys.stdin = old_stdin
+        payload = capsys.readouterr().out.strip()
+
+        assert payload, "nothing was written to stdout"
+        assert "Encrypted" not in payload, "banner leaked onto stdout"
+        assert "\n" not in payload, "stdout carried more than the payload"
+
+        sys.stdin = io.StringIO(f"{PW}\n")
+        try:
+            run_cli(["-o", "decrypt", "--data", payload])
+        finally:
+            sys.stdin = old_stdin
+        assert capsys.readouterr().out.strip() == "piped secret"
+
+
+class TestFailsBeforeThePasswordPrompt:
+    """Argument conflicts decidable from argv must not cost a password entry.
+
+    --chain with a non-AES cipher raised ConfigurationError from the pipeline
+    constructor, which runs *after* the user has typed and confirmed their
+    password.
+    """
+
+    def test_chain_with_chacha_is_an_argparse_error(self, capsys):
+        old_stdin = sys.stdin
+        # Empty stdin: if the CLI reaches the prompt it fails differently.
+        sys.stdin = io.StringIO("")
+        try:
+            with pytest.raises(SystemExit) as exc:
+                run_cli(["-o", "encrypt", "--data", "x", "--chain",
+                         "--cipher", "ChaCha20-Poly1305"])
+            assert exc.value.code == 2, "should be an argparse usage error"
+        finally:
+            sys.stdin = old_stdin
+        err = capsys.readouterr().err
+        assert "--chain" in err
+        assert "password" not in err.lower(), "prompted before rejecting"
+
+
+class TestTopLevelExceptionHandler:
+    """An unexpected exception must not print a traceback to the user.
+
+    Raw tracebacks disclose absolute install paths and are unactionable.
+    """
+
+    def test_unexpected_error_is_reported_without_a_traceback(self, capsys):
+        with patch("morpheus.cli.run_cli", side_effect=RuntimeError("boom")), \
+             patch.object(sys, "argv", ["morpheus", "-o", "encrypt"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code != 0
+        err = capsys.readouterr().err
+        assert "Traceback" not in err
+        assert "boom" in err
+        assert os.path.dirname(os.__file__) not in err, "leaked an install path"
+
+    def test_keyboard_interrupt_exits_quietly(self, capsys):
+        with patch("morpheus.cli.run_cli", side_effect=KeyboardInterrupt), \
+             patch.object(sys, "argv", ["morpheus", "-o", "encrypt"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code != 0
+        assert "Traceback" not in capsys.readouterr().err
+
+
+class TestDocstringMatchesReality:
+    """cli.py claimed passwords never come from argv while -p existed."""
+
+    def test_docstring_does_not_deny_a_flag_that_exists(self):
+        import morpheus.cli
+
+        parser = morpheus.cli._build_parser()
+        options = {s for a in parser._actions for s in a.option_strings}
+        doc = (morpheus.cli.__doc__ or "").lower()
+        if "--password" in options:
+            assert "never from argv" not in doc, (
+                "-p/--password exists, so the docstring must not claim "
+                "passwords never come from argv"
+            )
+
+
+class TestConfigPrecedence:
+    """A config file must never beat an explicit CLI argument.
+
+    The old detection compared each value against the argparse default, so an
+    explicitly passed value that happened to equal the default was
+    indistinguishable from "not passed" and got silently replaced. Two
+    settings were also persistable that should never have been: `passphrase`
+    swaps the password policy for a weaker one, and `check_leaks` causes
+    outbound HTTPS on every encryption.
+    """
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _config(text):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg = Path(tmpdir) / "config.toml"
+            cfg.write_text(text)
+            with patch("morpheus.core.config._CONFIG_FILE", cfg):
+                yield cfg
+
+    @staticmethod
+    def _encrypt(argv, password=PW):
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(f"{password}\n{password}\n")
+        try:
+            run_cli(argv)
+        finally:
+            sys.stdin = old_stdin
+
+    def test_explicit_cipher_equal_to_default_still_wins(self, capsys):
+        """--cipher AES-256-GCM must survive a config saying otherwise.
+
+        AES-256-GCM is also the argparse default, which is exactly the case
+        the old "compare against the default" heuristic could not see.
+        """
+        with self._config('cipher = "ChaCha20-Poly1305"\n'):
+            self._encrypt(["-o", "encrypt", "--data", "hello",
+                           "--cipher", "AES-256-GCM"])
+        combined = capsys.readouterr()
+        # Assert on the encryption banner specifically. The config-applied
+        # notice legitimately names the config's cipher, so a substring search
+        # over the whole output would be ambiguous.
+        banner = next(
+            line for line in (combined.out + combined.err).splitlines()
+            if line.startswith("Encrypted (")
+        )
+        assert "AES-256-GCM" in banner
+        assert "ChaCha20-Poly1305" not in banner
+
+    def test_config_cannot_weaken_the_password_policy(self):
+        """`passphrase = true` in a config must not relax strength checks.
+
+        This password is rejected by the standard policy and accepted by the
+        passphrase policy, so it distinguishes the two.
+        """
+        weak = "zzzz zzzz zzzz zzzz zzzz"
+        with self._config("passphrase = true\n"):
+            with pytest.raises(SystemExit) as exc:
+                self._encrypt(["-o", "encrypt", "--data", "hello"],
+                              password=weak)
+            assert exc.value.code != 0
+
+    def test_config_cannot_enable_network_calls(self):
+        """`check_leaks = true` in a config must not trigger outbound HTTPS."""
+        # Patched on morpheus.cli, not morpheus.core.validation: cli.py binds
+        # the name at import time, so patching the source module would leave
+        # the real function in place and pass vacuously.
+        with self._config("check_leaks = true\n"):
+            with patch("morpheus.cli.check_password_leaked") as leak:
+                leak.return_value = (False, 0)
+                self._encrypt(["-o", "encrypt", "--data", "hello"])
+            assert not leak.called, "config file triggered a network call"
+
+    def test_applied_config_is_announced(self, capsys):
+        """Silent application of a config is how a planted one goes unnoticed."""
+        with self._config('cipher = "ChaCha20-Poly1305"\n') as cfg:
+            self._encrypt(["-o", "encrypt", "--data", "hello"])
+        assert str(cfg) in capsys.readouterr().err
+
+
+@pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
+class TestPQSecretKeyFile:
+    """The ML-KEM secret key must not be required to travel through argv.
+
+    argv is readable from shell history, ``ps`` output and
+    ``/proc/<pid>/cmdline`` for the whole multi-second Argon2id-bound run, so
+    ``--pq-secret-key`` exposes the private half of the keypair to every other
+    local user. ``--generate-keypair`` printing it to stdout has the same
+    effect via the scrollback and any shell logging.
+    """
+
+    @staticmethod
+    def _b64(raw):
+        return base64.b64encode(raw).decode()
+
+    def test_secret_key_file_round_trips(self):
+        """A hybrid ciphertext must decrypt with the key supplied by file."""
+        pk, sk = pq_generate_keypair()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = os.path.join(tmpdir, "msg.txt")
+            with open(src, "w") as f:
+                f.write("hybrid secret\n")
+            enc = os.path.join(tmpdir, "msg.enc")
+            dec = os.path.join(tmpdir, "msg.out")
+            keyfile = os.path.join(tmpdir, "sk.b64")
+            with open(keyfile, "w") as f:
+                f.write(self._b64(sk))
+            os.chmod(keyfile, 0o600)
+
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO(f"{PW}\n{PW}\n")
+            try:
+                run_cli(["-o", "encrypt", "-f", src, "--output", enc,
+                         "--hybrid-pq", "--pq-public-key", self._b64(pk)])
+            finally:
+                sys.stdin = old_stdin
+
+            sys.stdin = io.StringIO(f"{PW}\n")
+            try:
+                run_cli(["-o", "decrypt", "-f", enc, "--output", dec,
+                         "--hybrid-pq", "--pq-secret-key-file", keyfile])
+            finally:
+                sys.stdin = old_stdin
+
+            with open(dec) as f:
+                assert f.read() == "hybrid secret\n"
+
+    def test_both_secret_key_flags_is_an_error(self, capsys):
+        """Supplying the key twice is ambiguous and must not pick silently."""
+        _, sk = pq_generate_keypair()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            keyfile = os.path.join(tmpdir, "sk.b64")
+            with open(keyfile, "w") as f:
+                f.write(self._b64(sk))
+            with pytest.raises(SystemExit) as exc:
+                run_cli(["-o", "decrypt", "--data", "AwEC", "--hybrid-pq",
+                         "--pq-secret-key", self._b64(sk),
+                         "--pq-secret-key-file", keyfile])
+            assert exc.value.code != 0
+            # Without this the test passes vacuously on argparse's
+            # "unrecognized arguments" before the flag even exists.
+            err = capsys.readouterr().err
+            assert "unrecognized" not in err
+            assert "--pq-secret-key-file" in err and "--pq-secret-key" in err
+
+    def test_argv_secret_key_warns(self, capsys):
+        """The argv form still works but must say why it is a bad idea."""
+        _, sk = pq_generate_keypair()
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(f"{PW}\n")
+        try:
+            with pytest.raises(SystemExit):
+                run_cli(["-o", "decrypt", "--data", "AwEC", "--hybrid-pq",
+                         "--pq-secret-key", self._b64(sk)])
+        finally:
+            sys.stdin = old_stdin
+        err = capsys.readouterr().err
+        assert "--pq-secret-key-file" in err
+
+    def test_generate_keypair_keeps_secret_off_stdout(self, capsys):
+        """The secret key must reach a 0600 file, never the terminal."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            keyfile = os.path.join(tmpdir, "pq_secret.key")
+            run_cli(["--generate-keypair", "--output", keyfile])
+            captured = capsys.readouterr()
+
+            assert os.path.exists(keyfile), "secret key was not written"
+            assert os.stat(keyfile).st_mode & 0o777 == 0o600
+            with open(keyfile) as f:
+                secret_b64 = f.read().strip()
+            # The real secret, not a placeholder.
+            assert len(base64.b64decode(secret_b64)) == 2400
+            assert secret_b64 not in captured.out, "secret key printed to stdout"
+            assert secret_b64 not in captured.err, "secret key printed to stderr"
