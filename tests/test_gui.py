@@ -27,7 +27,7 @@ from morpheus.ui.state import (
     Mode,
 )
 from morpheus.ui.steps.password import StrengthBar
-from tests.support import settle
+from tests.support import settle, settle_on, settle_on_sidebar
 
 # ── StrengthBar unit tests ──────────────────────────────────────
 
@@ -122,13 +122,13 @@ class TestWizardApp:
 
             # Next
             app.action_next_step()
-            await pilot.pause()
+            await settle(app, pilot)
             step_label = str(app.query_one("#top-step", Static).render())
             assert "Settings" in step_label
 
             # Back
             app.action_prev_step()
-            await pilot.pause()
+            await settle(app, pilot)
             step_label = str(app.query_one("#top-step", Static).render())
             assert "Mode" in step_label
 
@@ -146,7 +146,7 @@ class TestWizardApp:
         app = MorpheusWizard()
         async with app.run_test(size=(120, 50)) as pilot:
             app.action_quick_encrypt()
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._state.mode == Mode.ENCRYPT
             step_label = str(app.query_one("#top-step", Static).render())
             assert "Settings" in step_label
@@ -157,7 +157,7 @@ class TestWizardApp:
         app = MorpheusWizard()
         async with app.run_test(size=(120, 50)) as pilot:
             app.action_quick_decrypt()
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._state.mode == Mode.DECRYPT
             step_label = str(app.query_one("#top-step", Static).render())
             assert "Settings" in step_label
@@ -169,11 +169,11 @@ class TestWizardApp:
         async with app.run_test(size=(120, 50)) as pilot:
             # Advance to settings
             app.action_quick_encrypt()
-            await pilot.pause()
+            await settle(app, pilot)
 
             # Clear all
             app.action_clear_all()
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._state.mode is None
             step_label = str(app.query_one("#top-step", Static).render())
             assert "Mode" in step_label
@@ -211,6 +211,74 @@ class TestWizardApp:
             await pilot.pause()
 
             assert app._state.output == plaintext
+
+
+# ── The settle() helper itself ───────────────────────────────────
+
+class TestSettleWaitsForTheRightThing:
+    """`settle` guards every GUI test, so its own postcondition needs a guard.
+
+    It used to return as soon as `app.focused` stopped changing. That is also
+    true while focus is *still on the sidebar* and the `call_after_refresh`
+    handoff has not been scheduled yet — a transient stable state, not the end
+    state. The Windows CI runner hit that window and
+    `TestStepContentTakesFocus` failed there while passing everywhere else.
+
+    Driven with a fake app rather than a real one, because the point is the
+    helper's decision logic and a real app cannot be held on the sidebar: its
+    own handoff moves focus away immediately, which is what makes the race so
+    hard to reproduce by hand.
+    """
+
+    class _W:
+        def __init__(self, name, ancestors):
+            self.id, self.ancestors = name, ancestors
+
+        def __repr__(self):
+            return f"_W({self.id})"
+
+    class _Workers:
+        async def wait_for_complete(self):
+            return
+
+    class _FakeApp:
+        def __init__(self, outer, land_after):
+            self.sidebar = object()
+            self.workers = outer._Workers()
+            self.n = 0
+            self.land_after = land_after
+            self._on_sidebar = outer._W("sb-0", [self.sidebar])
+            self._on_step = outer._W("mode-radio", [object()])
+
+        def query_one(self, selector):
+            assert selector == "#sidebar"
+            return self.sidebar
+
+        @property
+        def focused(self):
+            if self.land_after is not None and self.n >= self.land_after:
+                return self._on_step
+            return self._on_sidebar
+
+    class _FakePilot:
+        def __init__(self, app):
+            self.app = app
+
+        async def pause(self):
+            self.app.n += 1
+
+    @pytest.mark.asyncio
+    async def test_focus_stable_on_the_sidebar_is_not_settled(self):
+        """The regression: stable, but stable in the wrong place."""
+        app = self._FakeApp(self, land_after=None)
+        with pytest.raises(AssertionError, match="never landed off the sidebar"):
+            await settle(app, self._FakePilot(app))
+
+    @pytest.mark.asyncio
+    async def test_returns_once_focus_lands_and_then_holds_still(self):
+        app = self._FakeApp(self, land_after=3)
+        await settle(app, self._FakePilot(app))
+        assert app.n >= 4, "must wait for landing plus one stable frame"
 
 
 # ── Settings step: hybrid PQ is CLI-only ─────────────────────────
@@ -480,7 +548,7 @@ class TestStepContentTakesFocus:
         async with _wizard_on_step(STEP_PASSWORD) as (app, pilot):
             assert app.focused.id == "pwd-input"
             await pilot.press("escape")
-            await pilot.pause()
+            await settle_on_sidebar(app, pilot)
             assert app.focused.id == f"sb-{STEP_PASSWORD}", (
                 f"escape left focus on {app.focused}; the sidebar cannot be "
                 "reached from the step"
@@ -491,14 +559,16 @@ class TestStepContentTakesFocus:
         """Reachable is not enough; it has to still work once you are there."""
         async with _wizard_on_step(STEP_PASSWORD) as (app, pilot):
             await pilot.press("escape")
-            await pilot.pause()
+            await settle_on_sidebar(app, pilot)
             await pilot.press("tab")       # sb-3 -> sb-4 (Review)
-            await pilot.pause()
+            # Naming the target, because both settle helpers are already
+            # satisfied before Tab moves and would return on sb-3.
+            await settle_on(app, pilot, f"sb-{STEP_REVIEW}")
             assert app.focused.id == f"sb-{STEP_REVIEW}", (
                 f"tab did not move along the sidebar, it left {app.focused}"
             )
             await pilot.press("enter")
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._current_step == STEP_REVIEW
 
 
@@ -526,13 +596,13 @@ class TestGlobalShortcutsSurviveFocus:
 
             app._state.mode = Mode.DECRYPT
             await pilot.press("ctrl+e")
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._state.mode == Mode.ENCRYPT, (
                 "ctrl+e reached the focused field instead of the app"
             )
 
             await pilot.press("ctrl+d")
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._state.mode == Mode.DECRYPT, (
                 "ctrl+d reached the focused field instead of the app"
             )
