@@ -54,11 +54,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   carries a name and description, so it has to stay above AA
 - **Terminal visual system**: Warm-graphite palette replacing the Matrix
   black-and-green theme. Amber `#f4b23e` is reserved for exposed secret
-  material (the output pane holding ciphertext or plaintext, and its auto-clear
-  countdown); selection and focus use near-white `#ecebe6`; text runs in tiers
-  so data reads brighter than chrome. Every token used for text clears WCAG AA
-  against the background, verified by `tests/test_theme.py` and re-runnable via
-  `scripts/check_contrast.py`. See
+  material and marks exactly three places: the output pane while it holds
+  ciphertext or plaintext, that pane's auto-clear countdown, and a password
+  field the user has chosen to unmask. Selection and focus use near-white
+  `#ecebe6`; text runs in tiers so data reads brighter than chrome. Every token
+  used for text clears WCAG AA against the background, verified by
+  `tests/test_theme.py` and re-runnable via `scripts/check_contrast.py`. See
   `docs/design/2026-07-28-terminal-visual-system.md`.
 - **Clipboard robustness**: Copy tries pyperclip first, then the system
   utilities (xclip/xsel/wl-copy/pbcopy), then tkinter. Paste buttons added to
