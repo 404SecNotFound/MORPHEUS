@@ -213,6 +213,55 @@ class TestWizardApp:
             assert app._state.output == plaintext
 
 
+# ── Settings step: hybrid PQ is CLI-only ─────────────────────────
+
+class TestSettingsDoesNotOfferHybridPQ:
+    """The wizard must not present a control it cannot honour (UAT DEF-006).
+
+    Settings used to offer a "Hybrid Post-Quantum" checkbox while the TUI had
+    no keypair generation, no key entry and no key display anywhere. Ticking
+    it walked the user through four more steps, took a password and a
+    confirmation, and only then failed out of the pipeline. `docs/USAGE.md`
+    compounded it by telling GUI users to click a "Generate Keypair" button
+    that never existed, for the feature the README calls differentiator #1.
+
+    The product decision was to make hybrid PQ command-line only, so the
+    control is gone and the step signposts the CLI route instead. These
+    assertions fail if the checkbox comes back without key management.
+    """
+
+    @pytest.mark.asyncio
+    async def test_no_hybrid_pq_control_exists_on_settings(self):
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app._state.mode = Mode.ENCRYPT
+            app._show_step(STEP_SETTINGS)
+            await pilot.pause()
+            assert not app.query("#pq-check"), (
+                "Settings offers a hybrid PQ control again, but the wizard "
+                "still has no way to supply an ML-KEM public key"
+            )
+
+    @pytest.mark.asyncio
+    async def test_settings_signposts_the_cli_route(self):
+        """Removing the control must not silently remove the feature's trail.
+
+        The README presents hybrid PQ as the headline feature, so a user will
+        come to the wizard looking for it and needs to be told where it lives.
+        """
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app._state.mode = Mode.ENCRYPT
+            app._show_step(STEP_SETTINGS)
+            await pilot.pause()
+            rendered = " ".join(
+                str(w.render()) for w in app.query(Static)
+            )
+            assert "--generate-keypair" in rendered, (
+                "Settings no longer tells the user where hybrid PQ lives"
+            )
+
+
 # ── Output step rendering ────────────────────────────────────────
 
 class TestOutputAreaWrapsDeterministically:

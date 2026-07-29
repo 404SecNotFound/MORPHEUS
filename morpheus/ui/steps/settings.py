@@ -7,7 +7,6 @@ from textual.widgets import Checkbox, Collapsible, Label, Select, Static
 
 from ...core.ciphers import CIPHER_CHOICES
 from ...core.kdf import KDF_CHOICES
-from ...core.pipeline import PQ_AVAILABLE
 from .. import theme
 from ..state import WizardState
 
@@ -70,21 +69,18 @@ class SettingsStep(Vertical):
             classes="field-help",
         )
 
-        pq_label = "Hybrid Post-Quantum (ML-KEM-768)"
-        if not PQ_AVAILABLE:
-            pq_label += f" [{theme.TEXT_3}](install pqcrypto)[/]"
-        yield Checkbox(
-            pq_label,
-            id="pq-check",
-            value=self._state.hybrid_pq,
-            disabled=not PQ_AVAILABLE,
+        # Hybrid post-quantum is CLI-only. The wizard cannot generate, display
+        # or accept an ML-KEM keypair, so a checkbox here could only ever fail
+        # after the user had already chosen a password (UAT DEF-006). It is
+        # signposted rather than silently dropped, because the README presents
+        # hybrid PQ as the headline feature and users will come looking for it.
+        yield Static(
+            f"[{theme.TEXT_3}]Hybrid Post-Quantum (ML-KEM-768) is command-line only — "
+            f"the wizard cannot hold a keypair. Use [{theme.TEXT_2}]--generate-keypair[/]"
+            f"[{theme.TEXT_3}] then [{theme.TEXT_2}]--hybrid-pq[/]"
+            f"[{theme.TEXT_3}] on the CLI.[/]",
+            classes="field-help",
         )
-        if PQ_AVAILABLE:
-            yield Static(
-                f"[{theme.TEXT_3}]Adds ML-KEM-768 key encapsulation on top of password-derived "
-                "keys — protects against future quantum computers.[/]",
-                classes="field-help",
-            )
 
         with Collapsible(title="Advanced options", collapsed=True):
             yield Checkbox("Pad plaintext to hide length", id="pad-check",
@@ -118,7 +114,6 @@ class SettingsStep(Vertical):
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         mapping = {
             "chain-check": "chain",
-            "pq-check": "hybrid_pq",
             "pad-check": "pad",
             "fixed-check": "fixed_size",
             "nofn-check": "no_filename",

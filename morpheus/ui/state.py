@@ -144,14 +144,15 @@ class WizardState:
                 "chaining off."
             )
         if self.hybrid_pq:
-            # The wizard has no key management: app.py builds the pipeline with
-            # hybrid_pq alone and never supplies a public key, and there is no
-            # control anywhere in the TUI to generate or paste one. Refusing
-            # here is honest about that; the alternative is a failure after the
-            # password. See UAT DEF-006 for the product decision.
+            # Hybrid PQ is CLI-only (UAT DEF-006): the wizard has no key
+            # management, and app.py would build the pipeline with hybrid_pq
+            # and no public key. Settings no longer offers the control, so
+            # this is unreachable through the UI. It stays because the state
+            # model must not depend on the UI's current shape — re-adding a
+            # checkbox should fail this check, not ship a broken feature.
             return False, (
                 "Hybrid post-quantum needs an ML-KEM public key, and this "
-                "wizard has no way to supply one yet. Use the command line: "
+                "wizard has no way to supply one. Use the command line: "
                 "morpheus --generate-keypair, then "
                 "morpheus -o encrypt --hybrid-pq --pq-public-key <key>."
             )

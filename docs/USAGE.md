@@ -482,9 +482,11 @@ python morpheus.py -o decrypt --data "AgEB..." \
   --hybrid-pq --pq-secret-key-file my_pq_secret.key
 ```
 
-In the GUI, check the "Hybrid Post-Quantum" checkbox and click "Generate
-Keypair" to create keys. Copy them before closing the app — they exist
-in memory only and are never saved to disk.
+Hybrid post-quantum is **command-line only**. The wizard has no key
+management — no keypair generation, no key entry, no key display — so its
+Settings step points at these flags rather than offering a control it cannot
+honour. `--generate-keypair` prints the public key to stdout and writes the
+secret key to a file with `0600` permissions.
 
 ---
 
