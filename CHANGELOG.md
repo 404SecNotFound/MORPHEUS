@@ -25,6 +25,16 @@ programme's register.
   button. No such button ever existed.
 
 ### Fixed
+- **The GUI test helper `settle()` waited for the wrong condition.** It
+  returned as soon as focus stopped changing, which is also true while focus
+  is still on the sidebar and the step's `call_after_refresh` handoff has not
+  fired. That is a transient stable state, not the end state, and the Windows
+  runner hit the window: `TestStepContentTakesFocus` failed there
+  intermittently while passing on every other platform. It now waits for the
+  postcondition its callers actually depend on — focus has left the sidebar
+  *and then* stopped moving. Two tests drive the helper with a fake app to pin
+  both branches, since a real app cannot be held on the sidebar long enough to
+  reproduce the race by hand.
 - **`--hybrid-pq` without `pqcrypto` is refused at parse time** (DEF-001).
   It used to prompt for a password, ask again to confirm it, and only then
   report the missing package. Availability is known from argv, so the prompt
@@ -38,6 +48,11 @@ programme's register.
 ### Documentation
 - Corrected the test count in `README.md` and `CONTRIBUTING.md`, which still
   said 308.
+- Removed "No data touches the disk" from the **GitHub repository
+  description**. `CHANGELOG` 2.1.0 records that claim being retracted from the
+  docs, because the TUI writes a temporary file when no clipboard backend is
+  available — but it survived on the repo page, which is the most-read surface
+  the project has.
 - **`SECURITY.md`'s unzeroable-copy table was incomplete** (DEF-007). Its
   *Known Limitations* section enumerates the library boundaries where key
   material is copied into an immutable `bytes` that cannot be zeroed, and read
