@@ -75,9 +75,16 @@ programme's register.
   with the `security-extended` query suite. Weekly matters because it catches
   an old commit with a newly published query. Note this is the advanced
   workflow setup and conflicts with GitHub's default setup if that is ever
-  enabled. Code scanning is free on public repositories; while this repository
-  is private the runs require GitHub Advanced Security and will fail without
-  it.
+  enabled.
+
+  The analysis is **gated on the repository being public**. Code scanning is
+  free on public repositories, but on a private one it needs GitHub Advanced
+  Security: the scan itself succeeds and then the upload fails with "Code
+  scanning is not enabled for this repository", and enabling it returns 422
+  "Advanced security has not been purchased". Rather than carry a permanently
+  red check, the job skips while private and starts by itself when visibility
+  changes, with no edit required at the switch. Visibility is read through the
+  API rather than the event payload, so scheduled runs gate correctly too.
 
 ## [2.1.0] - 2026-02-10
 

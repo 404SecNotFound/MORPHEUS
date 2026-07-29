@@ -7,9 +7,20 @@
 # to a SHA and selecting the security-extended query suite, neither of which
 # default setup exposes.
 #
-# NOTE ON VISIBILITY: code scanning is free on public repositories. While this
-# repository is private, these runs require GitHub Advanced Security and will
-# fail without it. That is expected until the repository is made public.
+# NOTE ON VISIBILITY: code scanning is free on public repositories. On a
+# private repository it requires GitHub Advanced Security; without it the
+# analysis runs correctly and then fails at the upload step with "Code scanning
+# is not enabled for this repository" (GitHub returns 422 "Advanced security
+# has not been purchased" if you try to enable it).
+#
+# So the analysis is gated on the repository being public. It skips while
+# private and starts by itself the moment visibility changes — no code change
+# needed at the switch. A permanently-red check is not harmless: this project
+# already had CI sit red on macOS and Windows for four consecutive pushes
+# because a familiar red X stopped being read.
+#
+# Visibility is resolved through the API rather than `github.event.repository`,
+# because the scheduled-event payload is not a reliable place to read it.
 name: CodeQL
 
 on:
@@ -26,8 +37,32 @@ permissions:
   contents: read
 
 jobs:
+  visibility:
+    name: Check repository visibility
+    runs-on: ubuntu-latest
+    outputs:
+      public: ${{ steps.check.outputs.public }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          private=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .private)
+          if [ "${private}" = "false" ]; then
+            echo "public=true" >> "${GITHUB_OUTPUT}"
+            echo "Repository is public: running CodeQL."
+          else
+            echo "public=false" >> "${GITHUB_OUTPUT}"
+            echo "Repository is private: skipping CodeQL, which cannot upload"
+            echo "results without GitHub Advanced Security. This job will run"
+            echo "automatically once the repository is made public."
+          fi
+
   analyze:
     name: Analyze Python
+    needs: visibility
+    if: needs.visibility.outputs.public == 'true'
     runs-on: ubuntu-latest
     permissions:
       # Required to upload results to the Security tab.
