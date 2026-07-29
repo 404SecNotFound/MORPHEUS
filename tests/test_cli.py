@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -12,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from morpheus import __version__
 from morpheus.__main__ import main
 from morpheus.cli import (
     _diagnose_ciphertext,
@@ -944,6 +946,41 @@ class TestFailsBeforeThePasswordPrompt:
                      "--pq-public-key", base64.b64encode(pk).decode()])
         finally:
             sys.stdin = old_stdin
+
+
+class TestVersionFlag:
+    """`--version` must exist, and must report the real package version.
+
+    Found in UAT (DEF-002): `--version` exited 2 with "unrecognized
+    arguments". Nothing documented it, so it was never a false claim, but it
+    is the first thing an issue reporter is asked to supply.
+    """
+
+    def test_version_flag_exits_zero_and_prints_the_version(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            run_cli(["--version"])
+        assert exc.value.code == 0, "--version succeeds; it is not a usage error"
+        out = capsys.readouterr().out
+        assert __version__ in out, "must report the package version"
+
+    def test_packaging_version_matches_the_package_version(self):
+        """pyproject.toml carries a hand-written version, so it can drift.
+
+        A `--version` flag that reports a number disagreeing with the
+        installed distribution is worse than no flag, because it sends issue
+        reporters chasing the wrong build. This repo has already shipped one
+        round of version drift (B10a), so the pair is asserted rather than
+        assumed.
+        """
+        pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        match = re.search(
+            r'^version\s*=\s*"([^"]+)"', pyproject.read_text(), re.MULTILINE
+        )
+        assert match, "pyproject.toml has no project version to compare against"
+        assert match.group(1) == __version__, (
+            f"pyproject.toml says {match.group(1)}, "
+            f"morpheus.__version__ says {__version__}"
+        )
 
 
 class TestTopLevelExceptionHandler:

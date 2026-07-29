@@ -19,6 +19,7 @@ import argparse
 import getpass
 import sys
 
+from . import __version__
 from .core.ciphers import CIPHER_CHOICES, CIPHER_REGISTRY
 from .core.config import config_path, load_config, save_config
 from .core.errors import (
@@ -51,6 +52,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="morpheus",
         description="MORPHEUS — quantum-resistant multi-cipher encryption",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show the version and exit.",
     )
     parser.add_argument(
         "-o", "--operation",
