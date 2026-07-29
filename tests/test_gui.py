@@ -27,7 +27,7 @@ from morpheus.ui.state import (
     Mode,
 )
 from morpheus.ui.steps.password import StrengthBar
-from tests.support import settle
+from tests.support import settle, settle_on, settle_on_sidebar
 
 # ── StrengthBar unit tests ──────────────────────────────────────
 
@@ -122,13 +122,13 @@ class TestWizardApp:
 
             # Next
             app.action_next_step()
-            await pilot.pause()
+            await settle(app, pilot)
             step_label = str(app.query_one("#top-step", Static).render())
             assert "Settings" in step_label
 
             # Back
             app.action_prev_step()
-            await pilot.pause()
+            await settle(app, pilot)
             step_label = str(app.query_one("#top-step", Static).render())
             assert "Mode" in step_label
 
@@ -146,7 +146,7 @@ class TestWizardApp:
         app = MorpheusWizard()
         async with app.run_test(size=(120, 50)) as pilot:
             app.action_quick_encrypt()
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._state.mode == Mode.ENCRYPT
             step_label = str(app.query_one("#top-step", Static).render())
             assert "Settings" in step_label
@@ -157,7 +157,7 @@ class TestWizardApp:
         app = MorpheusWizard()
         async with app.run_test(size=(120, 50)) as pilot:
             app.action_quick_decrypt()
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._state.mode == Mode.DECRYPT
             step_label = str(app.query_one("#top-step", Static).render())
             assert "Settings" in step_label
@@ -169,11 +169,11 @@ class TestWizardApp:
         async with app.run_test(size=(120, 50)) as pilot:
             # Advance to settings
             app.action_quick_encrypt()
-            await pilot.pause()
+            await settle(app, pilot)
 
             # Clear all
             app.action_clear_all()
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._state.mode is None
             step_label = str(app.query_one("#top-step", Static).render())
             assert "Mode" in step_label
@@ -548,7 +548,7 @@ class TestStepContentTakesFocus:
         async with _wizard_on_step(STEP_PASSWORD) as (app, pilot):
             assert app.focused.id == "pwd-input"
             await pilot.press("escape")
-            await pilot.pause()
+            await settle_on_sidebar(app, pilot)
             assert app.focused.id == f"sb-{STEP_PASSWORD}", (
                 f"escape left focus on {app.focused}; the sidebar cannot be "
                 "reached from the step"
@@ -559,14 +559,16 @@ class TestStepContentTakesFocus:
         """Reachable is not enough; it has to still work once you are there."""
         async with _wizard_on_step(STEP_PASSWORD) as (app, pilot):
             await pilot.press("escape")
-            await pilot.pause()
+            await settle_on_sidebar(app, pilot)
             await pilot.press("tab")       # sb-3 -> sb-4 (Review)
-            await pilot.pause()
+            # Naming the target, because both settle helpers are already
+            # satisfied before Tab moves and would return on sb-3.
+            await settle_on(app, pilot, f"sb-{STEP_REVIEW}")
             assert app.focused.id == f"sb-{STEP_REVIEW}", (
                 f"tab did not move along the sidebar, it left {app.focused}"
             )
             await pilot.press("enter")
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._current_step == STEP_REVIEW
 
 
@@ -594,13 +596,13 @@ class TestGlobalShortcutsSurviveFocus:
 
             app._state.mode = Mode.DECRYPT
             await pilot.press("ctrl+e")
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._state.mode == Mode.ENCRYPT, (
                 "ctrl+e reached the focused field instead of the app"
             )
 
             await pilot.press("ctrl+d")
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._state.mode == Mode.DECRYPT, (
                 "ctrl+d reached the focused field instead of the app"
             )
