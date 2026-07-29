@@ -32,22 +32,37 @@
 Most encryption tools make you choose: easy to use *or* cryptographically
 serious. MORPHEUS does both.
 
-It ships **post-quantum protection today** (ML-KEM-768, FIPS 203) so your data
-stays safe even when large-scale quantum computers arrive. It wraps everything
-in a terminal GUI that anyone can operate — no cryptography degree required.
+**Every encryption it produces is already quantum-resistant** — with no optional
+package, no key ceremony, and nothing to configure. That is a property of the
+defaults, not of an add-on: Argon2id has no known quantum shortcut, and AES-256
+and ChaCha20 keep roughly 128-bit security against Grover's algorithm. The
+whole point is that you do not have to do anything to get it.
 
-**Three things no other open-source CLI tool does at once:**
+It wraps that in a terminal GUI anyone can operate — no cryptography degree
+required.
 
-1. **Hybrid post-quantum encryption** — password + ML-KEM-768 lattice-based KEM
+**What sets it apart:**
+
+1. **Quantum-resistant by default** — not a mode you have to find and enable
 2. **Cipher chaining** — AES-256-GCM *then* ChaCha20-Poly1305 with independent keys
-3. **Self-describing authenticated format** — every header byte is covered by the AEAD tag,
-   so cipher, KDF, and parameters cannot be tampered with or downgraded
+3. **Self-describing authenticated format** — the header, including the KDF
+   parameters, is covered by the AEAD tag, so cipher, KDF and parameters cannot
+   be tampered with or downgraded
+4. **Optional ML-KEM-768** (FIPS 203) for a second, asymmetric factor: encrypt
+   to someone's public key so that guessing the password is not enough
+
+> **On the wording.** "Post-quantum" is often used to mean "uses a lattice
+> KEM". It is used here in the sense that matters to you: the ciphertext
+> resists an attacker with a quantum computer. Symmetric encryption with a
+> 256-bit key already does. ML-KEM adds a different property, described
+> [below](#why-quantum-resistance-does-not-depend-on-ml-kem).
 
 ## At a Glance
 
 | | MORPHEUS | age | gpg | openssl enc |
 |---|---|---|---|---|
-| Post-quantum layer | ML-KEM-768 (FIPS 203) | -- | -- | -- |
+| Quantum-resistant **password** mode | Yes | Yes | Yes | Yes |
+| Quantum-resistant **recipient** mode | ML-KEM-768 (FIPS 203), optional | No — X25519 | No — RSA/ECC | n/a |
 | Cipher chaining | AES + ChaCha | -- | -- | -- |
 | Terminal GUI | Full TUI with strength meter | -- | -- | -- |
 | File encryption | Up to 100 MiB (any type) | Yes | Yes | Yes |
@@ -131,10 +146,48 @@ ML-KEM-768 encapsulate ──> kem_shared_secret (32 bytes)
 
 The encryption key is derived from *both* your password *and* a lattice-based
 shared secret. An attacker must break Argon2id (brute-force your password)
-**and** ML-KEM-768 (solve the Learning With Errors problem). Overall security
-is bounded by the strongest factor, but a weak password remains the weakest link.
+**and** ML-KEM-768 (solve the Learning With Errors problem).
+
+Because the two are combined with an AND, the result is at least as strong as
+the stronger factor. An attacker who does not hold the ML-KEM secret key cannot
+get in by guessing the password, however weak it is — which is precisely what
+this mode buys you over a password alone.
+
+What it does *not* buy you is quantum resistance, because you already had that:
+see [Why quantum resistance does not depend on this](#why-quantum-resistance-does-not-depend-on-ml-kem).
 
 </details>
+
+### Why quantum resistance does not depend on ML-KEM
+
+This is the part most tools get wrong, so it is worth being exact.
+
+A quantum computer threatens the two families of cryptography very differently:
+
+| | Effect of a large quantum computer | Used by MORPHEUS for |
+|---|---|---|
+| **Symmetric** (AES-256, ChaCha20) | Grover's algorithm halves the effective key length. 256-bit becomes ~128-bit, which is still far beyond reach | Encrypting your data |
+| **Password hashing** (Argon2id) | No known quantum shortcut. Memory-hardness is unaffected | Turning your password into a key |
+| **Classical asymmetric** (RSA, X25519) | Shor's algorithm breaks it outright | **Nothing.** MORPHEUS does not use it |
+
+Because MORPHEUS never relies on RSA or elliptic curves to protect your data,
+there is nothing in the default path for Shor's algorithm to break. A password
+and Argon2id and AES-256 is a post-quantum construction, and it always was.
+
+**So what is ML-KEM-768 for?** It solves a different problem: encrypting *to
+someone else* without first sharing a password. Tools that offer this normally
+do it with X25519 or RSA — which is exactly the part a quantum computer breaks.
+MORPHEUS uses a lattice KEM instead, so the recipient mode is quantum-resistant
+too.
+
+Put plainly:
+
+- **Just want your data safe from future quantum computers?** Use MORPHEUS
+  normally. You already have it, and you never need `pqcrypto`.
+- **Want to send something to a colleague without agreeing a password first?**
+  That is what `--hybrid-pq` is for, and it needs the optional package.
+
+The honest summary: post-quantum is the floor here, not the upsell.
 
 ---
 
@@ -258,10 +311,11 @@ python morpheus.py -o encrypt --data "text" --chain --kdf Scrypt
 
 # Encrypt a file (any type: text, binary, images, archives)
 python morpheus.py -o encrypt -f document.pdf
-# -> document.pdf.enc
+# -> morpheus_ab12cd34ef56.enc  (random name: the filename is not leaked on disk)
 
-# Decrypt a file (restores original filename)
-python morpheus.py -o decrypt -f document.pdf.enc
+# Decrypt a file (the real name is restored from inside the ciphertext)
+python morpheus.py -o decrypt -f morpheus_ab12cd34ef56.enc
+# -> document.pdf
 
 # Pipe from stdin
 echo "secret" | python morpheus.py -o encrypt --data -
@@ -337,7 +391,7 @@ Passing any flag runs the CLI. Running `python morpheus.py` with no arguments la
 | Threat | Protection |
 |--------|-----------|
 | Offline password brute-force | Argon2id, 64 MiB memory-hard per guess (`t=3, p=4`). See the note below on cost |
-| Future quantum computers | Hybrid ML-KEM-768 layer (FIPS 203) |
+| Future quantum computers | **The default path already covers this.** Argon2id has no known quantum shortcut, and AES-256 / ChaCha20 retain ~128-bit security against Grover. Optional ML-KEM-768 (FIPS 203) adds a second, asymmetric factor — see below |
 | Single-algorithm compromise | Cipher chaining (two independent algorithms, independent keys) |
 | Memory forensics | Best-effort `ctypes.memset` zeroing of key buffers after use. See limitations |
 | Ciphertext tampering | AEAD authentication tag (16 bytes) |
@@ -378,7 +432,7 @@ Be precise about this rather than claiming a blanket guarantee.
 | Path | Writes to disk? |
 |------|-----------------|
 | CLI text mode (`--data`) | No. Input comes from argv or stdin, output goes to stdout |
-| CLI file mode (`--file`) | Yes, by design. Writes `FILE.enc` on encrypt, the original name on decrypt |
+| CLI file mode (`--file`) | Yes, by design. Encrypt writes `morpheus_<random>.enc`, so the original filename is not exposed on disk; decrypt restores the real name from inside the ciphertext. `--output` overrides both |
 | TUI text mode | Only if you press **Save to file**, or if **Copy** finds no clipboard backend and falls back to a temporary file |
 | `--save-config` | Yes. Writes `~/.morpheus/config.toml` (mode `0600` on POSIX; not applied on Windows — see SECURITY.md) |
 | Anything else | No temporary plaintext files are created |
