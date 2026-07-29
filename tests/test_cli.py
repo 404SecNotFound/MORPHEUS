@@ -987,6 +987,54 @@ class TestVersionFlag:
         )
 
 
+class TestNoInstallInstructionNamesADistributionWeDoNotOwn:
+    """Nothing shipped may tell a user to `pip install` the name `morpheus`.
+
+    That name on PyPI belongs to an unrelated project, so the instruction
+    fetches a stranger's package. It was present in two places: a comment in
+    requirements.txt, and the error shown when `--hybrid-pq` is used without
+    pqcrypto — that is, at the exact moment a user is reaching for the
+    post-quantum feature and is most likely to paste the command.
+
+    Local installs (`pip install -e ".[pq]"`) are fine: they resolve to this
+    checkout, not to the index. The rule is about naming a *distribution* we
+    do not control.
+    """
+
+    # `pip install` ... `morpheus`, unless it is a local path install.
+    _PIP_MORPHEUS = re.compile(
+        r"pip\s+install\s+(?!-e\s)(?P<args>[^\n`]*morpheus[^\n`]*)", re.I
+    )
+
+    SHIPPED = [
+        "README.md", "SECURITY.md", "CONTRIBUTING.md", "requirements.txt",
+        "docs/USAGE.md", "morpheus/cli.py", "morpheus/__main__.py",
+    ]
+
+    def test_no_shipped_file_instructs_installing_the_taken_name(self):
+        root = Path(__file__).resolve().parents[1]
+        offenders = []
+        for rel in self.SHIPPED:
+            path = root / rel
+            if not path.exists():
+                continue
+            for match in self._PIP_MORPHEUS.finditer(path.read_text()):
+                args = match.group("args")
+                if '"."' in args or "'.'" in args or args.strip().startswith("."):
+                    continue  # a local path install, not the index
+                offenders.append(f"{rel}: pip install {args.strip()[:60]}")
+        assert not offenders, (
+            "these tell a user to install the PyPI name 'morpheus', which is "
+            "an unrelated package:\n  " + "\n  ".join(offenders)
+        )
+
+    def test_the_pattern_would_catch_the_original_wording(self):
+        """Guards against a regex that quietly matches nothing."""
+        assert self._PIP_MORPHEUS.search('run `pip install "morpheus[pq]"` now')
+        assert not self._PIP_MORPHEUS.search('run `pip install -e ".[pq]"` now')
+        assert not self._PIP_MORPHEUS.search("run `pip install pqcrypto` now")
+
+
 class TestHelpEpilogExamplesAreReal:
     """The worked examples in `--help` must match what the tool emits.
 

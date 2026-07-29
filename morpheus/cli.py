@@ -588,11 +588,17 @@ def run_cli(argv: list[str] | None = None) -> None:
     # Quick Start and then reaching for the headline feature. Whether the
     # package is importable is known here, long before a password is worth
     # asking for.
+    # Only pqcrypto and the local editable install are offered. An extra on
+    # this project's own distribution name would be the natural second
+    # suggestion, but that name on PyPI belongs to an unrelated project, so it
+    # would fetch a stranger's package. Naming a distribution we do not own, in
+    # the error a user hits at the exact moment they want post-quantum
+    # encryption, is not a typo to leave lying around in a security tool.
     if args.hybrid_pq and not PQ_AVAILABLE:
         parser.error(
             "--hybrid-pq needs the optional pqcrypto package, which is not "
-            "installed. Install it with `pip install pqcrypto` (or "
-            "`pip install \"morpheus[pq]\"`) and try again. Encrypting "
+            "installed. Install it with `pip install pqcrypto`, or from a "
+            "clone with `pip install -e \".[pq]\"`, and try again. Encrypting "
             "without it would produce ordinary password-only ciphertext."
         )
 

@@ -6,6 +6,11 @@ pyperclip>=1.9.0
 # Post-quantum support (ML-KEM-768) is optional and deliberately not listed
 # here. It is an 11 MB compiled wheel, and README, USAGE and
 # pyproject.toml all present it as opt-in. Install it with:
-#     pip install "morpheus[pq]"
-# or:
 #     pip install pqcrypto
+# or, from a clone of this repository:
+#     pip install -e ".[pq]"
+#
+# Do NOT suggest installing an extra on this project's own distribution name
+# from PyPI. That name is held there by an unrelated project, so such a command
+# installs a stranger's package rather than this one. It is safe to add once
+# the name on PyPI is actually ours, and a test enforces this in the meantime.
