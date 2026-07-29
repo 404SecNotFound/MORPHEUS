@@ -987,6 +987,56 @@ class TestVersionFlag:
         )
 
 
+class TestHelpEpilogExamplesAreReal:
+    """The worked examples in `--help` must match what the tool emits.
+
+    Written after the first draft of that epilog showed `AwEB...` and `AgEB...`
+    as sample ciphertexts. Both were invented from the surrounding docs and
+    both were wrong; the real prefixes are `AwECAA` and `AwECAg`. A truncated
+    placeholder is still a claim, and a user comparing their output against a
+    prefix that does not match has been told something false about the format.
+    """
+
+    def _prefix(self, argv: list[str]) -> str:
+        old_stdin, sys.stdin = sys.stdin, io.StringIO("")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                run_cli([*argv, "-p", PW])
+        finally:
+            sys.stdin = old_stdin
+        return out.getvalue().strip().splitlines()[-1][:6]
+
+    def test_password_only_prefix_matches_the_epilog(self):
+        from morpheus.cli import _EPILOG
+        actual = self._prefix(["-o", "encrypt", "--data", "x"])
+        assert f"{actual}..." in _EPILOG, (
+            f"--help shows a password-only ciphertext prefix that the tool does "
+            f"not produce; it actually emits {actual!r}"
+        )
+
+    @pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
+    def test_hybrid_pq_prefix_matches_the_epilog(self):
+        from morpheus.cli import _EPILOG
+        pk, _ = pq_generate_keypair()
+        actual = self._prefix([
+            "-o", "encrypt", "--data", "x", "--hybrid-pq",
+            "--pq-public-key", base64.b64encode(pk).decode(),
+        ])
+        assert f"{actual}..." in _EPILOG, (
+            f"--help shows a hybrid-PQ ciphertext prefix that the tool does not "
+            f"produce; it actually emits {actual!r}"
+        )
+
+    def test_the_two_prefixes_differ(self):
+        """Otherwise both assertions above could pass against one value."""
+        from morpheus.cli import _EPILOG
+        shown = set(re.findall(r"\b(Aw[A-Za-z0-9+/]{4})\.\.\.", _EPILOG))
+        assert len(shown) >= 2, (
+            f"the epilog should distinguish password-only from hybrid-PQ "
+            f"ciphertexts, but shows {shown}"
+        )
+
+
 class TestTopLevelExceptionHandler:
     """An unexpected exception must not print a traceback to the user.
 

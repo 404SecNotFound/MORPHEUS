@@ -47,11 +47,44 @@ from .core.validation import (
     validate_input_text,
 )
 
+# Shown under the flag list. A bare flag reference tells a reader what exists
+# but not what a working command looks like, and the post-quantum route in
+# particular is three commands that have to be run in order with the right key
+# on each — the one part of this tool nobody guesses correctly from `--help`.
+_EPILOG = """\
+examples:
+  Run with no arguments to launch the wizard.
+
+  Encrypt and decrypt some text
+    morpheus -o encrypt --data "sensitive text"
+    morpheus -o decrypt --data "AwECAA..."
+
+  Encrypt a file, then restore it
+    morpheus -o encrypt -f report.pdf          # writes report.pdf.enc
+    morpheus -o decrypt -f report.pdf.enc      # restores the original name
+
+  Hybrid post-quantum, which is a three-step flow
+    morpheus --generate-keypair --output my.key    # public key to stdout
+    morpheus -o encrypt --data "secret" --hybrid-pq --pq-public-key "<public key>"
+    morpheus -o decrypt --data "AwECAg..." --hybrid-pq --pq-secret-key-file my.key
+
+  Inspect a ciphertext without a password
+    morpheus --inspect --data "AwECAA..."
+
+  Stronger settings
+    morpheus -o encrypt --data "secret" --chain --kdf Scrypt --pad
+
+Hybrid post-quantum needs the optional pqcrypto package: pip install pqcrypto
+Full guide: docs/USAGE.md      Security policy: SECURITY.md
+"""
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="morpheus",
         description="MORPHEUS — quantum-resistant multi-cipher encryption",
+        epilog=_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version",
