@@ -296,6 +296,7 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--save-config` | Save current cipher/KDF/flag preferences to `~/.morpheus/config.toml` for future sessions |
 | `--inspect` | Inspect a ciphertext header without decrypting (no password needed). Shows format, cipher, KDF, flags, sizes |
 | `--benchmark` | Benchmark cipher and KDF performance, recommend optimal config |
+| `--version` | Print the version and exit. Quote this when reporting an issue |
 
 Passing any flag runs the CLI. Running `python morpheus.py` with no arguments launches the GUI.
 
@@ -415,7 +416,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**308 tests** across 12 test files:
+**364 tests** across 12 test files:
 
 | File | Scope |
 |------|-------|
@@ -466,7 +467,7 @@ morpheus/
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # ctypes.memset zeroing of key buffers
 │       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 308 tests (NIST/RFC vectors included)
+├── tests/                     # 364 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

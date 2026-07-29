@@ -3,6 +3,42 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+Findings from the pre-publication UAT programme. Defect IDs refer to that
+programme's register.
+
+### Added
+- **`--version`** prints the version and exits (DEF-002). It previously exited
+  2 with "unrecognized arguments", which is the first thing an issue reporter
+  is asked to supply. A test pins the reported string to the packaged version,
+  so the two cannot drift apart unnoticed.
+
+### Changed
+- **Hybrid post-quantum is now command-line only** (DEF-006). The wizard
+  offered a "Hybrid Post-Quantum" checkbox while having no keypair generation,
+  no key entry and no key display, so ticking it walked the user through four
+  more steps, took a password and a confirmation, and then failed out of the
+  pipeline. The control is gone and the Settings step signposts
+  `--generate-keypair` and `--hybrid-pq` instead.
+- `docs/USAGE.md` no longer tells GUI users to click a "Generate Keypair"
+  button. No such button ever existed.
+
+### Fixed
+- **`--hybrid-pq` without `pqcrypto` is refused at parse time** (DEF-001).
+  It used to prompt for a password, ask again to confirm it, and only then
+  report the missing package. Availability is known from argv, so the prompt
+  was wasted work on the documented first-contact path.
+- **The wizard refuses invalid cipher combinations at the Settings step**
+  (DEF-005), where the choice is made, rather than after a password has been
+  typed and confirmed. A sweep of all 64 reachable Settings combinations found
+  40 that the wizard accepted and the engine then rejected; a regression test
+  sweeps the same space and fails if any accepted combination cannot be built.
+
+### Documentation
+- Corrected the test count in `README.md` and `CONTRIBUTING.md`, which still
+  said 308.
+
 ## [2.1.0] - 2026-02-10
 
 ### Documentation
