@@ -23,16 +23,30 @@ async def settle(app, pilot) -> None:
     enough the next time a step gains a widget or the run gets slower, and the
     symptom is exactly the two failures above. If focus never settles this
     raises rather than letting the caller assert against a half-painted frame.
+
+    Stability alone was not enough, though. "Focus stopped changing" is also
+    true while focus is *still on the sidebar* and the `call_after_refresh`
+    handoff has not been scheduled yet — a transient stable state, not the end
+    state. On the Windows CI runner that window is wide enough to hit, and
+    `TestStepContentTakesFocus` failed there intermittently while passing
+    everywhere else. So the wait is for the actual postcondition every caller
+    depends on: focus has left the sidebar *and* then stopped moving.
+
+    The sidebar is the right thing to test against rather than the step panel,
+    because Review composes only Static text and hands the keyboard to its
+    Execute button in the nav bar, which is outside the panel.
     """
     await app.workers.wait_for_complete()
+    sidebar = app.query_one("#sidebar")
     previous = object()
-    for _ in range(12):
+    for _ in range(40):
         await pilot.pause()
         current = app.focused
-        if current is previous:
+        landed = current is not None and sidebar not in current.ancestors
+        if landed and current is previous:
             return
         previous = current
     raise AssertionError(
-        "focus never settled, so the frame would be sampled mid-change; "
-        f"last saw {app.focused!r}"
+        "focus never landed off the sidebar and settled, so the frame would be "
+        f"sampled mid-change; last saw {app.focused!r}"
     )

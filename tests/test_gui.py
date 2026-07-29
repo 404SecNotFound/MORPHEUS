@@ -213,6 +213,74 @@ class TestWizardApp:
             assert app._state.output == plaintext
 
 
+# ── The settle() helper itself ───────────────────────────────────
+
+class TestSettleWaitsForTheRightThing:
+    """`settle` guards every GUI test, so its own postcondition needs a guard.
+
+    It used to return as soon as `app.focused` stopped changing. That is also
+    true while focus is *still on the sidebar* and the `call_after_refresh`
+    handoff has not been scheduled yet — a transient stable state, not the end
+    state. The Windows CI runner hit that window and
+    `TestStepContentTakesFocus` failed there while passing everywhere else.
+
+    Driven with a fake app rather than a real one, because the point is the
+    helper's decision logic and a real app cannot be held on the sidebar: its
+    own handoff moves focus away immediately, which is what makes the race so
+    hard to reproduce by hand.
+    """
+
+    class _W:
+        def __init__(self, name, ancestors):
+            self.id, self.ancestors = name, ancestors
+
+        def __repr__(self):
+            return f"_W({self.id})"
+
+    class _Workers:
+        async def wait_for_complete(self):
+            return
+
+    class _FakeApp:
+        def __init__(self, outer, land_after):
+            self.sidebar = object()
+            self.workers = outer._Workers()
+            self.n = 0
+            self.land_after = land_after
+            self._on_sidebar = outer._W("sb-0", [self.sidebar])
+            self._on_step = outer._W("mode-radio", [object()])
+
+        def query_one(self, selector):
+            assert selector == "#sidebar"
+            return self.sidebar
+
+        @property
+        def focused(self):
+            if self.land_after is not None and self.n >= self.land_after:
+                return self._on_step
+            return self._on_sidebar
+
+    class _FakePilot:
+        def __init__(self, app):
+            self.app = app
+
+        async def pause(self):
+            self.app.n += 1
+
+    @pytest.mark.asyncio
+    async def test_focus_stable_on_the_sidebar_is_not_settled(self):
+        """The regression: stable, but stable in the wrong place."""
+        app = self._FakeApp(self, land_after=None)
+        with pytest.raises(AssertionError, match="never landed off the sidebar"):
+            await settle(app, self._FakePilot(app))
+
+    @pytest.mark.asyncio
+    async def test_returns_once_focus_lands_and_then_holds_still(self):
+        app = self._FakeApp(self, land_after=3)
+        await settle(app, self._FakePilot(app))
+        assert app.n >= 4, "must wait for landing plus one stable frame"
+
+
 # ── Settings step: hybrid PQ is CLI-only ─────────────────────────
 
 class TestSettingsDoesNotOfferHybridPQ:
