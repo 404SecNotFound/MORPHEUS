@@ -60,11 +60,19 @@ async def settle(app, pilot, limit: int = 8) -> None:
     )
 
 
+# 110x40, not the 110x38 used before. Settings is the tallest step at 31 rows
+# of content, and at 38 the viewport is 29, so every capture of step 2 silently
+# cut the last two rows off and the documentation showed a truncated screen.
+# 40 is the smallest height at which all six steps fit without scrolling; going
+# taller only adds dead space to the sparse steps.
+CAPTURE_SIZE = (110, 40)
+
+
 async def capture(outdir: Path) -> list[Path]:
     outdir.mkdir(parents=True, exist_ok=True)
     app = MorpheusWizard()
     written: list[Path] = []
-    async with app.run_test(size=(110, 38)) as pilot:
+    async with app.run_test(size=CAPTURE_SIZE) as pilot:
         app._state.mode = Mode.ENCRYPT
         app._state.input_text = "review canary"
         app._state.password = "T3st!Passw0rd#Str0ng"

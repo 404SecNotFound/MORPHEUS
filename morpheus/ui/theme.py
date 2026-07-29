@@ -358,14 +358,15 @@ TextArea:focus {
     border: tall $m-border-focus;
 }
 
+/* No border on the outer Select. Textual nests a SelectCurrent inside it that
+   carries its own, so bordering both drew two rectangles one cell apart around
+   every dropdown — a 62x5 frame wrapping a 60x3 frame, and both went bright
+   white on focus. The inner one is the one Textual styles for focus, so the
+   outer is the duplicate and is removed. */
 Select {
     background: $m-bg;
-    border: tall $m-border;
+    border: none;
     color: $m-text;
-}
-
-Select:focus {
-    border: tall $m-border-focus;
 }
 
 /* The focus ring on a closed dropdown. Textual draws it on the inner
@@ -394,6 +395,7 @@ SelectOverlay {
    This system has one background and lets borders carry elevation, so the panel
    is repointed rather than kept. */
 SelectCurrent {
+    border: tall $m-border;
     color: $m-text;
     background: $m-bg;
 }
