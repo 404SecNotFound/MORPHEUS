@@ -171,7 +171,7 @@ pip install pqcrypto
 
 ```bash
 python -m pytest tests/ -v
-# You should see: "123 passed"
+# You should see: "387 passed"
 ```
 
 ---
@@ -193,12 +193,15 @@ web browser or desktop environment needed.
 2. Choose your **Cipher** (AES-256-GCM recommended for most users)
 3. Choose your **KDF** (Argon2id recommended)
 4. Optionally check **Chain ciphers** for extra protection
-5. Optionally check **Hybrid Post-Quantum** if you need PQ protection
-6. Type or paste your text into the **Input** area
-7. Enter your password in the **Password** field
-8. Enter it again in the **Confirm** field
-9. Click **ENCRYPT** (or press `Ctrl+E`)
-10. The encrypted output appears in the **Output** area
+5. Type or paste your text into the **Input** area
+6. Enter your password in the **Password** field
+7. Enter it again in the **Confirm** field
+8. Click **ENCRYPT** (or press `Ctrl+E`)
+9. The encrypted output appears in the **Output** area
+
+Hybrid post-quantum is not offered in the wizard — it needs an ML-KEM keypair.
+Your text is quantum-resistant regardless; see
+[Post-Quantum Encryption Explained](#post-quantum-encryption-explained).
 
 **Important**: The output auto-clears after 60 seconds! Copy it before it
 disappears (use the **Copy** button or `Ctrl+C` to copy from the output area).
@@ -608,7 +611,7 @@ algorithms were used. This means:
 python -m pytest tests/ -v
 ```
 
-Expected output: **123 passed**
+Expected output: **387 passed**
 
 ### What the Tests Cover
 

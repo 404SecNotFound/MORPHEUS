@@ -117,8 +117,11 @@ Choose your protection level:
 |------|-------------|----------|
 | **Single cipher** | AES-256-GCM *or* ChaCha20-Poly1305 | Everyday encryption |
 | **Cipher chaining** | AES-256-GCM *then* ChaCha20 with independent keys | Defense against single-algorithm compromise |
-| **Hybrid PQ** | Password key + ML-KEM-768 shared secret combined via HKDF | Protection against future quantum computers |
+| **Hybrid PQ** | Password key + ML-KEM-768 shared secret combined via HKDF | Encrypting **to someone else's public key**, with no shared password |
 | **Maximum** | Chaining + Hybrid PQ (all layers) | Highest assurance |
+
+All four are quantum-resistant. Hybrid PQ is not the one that makes that true —
+see [below](#why-quantum-resistance-does-not-depend-on-ml-kem).
 
 <details>
 <summary><strong>How cipher chaining works under the hood</strong></summary>
@@ -496,7 +499,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**371 tests** across 12 test files:
+**387 tests** across 12 test files:
 
 | File | Scope |
 |------|-------|
@@ -547,7 +550,7 @@ morpheus/
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # ctypes.memset zeroing of key buffers
 │       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 371 tests (NIST/RFC vectors included)
+├── tests/                     # 387 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history
