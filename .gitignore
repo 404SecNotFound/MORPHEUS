@@ -16,3 +16,12 @@ venv/
 
 # Internal working notes: agent plans and specs, not published documentation.
 docs/superpowers/
+
+# Local agent tooling. Untracked here only because of a personal global
+# ignore, which no contributor or fresh clone inherits.
+.claude/
+
+# Internal engineering notes: tracker, lessons, pre-publication review and
+# UAT programme. Kept locally, not shipped to clones (UAT DEF-004). The
+# content remains in history, so this governs the clone surface, not erasure.
+tasks/
