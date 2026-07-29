@@ -27,7 +27,7 @@ pip install pqcrypto             # For post-quantum tests
 
 ```bash
 python -m pytest tests/ -v
-# All 366 tests should pass
+# All 371 tests should pass
 ```
 
 ## What We Welcome
@@ -110,11 +110,30 @@ morpheus/
 │   ├── formats.py      # Versioned binary format with AAD
 │   ├── memory.py       # ctypes.memset zeroing of key buffers
 │   └── validation.py   # Password scoring, input validation
-├── gui.py              # Textual TUI application
+├── ui/                 # The Textual wizard — this is the TUI
+│   ├── app.py          # MorpheusWizard: layout, step routing, workers
+│   ├── state.py        # WizardState: per-step validation and unlock rules
+│   ├── theme.py        # Colour tokens and the whole stylesheet
+│   ├── sidebar.py      # Step list and progress indicators
+│   ├── clipboard.py    # Copy/paste with per-platform fallbacks
+│   └── steps/          # One module per wizard step
+├── gui.py              # 12-line shim re-exporting run_gui from ui.app
 ├── cli.py              # CLI with text + file encryption
-├── __init__.py          # Package version
-└── __main__.py          # Entry point (auto-detects GUI vs CLI)
+├── __init__.py         # Package version
+└── __main__.py         # Entry point (auto-detects GUI vs CLI)
 ```
+
+Most UI work belongs in `ui/`, not in `gui.py`. That file exists only so
+`from morpheus.gui import run_gui` keeps working.
+
+Two things in `ui/` are load-bearing and easy to trip over. `theme.py` holds
+the colour tokens *and* the stylesheet, and `tests/test_theme.py` asserts that
+nothing renders a colour outside that token set — so adding a widget with a
+hard-coded colour, or one whose Textual defaults paint through, fails the
+suite. And `tests/support.py` provides `settle()`, `settle_on_sidebar()` and
+`settle_on()`: any test that changes a wizard step must await the one matching
+what it then asserts, because a bare `pilot.pause()` samples a frame
+mid-transition and fails intermittently, usually only on Windows CI.
 
 **Key design principle**: The ciphertext format is self-describing. The header
 tells the decryptor which algorithms were used, and Decrypt reads its
