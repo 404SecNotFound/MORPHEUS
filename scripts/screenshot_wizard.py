@@ -71,7 +71,14 @@ async def capture(outdir: Path) -> list[Path]:
         app._state.password_confirm = "T3st!Passw0rd#Str0ng"
         # The output step is gated on the run having happened, so seed both the
         # result and the completion marker or `_goto_step` refuses the jump.
-        app._state.output = SAMPLE_OUTPUT
+        #
+        # It must go through `record_output`, not a plain assignment to
+        # `.output`. Staleness is derived by comparing `output_fingerprint`
+        # against the current inputs, so an assignment leaves the fingerprint
+        # unset, the result reads as stale, and step 6 stays locked. This
+        # script did assign directly, which was correct before staleness moved
+        # from event-driven to derived, and silently stopped working after.
+        app._state.record_output(SAMPLE_OUTPUT)
         app._state.completed_steps.add(STEP_OUTPUT)
         for index in range(TOTAL_STEPS):
             app._goto_step(index)

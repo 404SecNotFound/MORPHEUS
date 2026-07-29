@@ -137,12 +137,18 @@ FooterLabel {
 
 /* ── Top bar ────────────────────────────────────────────────────── */
 
+/* height is the outer box in Textual, so border and padding come out of it.
+   This was `height: 3; padding: 1 2`, which is 1 border row plus 2 padding
+   rows and therefore *zero* content rows: the title and the "Step 3/6"
+   indicator were laid out but never painted, and every screen opened with a
+   blank three-row band. Vertical padding is gone and the height covers one
+   content row plus the border. */
 #top-bar {
     dock: top;
-    height: 3;
+    height: 2;
     background: $m-bg;
     color: $m-text-3;
-    padding: 1 2;
+    padding: 0 2;
     border-bottom: heavy $m-border;
 }
 
@@ -246,12 +252,17 @@ FooterLabel {
 
 /* ── Navigation buttons ─────────────────────────────────────────── */
 
+/* Same border-box arithmetic as #top-bar. A bordered Button occupies 3 rows,
+   and `height: 3` here left only 2 after the top border, so Back / Next /
+   Execute were clipped to a sliver — the primary navigation of the wizard
+   rendered as two stubs above the footer. 4 = 1 border + 3 button rows. */
 #nav-bar {
-    height: 3;
+    height: 4;
     layout: horizontal;
     align: center middle;
     padding: 0 2;
     dock: bottom;
+    margin-bottom: 1;
     background: $m-bg;
     border-top: heavy $m-border;
 }
@@ -283,10 +294,18 @@ FooterLabel {
     background: $m-text;
 }
 
+/* opacity: 1 overrides Textual's own disabled dimming, which composites the
+   widget at 0.7 and produced a colour belonging to no token. TEXT_4 is already
+   the documented token for disabled controls, so the disabled state is carried
+   by our own colours and the rendered palette stays closed. Only visible once
+   the nav bar stopped clipping its buttons; before that the label row was
+   never painted. */
 #btn-next:disabled {
     background: $m-bg;
     color: $m-text-4;
     border: heavy $m-border;
+    opacity: 1;
+    text-opacity: 1;
 }
 
 #btn-run {
