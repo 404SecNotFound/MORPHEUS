@@ -236,7 +236,7 @@ class TestSettingsDoesNotOfferHybridPQ:
         async with app.run_test(size=(120, 50)) as pilot:
             app._state.mode = Mode.ENCRYPT
             app._show_step(STEP_SETTINGS)
-            await pilot.pause()
+            await settle(app, pilot)
             assert not app.query("#pq-check"), (
                 "Settings offers a hybrid PQ control again, but the wizard "
                 "still has no way to supply an ML-KEM public key"
@@ -253,7 +253,7 @@ class TestSettingsDoesNotOfferHybridPQ:
         async with app.run_test(size=(120, 50)) as pilot:
             app._state.mode = Mode.ENCRYPT
             app._show_step(STEP_SETTINGS)
-            await pilot.pause()
+            await settle(app, pilot)
             rendered = " ".join(
                 str(w.render()) for w in app.query(Static)
             )
@@ -321,7 +321,7 @@ class TestOutputAreaWrapsDeterministically:
             app._state.completed_steps.add(STEP_OUTPUT)
             for _ in range(self.VISITS):
                 app._goto_step(STEP_OUTPUT)
-                await pilot.pause()
+                await settle(app, pilot)
                 assert app._current_step == STEP_OUTPUT, (
                     "the jump to step 6 was refused, so this would measure "
                     f"step {app._current_step + 1} instead"
@@ -331,7 +331,7 @@ class TestOutputAreaWrapsDeterministically:
                 # Leave, so the next arrival replaces a mounted step rather
                 # than being a no-op.
                 app._goto_step(STEP_MODE)
-                await pilot.pause()
+                await settle(app, pilot)
         return seen
 
     @pytest.mark.asyncio
@@ -579,9 +579,9 @@ class TestModeStepRestoresFromState:
             # Leave and come back, so the step is really rebuilt. Jumping to
             # the step already on screen is the no-op that misled the report.
             app._goto_step(STEP_SETTINGS)
-            await pilot.pause()
+            await settle(app, pilot)
             app._goto_step(STEP_MODE)
-            await pilot.pause()
+            await settle(app, pilot)
             assert app._current_step == STEP_MODE
 
             chosen = app.query_one(f"#{on}", RadioButton)

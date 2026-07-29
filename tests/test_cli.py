@@ -482,15 +482,19 @@ class TestInspect:
         """--inspect with --file reads from a file."""
         p = EncryptionPipeline()
         ct = p.encrypt("test", "Test-Pass1!")
+        # Close the handle before reading or unlinking. POSIX happily unlinks a
+        # file that is still open, so doing this inside the with-block worked
+        # everywhere it was run by hand; Windows refuses with WinError 32 and
+        # the CI leg failed on the unlink, not on anything the test asserts.
         with tempfile.NamedTemporaryFile(mode="w", suffix=".enc", delete=False) as f:
             f.write(ct)
-            f.flush()
-            try:
-                run_cli(["--inspect", "-f", f.name])
-                out = capsys.readouterr().out
-                assert "AES-256-GCM" in out
-            finally:
-                os.unlink(f.name)
+            path = f.name
+        try:
+            run_cli(["--inspect", "-f", path])
+            out = capsys.readouterr().out
+            assert "AES-256-GCM" in out
+        finally:
+            os.unlink(path)
 
     def test_inspect_invalid_data_exits(self):
         """Invalid ciphertext should cause --inspect to exit with error."""
@@ -1192,7 +1196,14 @@ class TestPQSecretKeyFile:
             captured = capsys.readouterr()
 
             assert os.path.exists(keyfile), "secret key was not written"
-            assert os.stat(keyfile).st_mode & 0o777 == 0o600
+            # Only the mode check is POSIX-specific. On Windows os.chmod sets
+            # just the read-only attribute, so this reports 0o666 and the file
+            # is protected by inherited NTFS ACLs instead (see SECURITY.md).
+            # The rest of this test is the more important and fully
+            # platform-independent property — the secret never reaches a
+            # terminal — so guard the line, not the test.
+            if os.name == "posix":
+                assert os.stat(keyfile).st_mode & 0o777 == 0o600
             with open(keyfile) as f:
                 secret_b64 = f.read().strip()
             # The real secret, not a placeholder.

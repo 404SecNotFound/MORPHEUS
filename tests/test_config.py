@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from morpheus.core.config import (
     load_config,
     save_config,
@@ -74,6 +76,12 @@ class TestSaveLoadConfig:
                 loaded = load_config()
                 assert loaded["cipher"] == "AES-256-GCM"
 
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX file modes; on Windows os.chmod only sets the read-only "
+               "attribute, so the file reports 0o666 and protection comes from "
+               "inherited NTFS ACLs instead. Documented in SECURITY.md",
+    )
     def test_file_permissions(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
