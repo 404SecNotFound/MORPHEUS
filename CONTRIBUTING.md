@@ -9,7 +9,7 @@ get started, what we expect from contributions, and how to submit your work.
 
 ```bash
 git clone https://github.com/<your-username>/MORPHEUS.git
-cd morpheus
+cd MORPHEUS
 ```
 
 ### 2. Set Up Your Environment

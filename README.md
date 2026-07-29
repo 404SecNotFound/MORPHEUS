@@ -47,8 +47,8 @@ in a terminal GUI that anyone can operate — no cryptography degree required.
 ## Quick Start
 
 ```bash
-git clone https://github.com/404securitynotfound/morpheus.git
-cd morpheus && pip install -r requirements.txt
+git clone https://github.com/404SecNotFound/MORPHEUS.git
+cd MORPHEUS && pip install -r requirements.txt
 
 # Launch the GUI
 python morpheus.py

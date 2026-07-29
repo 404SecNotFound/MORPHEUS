@@ -753,8 +753,8 @@ def build_pdf():
 
     pdf.sub_title("Installation")
     pdf.code_block(
-        "git clone https://github.com/404securitynotfound/morpheus.git\n"
-        "cd morpheus\n"
+        "git clone https://github.com/404SecNotFound/MORPHEUS.git\n"
+        "cd MORPHEUS\n"
         "python -m venv venv && source venv/bin/activate\n"
         "pip install -r requirements.txt\n"
         "python -m pytest tests/ -v       # verify 122 tests pass\n"
