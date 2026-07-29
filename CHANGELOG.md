@@ -48,6 +48,18 @@ programme's register.
   limitation as the five sites already listed. The table now names all six.
 
 ### Security
+- **Documented that `0600` file modes are POSIX-only** (DEF-008). Eight places
+  across `README.md`, `SECURITY.md` and `docs/USAGE.md` promised a "0600 file"
+  or "owner read/write only" for the ML-KEM secret key, the config and output
+  files, with no platform qualification — while Windows is a supported CI
+  platform. On Windows `os.chmod(path, 0o600)` toggles only the read-only
+  attribute: the files report `0o666` and are protected by whatever NTFS ACL
+  they inherit, which MORPHEUS neither sets nor verifies. No code changed and
+  nothing regressed; the claim was simply untrue on one supported platform.
+  `SECURITY.md` now carries the full limitation with guidance, and the other
+  seven sites point at it. Found because the Windows CI leg was failing on the
+  two mode assertions, which are now skipped there rather than weakened.
+
 - **CI actions are pinned to commit SHAs** instead of floating major tags.
   `actions/checkout@v4` and `actions/setup-python@v5` resolved to whatever
   those tags pointed at on the day a job ran, so a compromised or retagged

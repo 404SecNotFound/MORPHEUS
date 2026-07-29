@@ -241,7 +241,7 @@ python morpheus.py -o decrypt -f document.pdf.enc
 echo "secret" | python morpheus.py -o encrypt --data -
 
 # Generate ML-KEM-768 keypair for hybrid PQ.
-# Public key goes to stdout; secret key to a 0600 file.
+# Public key goes to stdout; secret key to a 0600 file (POSIX; on Windows see SECURITY.md).
 python morpheus.py --generate-keypair --output my_pq_secret.key
 
 # Hybrid PQ encrypt
@@ -290,7 +290,7 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--pq-public-key` | Base64 ML-KEM-768 public key |
 | `--pq-secret-key` | Base64 ML-KEM-768 secret key. Discouraged: argv is readable by other local users |
 | `--pq-secret-key-file` | Path to a file holding the base64 secret key. Preferred over `--pq-secret-key` |
-| `--generate-keypair` | Generate an ML-KEM-768 keypair: public key to stdout, secret key to a 0600 file |
+| `--generate-keypair` | Generate an ML-KEM-768 keypair: public key to stdout, secret key to a 0600 file (POSIX only; on Windows the mode is not applied — see SECURITY.md) |
 | `--passphrase` | Use passphrase-mode strength check (word-based, no digit/special requirement). Requires 4+ words and 20+ chars |
 | `--check-leaks` | Check password against Have I Been Pwned breach database (k-anonymity, only 5 chars of SHA-1 sent). Requires network |
 | `--save-config` | Save current cipher/KDF/flag preferences to `~/.morpheus/config.toml` for future sessions |
@@ -354,7 +354,7 @@ Be precise about this rather than claiming a blanket guarantee.
 | CLI text mode (`--data`) | No. Input comes from argv or stdin, output goes to stdout |
 | CLI file mode (`--file`) | Yes, by design. Writes `FILE.enc` on encrypt, the original name on decrypt |
 | TUI text mode | Only if you press **Save to file**, or if **Copy** finds no clipboard backend and falls back to a temporary file |
-| `--save-config` | Yes. Writes `~/.morpheus/config.toml` (mode `0600`) |
+| `--save-config` | Yes. Writes `~/.morpheus/config.toml` (mode `0600` on POSIX; not applied on Windows — see SECURITY.md) |
 | Anything else | No temporary plaintext files are created |
 
 Output files inherit your umask. On a shared machine, set a restrictive umask before

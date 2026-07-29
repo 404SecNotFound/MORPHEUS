@@ -117,6 +117,36 @@ fundamental limitation of Python and the `cryptography` library's API design.
 For absolute memory safety, a C or Rust implementation operating directly on
 mutable buffers would be required.
 
+### File permissions are POSIX-only (Windows)
+
+Every `0600` file mode this documentation refers to — the ML-KEM secret key
+written by `--generate-keypair`, the `~/.morpheus/config.toml` written by
+`--save-config`, and encrypt/decrypt output files — is applied with
+`os.chmod(path, 0o600)`.
+
+**On Windows that call does not do what it does on POSIX.** It toggles only the
+read-only attribute; it does not create an owner-only ACL. `os.stat()` reports
+mode `0o666` on those files, and their real protection is whatever NTFS ACL
+they inherit from the parent directory. Inside a user profile directory that
+inheritance is normally restricted to that user and to Administrators, so the
+practical exposure on a single-user machine is usually low — but MORPHEUS
+neither sets nor verifies it, so it is not a guarantee this tool makes.
+
+Consequences on Windows:
+
+- Do **not** rely on the documented mode. Treat the secret key file and the
+  config as protected only by the directory they sit in.
+- Write `--generate-keypair --output` to a path inside your own user profile,
+  not to a shared or world-writable location such as `C:\Temp`.
+- On a multi-user machine, an Administrator can read these files. That is also
+  true on POSIX for `root`, but on Windows the set of principals is wider and
+  is decided by inherited ACLs rather than by this tool.
+
+The CI matrix runs Windows and the test suite passes there; the two POSIX-mode
+assertions are skipped on Windows rather than silently weakened, because the
+property they assert genuinely does not hold. Hardening Windows with an
+explicit ACL is a possible future change, not current behaviour.
+
 ### ML-KEM-768 implementation provenance
 
 The ML-KEM-768 post-quantum layer is provided by the `pqcrypto` community
@@ -208,7 +238,8 @@ a 7776-word diceware list is ~51 bits; 6 words yields ~77 bits.
 ### Persistent preferences (`~/.morpheus/config.toml`)
 
 The `--save-config` flag writes user preferences to `~/.morpheus/config.toml`
-with file permissions `0600` (owner read/write only). The config file stores
+with file permissions `0600` (owner read/write only) on POSIX; see
+*File permissions are POSIX-only (Windows)* above. The config file stores
 only non-sensitive settings (cipher choice, KDF choice, boolean flags). It
 never stores passwords, keys, or ciphertext.
 

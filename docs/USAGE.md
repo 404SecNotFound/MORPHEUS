@@ -276,7 +276,7 @@ python morpheus.py -o decrypt --data "AgECAADE3f7a..."
 | `--pq-public-key` | Base64-encoded ML-KEM-768 public key (for hybrid encrypt) |
 | `--pq-secret-key` | Base64-encoded ML-KEM-768 secret key (for hybrid decrypt). Discouraged: argv is readable by other local users via `ps` and shell history |
 | `--pq-secret-key-file` | Path to a file holding the base64 secret key. Preferred over `--pq-secret-key` |
-| `--generate-keypair` | Generate an ML-KEM-768 keypair: public key to stdout, secret key to a 0600 file (path from `--output`) |
+| `--generate-keypair` | Generate an ML-KEM-768 keypair: public key to stdout, secret key to a 0600 file (path from `--output`). POSIX only; on Windows the mode is not applied — see SECURITY.md |
 
 ---
 
@@ -468,6 +468,11 @@ key is written to `my_pq_secret.key` with mode 0600 rather than printed,
 because terminal scrollback and shell logs outlive the command. Back that file
 up: it cannot be regenerated.
 
+On Windows the 0600 mode is **not** applied — `os.chmod` only sets the
+read-only attribute there, and the file is protected by inherited NTFS ACLs
+instead. Write it inside your user profile rather than a shared location, and
+see *File permissions are POSIX-only (Windows)* in `SECURITY.md`.
+
 **Step 2: Encrypt (you or someone else)**
 ```bash
 python morpheus.py -o encrypt --data "sensitive text" \
@@ -486,7 +491,8 @@ Hybrid post-quantum is **command-line only**. The wizard has no key
 management — no keypair generation, no key entry, no key display — so its
 Settings step points at these flags rather than offering a control it cannot
 honour. `--generate-keypair` prints the public key to stdout and writes the
-secret key to a file with `0600` permissions.
+secret key to a file with `0600` permissions on POSIX (not on Windows — see
+`SECURITY.md`).
 
 ---
 
@@ -681,7 +687,8 @@ python morpheus.py -o decrypt --data "<encrypted output>"
 ```bash
 # Generate keypair
 python morpheus.py --generate-keypair --output my_pq_secret.key
-# Public key is printed; secret key lands in my_pq_secret.key (0600)
+# Public key is printed; secret key lands in my_pq_secret.key (0600 on POSIX;
+# on Windows the mode is not applied — see SECURITY.md)
 
 # Encrypt with hybrid PQ
 python morpheus.py -o encrypt --data "quantum safe data" \
