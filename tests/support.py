@@ -23,16 +23,74 @@ async def settle(app, pilot) -> None:
     enough the next time a step gains a widget or the run gets slower, and the
     symptom is exactly the two failures above. If focus never settles this
     raises rather than letting the caller assert against a half-painted frame.
+
+    Stability alone was not enough, though. "Focus stopped changing" is also
+    true while focus is *still on the sidebar* and the `call_after_refresh`
+    handoff has not been scheduled yet — a transient stable state, not the end
+    state. On the Windows CI runner that window is wide enough to hit, and
+    `TestStepContentTakesFocus` failed there intermittently while passing
+    everywhere else. So the wait is for the actual postcondition every caller
+    depends on: focus has left the sidebar *and* then stopped moving.
+
+    The sidebar is the right thing to test against rather than the step panel,
+    because Review composes only Static text and hands the keyboard to its
+    Execute button in the nav bar, which is outside the panel.
+    """
+    sidebar = app.query_one("#sidebar")
+    await _await_focus(
+        app, pilot,
+        lambda w: w is not None and sidebar not in w.ancestors,
+        "landed off the sidebar and settled",
+    )
+
+
+async def settle_on_sidebar(app, pilot) -> None:
+    """The mirror of `settle`, for the paths that deliberately focus the sidebar.
+
+    Escape is meant to hand the keyboard *back* to the sidebar, so those tests
+    want the opposite postcondition. Using `settle` there would raise, and
+    using a bare `pause()` reintroduces exactly the race `settle` exists to
+    remove — just in the other direction.
+    """
+    sidebar = app.query_one("#sidebar")
+    await _await_focus(
+        app, pilot,
+        lambda w: w is not None and sidebar in w.ancestors,
+        "landed on the sidebar and settled",
+    )
+
+
+async def settle_on(app, pilot, widget_id: str) -> None:
+    """Wait for one named widget to hold focus.
+
+    Needed where focus moves *within* one region, such as Tab stepping along
+    the sidebar. Both `settle` and `settle_on_sidebar` are already satisfied
+    before such a move starts, so they can return on the pre-move widget; only
+    naming the target is precise enough.
+    """
+    await _await_focus(
+        app, pilot,
+        lambda w: w is not None and w.id == widget_id,
+        f"landed on #{widget_id} and settled",
+    )
+
+
+async def _await_focus(app, pilot, predicate, description: str) -> None:
+    """Pump frames until `predicate(app.focused)` holds on two consecutive ones.
+
+    Both halves matter. The predicate alone can be satisfied mid-flight while
+    focus is still moving; stability alone is satisfied by any transient
+    resting place, which is the bug described above.
     """
     await app.workers.wait_for_complete()
     previous = object()
-    for _ in range(12):
+    for _ in range(40):
         await pilot.pause()
         current = app.focused
-        if current is previous:
+        if predicate(current) and current is previous:
             return
         previous = current
     raise AssertionError(
-        "focus never settled, so the frame would be sampled mid-change; "
+        f"focus never {description}, so the frame would be sampled mid-change; "
         f"last saw {app.focused!r}"
     )
