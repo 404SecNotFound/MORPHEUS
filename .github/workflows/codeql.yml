@@ -1,0 +1,56 @@
+# CodeQL static analysis.
+#
+# This is the advanced (workflow-file) setup rather than GitHub's default
+# setup. The two conflict: if default setup is ever enabled for this
+# repository in the Security settings, it must be turned off or this workflow
+# will error. Advanced setup is used here because it allows pinning the action
+# to a SHA and selecting the security-extended query suite, neither of which
+# default setup exposes.
+#
+# NOTE ON VISIBILITY: code scanning is free on public repositories. While this
+# repository is private, these runs require GitHub Advanced Security and will
+# fail without it. That is expected until the repository is made public.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so a newly published query catches an old commit. Deliberately
+    # off the hour: scheduled jobs on the hour queue behind everyone else's.
+    - cron: "27 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze Python
+    runs-on: ubuntu-latest
+    permissions:
+      # Required to upload results to the Security tab.
+      security-events: write
+      # Required by the action to read workflow run status on private repos.
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@4187e74d05793876e9989daffde9c3e66b4acd07 # v3.37.3
+        with:
+          languages: python
+          # security-extended over the default suite. This is a cryptographic
+          # tool, so the extra precision-adjusted security queries are worth
+          # the additional run time and the occasional false positive.
+          queries: security-extended
+
+      # No autobuild step: Python is interpreted, so CodeQL analyses the
+      # sources directly. Adding autobuild here would be a no-op at best.
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@4187e74d05793876e9989daffde9c3e66b4acd07 # v3.37.3
+        with:
+          category: "/language:python"

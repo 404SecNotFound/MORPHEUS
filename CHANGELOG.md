@@ -47,6 +47,26 @@ programme's register.
   zeroed correctly, and the immutable copies are the same documented Python
   limitation as the five sites already listed. The table now names all six.
 
+### Security
+- **CI actions are pinned to commit SHAs** instead of floating major tags.
+  `actions/checkout@v4` and `actions/setup-python@v5` resolved to whatever
+  those tags pointed at on the day a job ran, so a compromised or retagged
+  release would have entered CI silently. All 8 references now pin a SHA with
+  the version in a trailing comment.
+- **Dependabot enabled** for GitHub Actions and pip. Pinning without something
+  raising the pins deliberately just rots into running a version with known
+  advisories; Dependabot rewrites the SHA and its version comment together so
+  the two cannot drift. Dev tooling is grouped into one PR, while
+  `cryptography`, `argon2-cffi` and `pqcrypto` stay ungrouped so each is
+  reviewed on its own merits.
+- **CodeQL static analysis added**, running on push, pull request and weekly,
+  with the `security-extended` query suite. Weekly matters because it catches
+  an old commit with a newly published query. Note this is the advanced
+  workflow setup and conflicts with GitHub's default setup if that is ever
+  enabled. Code scanning is free on public repositories; while this repository
+  is private the runs require GitHub Advanced Security and will fail without
+  it.
+
 ## [2.1.0] - 2026-02-10
 
 ### Documentation

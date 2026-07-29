@@ -1,0 +1,48 @@
+# Dependabot keeps the pinned supply chain current.
+#
+# The workflows pin actions to a commit SHA rather than a floating tag, which
+# stops a compromised or retagged release reaching CI silently. That protection
+# only holds if something raises the pins deliberately, otherwise they rot and
+# CI runs a version with known advisories. Dependabot is that something: it
+# rewrites the SHA and the trailing `# vX.Y.Z` comment together, so the two
+# cannot drift apart.
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # Covers pyproject.toml, requirements.txt and requirements-lock.txt.
+  #
+  # This is a cryptographic tool, so a vulnerable dependency is a release
+  # blocker rather than routine maintenance; the CI audit job already fails the
+  # build on a known advisory in the pinned set. Grouping the non-crypto
+  # updates keeps that signal readable, while cryptography, argon2-cffi and
+  # pqcrypto are deliberately left ungrouped so each arrives as its own PR and
+  # gets reviewed on its own merits.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      dev-tooling:
+        patterns:
+          - "pytest*"
+          - "ruff"
+          - "bandit"
+          - "hypothesis"
+          - "coverage*"
+          - "build"
+          - "pip-audit"
