@@ -2,13 +2,13 @@
 """
 MORPHEUS — entry point.
 
-Launches the modern TUI by default.
-Pass --cli for command-line mode, or any CLI flags to auto-detect.
+Launches the TUI wizard when given no arguments. Passing any flag runs the
+command-line interface instead — there is no separate mode switch.
 
 Usage:
-    python morpheus.py            # Launch GUI
-    python morpheus.py --cli      # Launch CLI interactive mode
-    python morpheus.py -o encrypt # CLI with flags
+    python morpheus.py             # Launch the wizard
+    python morpheus.py -o encrypt --data "secret"
+    python morpheus.py --help      # Every flag, with worked examples
 """
 
 from morpheus.__main__ import main

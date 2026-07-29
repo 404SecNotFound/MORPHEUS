@@ -60,8 +60,12 @@ examples:
     morpheus -o decrypt --data "AwECAA..."
 
   Encrypt a file, then restore it
-    morpheus -o encrypt -f report.pdf          # writes report.pdf.enc
-    morpheus -o decrypt -f report.pdf.enc      # restores the original name
+    morpheus -o encrypt -f report.pdf     # -> morpheus_<random>.enc
+    morpheus -o decrypt -f morpheus_ab12cd34ef56.enc   # -> report.pdf
+
+  The encrypted name is deliberately random: a file called report.pdf.enc
+  would announce what it holds. The real name travels inside the ciphertext
+  and comes back on decrypt. Use --output to pick a name yourself.
 
   Hybrid post-quantum, which is a three-step flow
     morpheus --generate-keypair --output my.key    # public key to stdout
@@ -105,7 +109,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-f", "--file",
         help="Path to file to encrypt or decrypt. "
-             "Output goes to FILE.enc (encrypt) or original name (decrypt).",
+             "Encrypting writes morpheus_<random>.enc, so the original "
+             "filename is not exposed on disk; decrypting restores the real "
+             "name from inside the ciphertext. Use --output to choose a path.",
     )
     parser.add_argument(
         "--output",

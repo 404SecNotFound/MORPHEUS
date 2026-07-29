@@ -74,9 +74,20 @@ def serialize(cipher_id: int, kdf_id: int, flags: int, payload: bytes,
     if version == FORMAT_VERSION_3 and kdf_params is not None:
         header = struct.pack(HEADER_FORMAT_V3, version, cipher_id, kdf_id,
                              flags, 0, *kdf_params)
-    else:
-        header = struct.pack(HEADER_FORMAT, FORMAT_VERSION, cipher_id,
+    elif version == FORMAT_VERSION:
+        header = struct.pack(HEADER_FORMAT, version, cipher_id,
                              kdf_id, flags, 0)
+    else:
+        # This branch used to pack the module constant FORMAT_VERSION rather
+        # than the `version` argument, so serialize(version=X) silently emitted
+        # a v2 header for any X — a caller asking for a format it did not get,
+        # with no error. Refusing is correct: the only in-tree caller passing a
+        # non-default version is pipeline.py, and a version this function
+        # cannot actually write should never reach a file.
+        raise FormatError(
+            f"cannot serialize format version {version}: v3 requires "
+            "kdf_params, and no other version is supported"
+        )
     return base64.b64encode(header + payload).decode("utf-8")
 
 

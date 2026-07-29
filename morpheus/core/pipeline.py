@@ -69,15 +69,22 @@ def pq_generate_keypair() -> tuple[bytes, bytes]:
 
 def _pq_encapsulate(public_key: bytes) -> tuple[bytes, bytes]:
     """KEM encapsulate: returns (ciphertext, shared_secret)."""
+    if not PQ_AVAILABLE:
+        raise RuntimeError("Post-quantum libraries not installed. pip install pqcrypto")
     return _ml_kem.encrypt(public_key)
 
 
 def _pq_decapsulate(secret_key: bytes, kem_ciphertext: bytes) -> bytes:
     """KEM decapsulate: returns shared_secret.
 
-    Raises DecryptionError with a clear message if decapsulation fails
-    (wrong key or malformed ciphertext).
+    Raises DecryptionError if the ciphertext is malformed. Note that a
+    well-formed ciphertext under the *wrong* secret key does not raise here:
+    ML-KEM's Fujisaki-Okamoto transform uses implicit rejection, returning an
+    unpredictable shared secret rather than failing. That surfaces one layer
+    up as a key-check or AEAD failure instead.
     """
+    if not PQ_AVAILABLE:
+        raise RuntimeError("Post-quantum libraries not installed. pip install pqcrypto")
     try:
         return _ml_kem.decrypt(secret_key, kem_ciphertext)
     except Exception as exc:
@@ -438,6 +445,17 @@ class EncryptionPipeline:
 
         kdf_params = _get_kdf_params(self.kdf)
         version = FORMAT_VERSION_3
+
+        # Refuse here what decrypt will refuse later. These bounds were applied
+        # only when reading a header, so a caller constructing a pipeline with
+        # out-of-range KDF settings — e.g. Argon2idKDF(memory_cost=1023) — got
+        # a ciphertext back, and that ciphertext was then permanently
+        # undecryptable by this or any future version. EncryptionPipeline is
+        # the exported public API (the package ships py.typed), so "the CLI
+        # only ever passes safe presets" is not a guarantee that holds for
+        # library callers. Failing at encrypt costs one exception; failing at
+        # decrypt costs the data.
+        _build_kdf_from_params(self.kdf.kdf_id, kdf_params)
 
         aad = build_aad(version, cipher_id, self.kdf.kdf_id, flags,
                         kdf_params=kdf_params)

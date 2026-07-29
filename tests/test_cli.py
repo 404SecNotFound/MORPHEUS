@@ -987,6 +987,60 @@ class TestVersionFlag:
         )
 
 
+class TestDocumentedOutputNameMatchesReality:
+    """Encrypting a file writes morpheus_<random>.enc, and the docs must say so.
+
+    README, USAGE and the `--file` help text all promised `FILE.enc` — that
+    `report.pdf` becomes `report.pdf.enc`. It does not: the name is randomised
+    so the ciphertext does not announce what it holds, and the real filename
+    travels inside the authenticated envelope instead.
+
+    The behaviour is a deliberate privacy feature and the better of the two
+    designs. Documenting the wrong one cost twice: a user looking for
+    `report.pdf.enc` finds a file that looks like junk, and the feature that
+    hid the name got no credit for existing.
+    """
+
+    _RANDOM_ENC = re.compile(r"^morpheus_[0-9a-f]{12}\.enc$")
+
+    def test_encrypt_writes_a_randomised_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "report.pdf"
+            src.write_bytes(b"%PDF-1.4 pretend document")
+            cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                old_stdin, sys.stdin = sys.stdin, io.StringIO("")
+                try:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        run_cli(["-o", "encrypt", "-f", "report.pdf", "-p", PW])
+                finally:
+                    sys.stdin = old_stdin
+                produced = [p.name for p in Path(tmpdir).iterdir() if p.suffix == ".enc"]
+            finally:
+                os.chdir(cwd)
+        assert len(produced) == 1, f"expected one ciphertext, got {produced}"
+        assert self._RANDOM_ENC.match(produced[0]), (
+            f"output name {produced[0]!r} is not the documented "
+            "morpheus_<12 hex>.enc form"
+        )
+        assert "report" not in produced[0], (
+            "the ciphertext filename leaks the original name, which is the "
+            "whole point of randomising it"
+        )
+
+    def test_the_file_flag_help_does_not_promise_the_old_naming(self):
+        """The help text is where a user checks before running anything."""
+        import morpheus.cli
+        help_text = morpheus.cli._build_parser().format_help()
+        assert "FILE.enc" not in help_text, (
+            "--help still promises FILE.enc naming, which the tool does not do"
+        )
+        assert "morpheus_" in help_text, (
+            "--help should say what the output is actually called"
+        )
+
+
 class TestNoInstallInstructionNamesADistributionWeDoNotOwn:
     """Nothing shipped may tell a user to `pip install` the name `morpheus`.
 

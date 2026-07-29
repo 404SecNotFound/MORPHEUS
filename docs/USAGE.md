@@ -289,13 +289,18 @@ Encrypt any file type — documents, images, binaries, archives — up to 100 Mi
 ```bash
 python morpheus.py -o encrypt -f document.pdf
 # Enter password interactively
-# -> Creates document.pdf.enc
+# -> Creates morpheus_ab12cd34ef56.enc
+#
+# The name is random on purpose. A file called document.pdf.enc announces both
+# that it is encrypted and what it holds; this one announces only the former.
+# The real filename travels inside the authenticated ciphertext. Use --output
+# to choose the name yourself, or --no-filename to drop it from the envelope.
 ```
 
 ### Decrypt a File
 
 ```bash
-python morpheus.py -o decrypt -f document.pdf.enc
+python morpheus.py -o decrypt -f morpheus_ab12cd34ef56.enc
 # Enter password interactively
 # -> Restores document.pdf (original filename preserved)
 ```
@@ -641,10 +646,10 @@ echo "Sensitive document content" > /tmp/test.txt
 
 # Encrypt the file
 python morpheus.py -o encrypt -f /tmp/test.txt
-# -> Creates /tmp/test.txt.enc
+# -> Creates morpheus_<random>.enc in the current directory
 
-# Decrypt the file
-python morpheus.py -o decrypt -f /tmp/test.txt.enc
+# Decrypt the file (substitute the actual name printed above)
+python morpheus.py -o decrypt -f morpheus_<random>.enc
 # -> Restores /tmp/test.txt with original content
 ```
 

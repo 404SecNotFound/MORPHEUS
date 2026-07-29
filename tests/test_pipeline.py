@@ -425,6 +425,39 @@ class TestV3Features:
         assert decrypted == text_300
 
 
+class TestEncryptRefusesWhatDecryptWillReject:
+    """Encrypt must not produce ciphertext that can never be decrypted.
+
+    The KDF bounds were enforced only when *reading* a header, so a caller
+    could construct a pipeline with out-of-range settings, receive a
+    perfectly normal-looking ciphertext, and discover on the way back that
+    no version of this tool will ever accept it. The data is gone at that
+    point, which is the one failure mode a tool warning of "permanently and
+    irrecoverably lost" cannot afford to create itself.
+
+    EncryptionPipeline is the exported public API and the package ships
+    py.typed, so the CLI's four safe presets are not a defence.
+    """
+
+    @pytest.mark.parametrize("kdf,label", [
+        (Argon2idKDF(time_cost=1, memory_cost=1023, parallelism=1), "argon2-memory"),
+        (Argon2idKDF(time_cost=0, memory_cost=65536, parallelism=4), "argon2-time"),
+        (ScryptKDF(n=2 ** 9, r=8, p=1), "scrypt-n"),
+    ])
+    def test_out_of_range_params_fail_at_encrypt(self, kdf, label):
+        from morpheus.core.errors import KDFParameterError
+        with pytest.raises(KDFParameterError, match="out of allowed range"):
+            EncryptionPipeline(kdf=kdf).encrypt("data", PASSWORD)
+
+    def test_a_legal_non_default_kdf_still_round_trips(self):
+        """Otherwise the check above could pass by rejecting everything."""
+        pipeline = EncryptionPipeline(
+            kdf=Argon2idKDF(time_cost=1, memory_cost=8192, parallelism=1)
+        )
+        assert pipeline.decrypt(pipeline.encrypt("still works", PASSWORD),
+                                PASSWORD) == "still works"
+
+
 class TestKDFBoundsValidation:
     """Test that out-of-bounds KDF params from headers are rejected."""
 
