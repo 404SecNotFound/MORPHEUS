@@ -646,11 +646,22 @@ class TestClipboardCopy:
             assert method == "pyperclip"
 
     def test_returns_false_when_all_fail(self):
+        """All three backends must be disabled, not just the first two.
+
+        This patched _pyperclip and Popen but left `tk` live, so the assertion
+        only held where tkinter happened to be unavailable. It passed on
+        Homebrew Python (built without Tk) and on the Linux CI leg, and failed
+        on the macOS runner, where setup-python ships Python with Tk and the
+        fallback genuinely succeeded — the function was right and the test was
+        wrong. The paste-side equivalent already patched all three.
+        """
         with patch("morpheus.ui.clipboard._pyperclip", None), \
-             patch("morpheus.ui.clipboard.subprocess.Popen") as mock_popen:
+             patch("morpheus.ui.clipboard.subprocess.Popen") as mock_popen, \
+             patch("morpheus.ui.clipboard.tk", None):
             mock_popen.side_effect = FileNotFoundError
             ok, method = clipboard_copy("test")
             assert ok is False
+            assert method == ""
 
     def test_tkinter_fallback(self):
         # Patch the module object, not tk.Tk: see the note in TestClipboardPaste.
