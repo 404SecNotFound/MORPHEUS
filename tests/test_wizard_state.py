@@ -11,6 +11,88 @@ from morpheus.ui.state import (
 )
 
 
+class TestNoReachableSettingsCombinationIsInvalid:
+    """Anything the wizard lets you build, the engine must accept.
+
+    This is the guard, not the two cases below it. UAT DEF-005 found that
+    `validate_settings` checked only that a cipher and a KDF were non-empty, so
+    40 of the 64 reachable Settings combinations were accepted by the wizard
+    and rejected by the engine at Execute, four steps and a password entry
+    later. Fixing the two known pairs by hand would have been the fourth
+    instance of the "enumerated sites hide the ones you did not enumerate"
+    pattern in this repository, so the sweep itself is the test.
+    """
+
+    def test_every_reachable_combination_the_wizard_accepts_actually_builds(self):
+        import itertools
+
+        from morpheus.core.ciphers import CIPHER_CHOICES
+        from morpheus.core.kdf import Argon2idKDF, ScryptKDF
+        from morpheus.core.pipeline import EncryptionPipeline
+
+        # Cheap KDF params: validity here is decided by the cipher/chain/PQ
+        # combination, not by the cost parameters.
+        fast = {
+            "Argon2id": lambda: Argon2idKDF(time_cost=1, memory_cost=1024, parallelism=1),
+            "Scrypt": lambda: ScryptKDF(n=2**10, r=8, p=1),
+        }
+        pw = "T3st!Passw0rd#Str0ng"
+        offenders = []
+
+        for cipher, kdf, chain, pq, pad, fixed in itertools.product(
+            CIPHER_CHOICES, fast, (False, True), (False, True), (False, True), (False, True)
+        ):
+            s = WizardState(
+                mode=Mode.ENCRYPT, cipher=cipher, kdf=kdf, chain=chain,
+                hybrid_pq=pq, pad=pad, fixed_size=fixed,
+                input_text="x", password=pw, password_confirm=pw,
+            )
+            if not (s.validate_settings()[0] and s.validate_review()[0]):
+                continue  # wizard refuses it, which is the point
+            try:
+                p = EncryptionPipeline(
+                    cipher=CIPHER_CHOICES[cipher](), kdf=fast[kdf](),
+                    chain=chain, hybrid_pq=pq,
+                )
+                assert p.decrypt(p.encrypt("x", pw), pw) == "x"
+            except Exception as exc:
+                offenders.append(
+                    f"cipher={cipher} kdf={kdf} chain={chain} hybrid_pq={pq} "
+                    f"-> {type(exc).__name__}: {exc}"
+                )
+
+        assert not offenders, (
+            "the wizard accepts these, so a user reaches Execute and loses a "
+            "password entry to a failure that was decidable at the Settings "
+            "step:\n  " + "\n  ".join(offenders)
+        )
+
+    def test_the_sweep_is_not_vacuous(self):
+        """At least one combination must survive, or the test above proves nothing."""
+        pw = "T3st!Passw0rd#Str0ng"
+        s = WizardState(
+            mode=Mode.ENCRYPT, cipher="AES-256-GCM", kdf="Argon2id",
+            input_text="x", password=pw, password_confirm=pw,
+        )
+        assert s.validate_settings()[0] and s.validate_review()[0]
+
+    def test_chain_requires_aes(self):
+        s = WizardState(mode=Mode.ENCRYPT, cipher="ChaCha20-Poly1305", chain=True)
+        ok, reason = s.validate_settings()
+        assert not ok
+        assert "chain" in reason.lower() and "AES" in reason
+
+    def test_chain_with_aes_is_accepted(self):
+        s = WizardState(mode=Mode.ENCRYPT, cipher="AES-256-GCM", chain=True)
+        assert s.validate_settings()[0]
+
+    def test_hybrid_pq_is_refused_because_the_wizard_cannot_supply_a_key(self):
+        s = WizardState(mode=Mode.ENCRYPT, cipher="AES-256-GCM", hybrid_pq=True)
+        ok, reason = s.validate_settings()
+        assert not ok
+        assert "key" in reason.lower()
+
+
 class TestStaleOutputInvalidation:
     """Editing an earlier step must not leave the previous result on screen.
 

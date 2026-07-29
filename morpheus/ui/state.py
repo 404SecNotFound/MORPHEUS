@@ -120,10 +120,41 @@ class WizardState:
         return True, ""
 
     def validate_settings(self) -> tuple[bool, str]:
+        """Reject here anything the engine would reject at Execute.
+
+        The Settings controls are independent widgets, so combinations are
+        reachable that `EncryptionPipeline` refuses to build. Every check below
+        was previously discovered only after the user had walked through Input,
+        typed a password, confirmed it, and pressed Execute. The rule is that a
+        choice is rejected where it is made.
+
+        `tests/test_wizard_state.py::TestNoReachableSettingsCombinationIsInvalid`
+        sweeps all 64 combinations and fails if any the wizard accepts cannot
+        actually be built, so a new option cannot reopen this quietly.
+        """
         if not self.cipher:
             return False, "Select a cipher"
         if not self.kdf:
             return False, "Select a KDF"
+        if self.chain and self.cipher != "AES-256-GCM":
+            return False, (
+                "Chaining uses a fixed order, AES-256-GCM then "
+                f"ChaCha20-Poly1305, so it cannot run with {self.cipher} as the "
+                "primary cipher. Switch the cipher to AES-256-GCM, or turn "
+                "chaining off."
+            )
+        if self.hybrid_pq:
+            # The wizard has no key management: app.py builds the pipeline with
+            # hybrid_pq alone and never supplies a public key, and there is no
+            # control anywhere in the TUI to generate or paste one. Refusing
+            # here is honest about that; the alternative is a failure after the
+            # password. See UAT DEF-006 for the product decision.
+            return False, (
+                "Hybrid post-quantum needs an ML-KEM public key, and this "
+                "wizard has no way to supply one yet. Use the command line: "
+                "morpheus --generate-keypair, then "
+                "morpheus -o encrypt --hybrid-pq --pq-public-key <key>."
+            )
         return True, ""
 
     def validate_input(self) -> tuple[bool, str]:
