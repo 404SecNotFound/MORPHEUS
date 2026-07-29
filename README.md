@@ -1,16 +1,28 @@
+<h1 align="center">MORPHEUS</h1>
+
 <p align="center">
-  <h1 align="center">MORPHEUS</h1>
-  <p align="center">
-    Quantum-resistant encryption for text and files, in a terminal GUI anyone can operate.<br>
-    <strong>AES-256-GCM + ChaCha20-Poly1305 + ML-KEM-768 | Argon2id | Terminal GUI</strong>
-  </p>
-  <p align="center">
-    <a href="#quick-start">Quick Start</a> &middot;
-    <a href="docs/USAGE.md">Full Guide</a> &middot;
-    <a href="SECURITY.md">Security Policy</a> &middot;
-    <a href="CHANGELOG.md">Changelog</a> &middot;
-    <a href="CONTRIBUTING.md">Contributing</a>
-  </p>
+  Quantum-resistant encryption for text and files, in a terminal GUI anyone can operate.<br>
+  <strong>AES-256-GCM &middot; ChaCha20-Poly1305 &middot; ML-KEM-768 &middot; Argon2id</strong>
+</p>
+
+<p align="center">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-blue">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green">
+  <img alt="Post-quantum: ML-KEM-768" src="https://img.shields.io/badge/post--quantum-ML--KEM--768%20(FIPS%20203)-8957e5">
+  <img alt="Platforms: macOS, Linux, Windows" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey">
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#using-the-gui">The Wizard</a> &middot;
+  <a href="docs/USAGE.md">Full Guide</a> &middot;
+  <a href="SECURITY.md">Security Policy</a> &middot;
+  <a href="CHANGELOG.md">Changelog</a> &middot;
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+<p align="center">
+  <img src="docs/screens/step-1.svg" alt="The MORPHEUS wizard on the Mode step, showing the six-step sidebar and keyboard hints" width="100%">
 </p>
 
 ---
@@ -145,6 +157,8 @@ Choose an operation: **Encrypt** converts plaintext into protected ciphertext,
 **Decrypt** reverses the process. Use `Up/Down` arrows to select, `Enter` to
 confirm, or `Ctrl+E` / `Ctrl+D` to skip directly.
 
+<img src="docs/screens/step-1.svg" alt="Step 1, Mode: Encrypt and Decrypt options with the step sidebar on the left" width="100%">
+
 #### Step 2 — Settings
 Configure the encryption algorithm and key derivation function. Defaults
 (AES-256-GCM + Argon2id) are secure for most use cases.
@@ -154,10 +168,14 @@ Configure the encryption algorithm and key derivation function. Defaults
 - **KDF**: Argon2id (memory-hard, resists GPU/ASIC) or Scrypt (widely deployed)
 - **Chain ciphers**: Double encryption with independent keys — hedges against a
   single-cipher break
-- **Hybrid Post-Quantum**: Adds ML-KEM-768 key encapsulation — protects against
-  future quantum computers
 - **Advanced**: Plaintext padding, fixed 64 KiB output, omit filename from
   envelope
+
+Hybrid post-quantum is **not** offered here. It needs an ML-KEM keypair and the
+wizard has no way to hold one, so the step points at the CLI route instead. See
+[Using the CLI](#using-the-cli).
+
+<img src="docs/screens/step-2.svg" alt="Step 2, Settings: cipher and KDF dropdowns, the chaining toggle, and the note that hybrid post-quantum is command-line only" width="100%">
 
 Use `Tab` between fields, `Enter` to open dropdowns, `Space` to toggle checkboxes.
 
@@ -170,6 +188,8 @@ Provide the data to encrypt or decrypt:
 
 Use `Up/Down` to switch between Text and File tabs.
 
+<img src="docs/screens/step-3.svg" alt="Step 3, Input: the Text and File tabs with the editor focused" width="100%">
+
 #### Step 4 — Password
 For encryption: choose a strong password (4+ random words recommended). The
 strength meter updates as you type. You must confirm the password.
@@ -181,10 +201,14 @@ The **Paste** button reads from the system clipboard (requires `xclip`/`xsel`).
 If clipboard is unavailable, use `Ctrl+Shift+V` to paste directly into the
 focused field.
 
+<img src="docs/screens/step-4.svg" alt="Step 4, Password: the password and confirmation fields with the live strength meter" width="100%">
+
 #### Step 5 — Review
 Review your configuration summary. If everything looks correct, press
 **Execute** (`Tab` to the button, then `Enter`). Warnings appear if your
 password is weak. Use `Back` or number keys to revisit any step.
+
+<img src="docs/screens/step-5.svg" alt="Step 5, Review: a summary of operation, cipher, KDF, input and masked password, with the Execute button focused" width="100%">
 
 #### Step 6 — Output
 The result appears in a read-only text area:
@@ -199,6 +223,8 @@ The result appears in a read-only text area:
 > displayed text, and it is not a guarantee about data already copied elsewhere.
 > MORPHEUS does not clear your system clipboard, and leaving the Output step
 > cancels the timer. Use `Ctrl+L` to reset all wizard state.
+
+<img src="docs/screens/step-6.svg" alt="Step 6, Output: the base64 ciphertext in amber with Copy, Save to file, Clear and Stop timer actions" width="100%">
 
 ### Keyboard Shortcuts
 
