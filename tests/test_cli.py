@@ -987,6 +987,76 @@ class TestVersionFlag:
         )
 
 
+@pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
+class TestPQPublicKeyFile:
+    """A 1,580-character public key must not have to travel through argv.
+
+    The only way to encrypt to a recipient used to be pasting the whole base64
+    blob on the command line. That is the headline feature's entry point, and
+    it was the least usable step in the tool.
+    """
+
+    def _run(self, argv):
+        old_stdin, sys.stdin = sys.stdin, io.StringIO("")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                run_cli(argv)
+        finally:
+            sys.stdin = old_stdin
+        return out.getvalue()
+
+    def test_generate_keypair_also_writes_a_public_key_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sk_path = os.path.join(tmpdir, "id.key")
+            self._run(["--generate-keypair", "--output", sk_path])
+            pub = Path(f"{sk_path}.pub")
+            assert pub.exists(), "no .pub written beside the secret key"
+            assert base64.b64decode(pub.read_text().strip()), "unreadable public key"
+            assert pub.read_text().strip() not in Path(sk_path).read_text(), (
+                "the public key file should hold the public key, not the secret"
+            )
+
+    def test_round_trip_using_only_file_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sk_path = os.path.join(tmpdir, "id.key")
+            self._run(["--generate-keypair", "--output", sk_path])
+            ct = self._run([
+                "-o", "encrypt", "--data", "recipient addressed", "--hybrid-pq",
+                "--pq-public-key-file", f"{sk_path}.pub", "-p", PW,
+            ]).strip().splitlines()[-1]
+            pt = self._run([
+                "-o", "decrypt", "--data", ct, "--hybrid-pq",
+                "--pq-secret-key-file", sk_path, "-p", PW,
+            ]).strip().splitlines()[-1]
+            assert pt == "recipient addressed"
+
+    def test_the_two_public_key_forms_are_mutually_exclusive(self, capsys):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pub = Path(tmpdir) / "k.pub"
+            pub.write_text("AAAA\n")
+            with pytest.raises(SystemExit):
+                run_cli(["-o", "encrypt", "--data", "x", "--hybrid-pq",
+                         "--pq-public-key", "AAAA",
+                         "--pq-public-key-file", str(pub), "-p", PW])
+        assert "mutually exclusive" in capsys.readouterr().err
+
+    def test_the_error_names_the_flag_the_user_actually_typed(self, capsys):
+        """--pq-secret-key-file is folded into pq_secret_key before this check.
+
+        The message therefore used to say '--pq-secret-key requires
+        --hybrid-pq' to someone who had typed '--pq-secret-key-file', naming a
+        flag absent from their command line.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sk = Path(tmpdir) / "id.key"
+            sk.write_text("AAAA\n")
+            with pytest.raises(SystemExit):
+                run_cli(["-o", "encrypt", "--data", "x",
+                         "--pq-secret-key-file", str(sk), "-p", PW])
+        err = capsys.readouterr().err
+        assert "--pq-secret-key-file requires --hybrid-pq" in err, err[:200]
+
+
 class TestDocumentedOutputNameMatchesReality:
     """Encrypting a file writes morpheus_<random>.enc, and the docs must say so.
 

@@ -67,10 +67,14 @@ examples:
   would announce what it holds. The real name travels inside the ciphertext
   and comes back on decrypt. Use --output to pick a name yourself.
 
-  Hybrid post-quantum, which is a three-step flow
-    morpheus --generate-keypair --output my.key    # public key to stdout
-    morpheus -o encrypt --data "secret" --hybrid-pq --pq-public-key "<public key>"
+  Hybrid post-quantum: encrypt to a public key, no shared password
+    morpheus --generate-keypair --output my.key    # writes my.key + my.key.pub
+    morpheus -o encrypt --data "secret" --hybrid-pq --pq-public-key-file my.key.pub
     morpheus -o decrypt --data "AwECAg..." --hybrid-pq --pq-secret-key-file my.key
+
+  Share my.key.pub freely; keep my.key. Anyone with the public key can encrypt
+  to you, and only your secret key opens it. Your data is quantum-resistant
+  without this — see the README on what ML-KEM does and does not add.
 
   Inspect a ciphertext without a password
     morpheus --inspect --data "AwECAA..."
@@ -146,7 +150,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--pq-public-key",
-        help="Base64-encoded ML-KEM-768 public key (for hybrid encrypt)",
+        help="Base64-encoded ML-KEM-768 public key (for hybrid encrypt). "
+             "It is ~1,580 characters, so prefer --pq-public-key-file.",
+    )
+    parser.add_argument(
+        "--pq-public-key-file",
+        help="Path to a file holding the base64 ML-KEM-768 public key. "
+             "--generate-keypair writes one as <secret-key-path>.pub.",
     )
     parser.add_argument(
         "--pq-secret-key",
@@ -622,6 +632,27 @@ def run_cli(argv: list[str] | None = None) -> None:
         )
         sys.exit(1)
 
+    if args.pq_public_key and args.pq_public_key_file:
+        _print_status(
+            "Error: --pq-public-key and --pq-public-key-file are mutually "
+            "exclusive.\n  Pass the key once.",
+            error=True,
+        )
+        sys.exit(1)
+
+    # Remember what the user actually typed. Both file variants are folded into
+    # the non-file attribute below, so without this the "requires --hybrid-pq"
+    # error names a flag the user never used.
+    pq_flag_used = (
+        "--pq-public-key-file" if args.pq_public_key_file else
+        "--pq-public-key" if args.pq_public_key else
+        "--pq-secret-key-file" if args.pq_secret_key_file else
+        "--pq-secret-key" if args.pq_secret_key else None
+    )
+
+    if args.pq_public_key_file:
+        args.pq_public_key = _read_pq_public_key_file(args.pq_public_key_file)
+
     if args.pq_secret_key_file:
         args.pq_secret_key = _read_pq_secret_key_file(args.pq_secret_key_file)
     elif args.pq_secret_key:
@@ -638,7 +669,7 @@ def run_cli(argv: list[str] | None = None) -> None:
     # while the user believed it was quantum-resistant. Checked before the
     # password prompt so the failure costs nothing.
     if (args.pq_public_key or args.pq_secret_key) and not args.hybrid_pq:
-        given = "--pq-public-key" if args.pq_public_key else "--pq-secret-key"
+        given = pq_flag_used or "--pq-public-key"
         _print_status(
             f"Error: {given} requires --hybrid-pq.\n"
             "  Without it the post-quantum layer is not applied and the output "
@@ -700,14 +731,23 @@ def run_cli(argv: list[str] | None = None) -> None:
         with _open_secure_output(sk_path, args.force) as fh:
             fh.write(base64.b64encode(sk).decode() + "\n")
 
-        # The public key is public, so stdout is correct and pipeable.
+        # The public key also goes to a file. It is 1,580 base64 characters, so
+        # expecting anyone to select it out of a terminal and shell-substitute
+        # it was the single worst step in the post-quantum flow. A path is
+        # something a person can actually pass around.
+        pk_path = f"{sk_path}.pub"
+        with open(pk_path, "w", encoding="utf-8") as fh:
+            fh.write(base64.b64encode(pk).decode() + "\n")
+
+        # Still printed too: stdout is pipeable and some callers want it.
         print(base64.b64encode(pk).decode())
         _print_status(
             f"ML-KEM-768 keypair generated.\n"
-            f"  Public key: printed to stdout above.\n"
+            f"  Public key: {pk_path} (share this; also printed above)\n"
             f"  Secret key: {sk_path} (mode 0600)\n"
-            f"  Decrypt with: --hybrid-pq --pq-secret-key-file {sk_path}\n"
-            "  Back this file up now. There is no way to regenerate it."
+            f"  Encrypt to it: --hybrid-pq --pq-public-key-file {pk_path}\n"
+            f"  Decrypt with:  --hybrid-pq --pq-secret-key-file {sk_path}\n"
+            "  Back the secret key up now. There is no way to regenerate it."
         )
         return
 
@@ -919,6 +959,33 @@ def _check_overwrite(path: str, force: bool) -> None:
             error=True,
         )
         sys.exit(1)
+
+
+def _read_pq_public_key_file(path: str) -> str:
+    """Read a base64 ML-KEM public key from *path*.
+
+    No permission check, unlike the secret-key reader: a public key is meant to
+    be shared, and warning about its mode would train people to ignore the
+    warning that matters.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            key_b64 = fh.read().strip()
+    except OSError as exc:
+        _print_status(
+            f"Error: cannot read --pq-public-key-file: {path}\n"
+            f"  {exc.strerror}.",
+            error=True,
+        )
+        sys.exit(1)
+
+    if not key_b64:
+        _print_status(
+            f"Error: --pq-public-key-file is empty: {path}", error=True
+        )
+        sys.exit(1)
+
+    return key_b64
 
 
 def _read_pq_secret_key_file(path: str) -> str:
