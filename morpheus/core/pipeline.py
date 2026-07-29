@@ -12,6 +12,7 @@ Format v2 ciphertexts can still be decrypted for backward compatibility.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import struct
 
@@ -67,10 +68,76 @@ def pq_generate_keypair() -> tuple[bytes, bytes]:
     return _ml_kem.generate_keypair()
 
 
+# ML-KEM-768 structural constants (FIPS 203, k = 3).
+_MLKEM_Q = 3329
+_MLKEM_EK_POLY_BYTES = 1152      # 384k — the encoded polynomial vector in ek
+_MLKEM_EK_BYTES = 1184           # 384k + 32
+_MLKEM_DK_BYTES = 2400           # 768k + 96
+_MLKEM_DK_EK_START = 1152        # dk embeds ek at [384k : 768k+32]
+_MLKEM_DK_EK_END = 2336
+_MLKEM_DK_HASH_END = 2368        # H(ek) lives at [768k+32 : 768k+64]
+
+
+def _check_encapsulation_key(ek: bytes) -> None:
+    """FIPS 203 Section 7.2: type check and modulus check on an encapsulation key.
+
+    The standard says implementers *shall* check these before running Encaps,
+    and nothing in the stack below us does: pqcrypto validates only type and
+    length, so a key whose coefficients exceed q is accepted and produces a
+    normal-looking ciphertext.
+
+    The modulus check is specified as
+    ``ByteEncode12(ByteDecode12(ek)) == ek``, which detects exactly the
+    coefficients in [q, 4095] — ByteDecode12 reduces mod q, so re-encoding
+    differs precisely when a 12-bit value was out of range. Testing each
+    coefficient directly is equivalent and clearer.
+
+    This authenticates nothing: an attacker substituting a recipient's public
+    key substitutes a *valid* one. The value is diagnostics — a corrupted key
+    file says so instead of surfacing as "incorrect password" much later — and
+    conformance with a standard this project names in its own documentation.
+    """
+    if len(ek) != _MLKEM_EK_BYTES:
+        raise ConfigurationError(
+            f"ML-KEM-768 public key must be {_MLKEM_EK_BYTES} bytes, got {len(ek)}"
+        )
+    body = ek[:_MLKEM_EK_POLY_BYTES]
+    for i in range(0, len(body), 3):
+        b0, b1, b2 = body[i], body[i + 1], body[i + 2]
+        if (b0 | ((b1 & 0x0F) << 8)) >= _MLKEM_Q or ((b1 >> 4) | (b2 << 4)) >= _MLKEM_Q:
+            raise ConfigurationError(
+                "ML-KEM-768 public key failed the FIPS 203 modulus check: it "
+                "encodes a coefficient outside [0, 3328]. The key file is "
+                "corrupt or is not an ML-KEM-768 public key."
+            )
+
+
+def _check_decapsulation_key(dk: bytes) -> None:
+    """FIPS 203 Section 7.3: type check and hash check on a decapsulation key.
+
+    dk embeds its own ek and a hash of it. Verifying that pairing catches a
+    corrupted key file, which otherwise decapsulates to a wrong-but-valid
+    shared secret and is reported to the user as a wrong password.
+    """
+    if len(dk) != _MLKEM_DK_BYTES:
+        raise ConfigurationError(
+            f"ML-KEM-768 secret key must be {_MLKEM_DK_BYTES} bytes, got {len(dk)}"
+        )
+    embedded_ek = dk[_MLKEM_DK_EK_START:_MLKEM_DK_EK_END]
+    expected = dk[_MLKEM_DK_EK_END:_MLKEM_DK_HASH_END]
+    if hashlib.sha3_256(embedded_ek).digest() != expected:
+        raise ConfigurationError(
+            "ML-KEM-768 secret key failed the FIPS 203 hash check: the "
+            "embedded public key does not match its stored digest. The key "
+            "file is corrupt."
+        )
+
+
 def _pq_encapsulate(public_key: bytes) -> tuple[bytes, bytes]:
     """KEM encapsulate: returns (ciphertext, shared_secret)."""
     if not PQ_AVAILABLE:
         raise RuntimeError("Post-quantum libraries not installed. pip install pqcrypto")
+    _check_encapsulation_key(public_key)
     return _ml_kem.encrypt(public_key)
 
 
@@ -85,11 +152,15 @@ def _pq_decapsulate(secret_key: bytes, kem_ciphertext: bytes) -> bytes:
     """
     if not PQ_AVAILABLE:
         raise RuntimeError("Post-quantum libraries not installed. pip install pqcrypto")
+    _check_decapsulation_key(secret_key)
     try:
         return _ml_kem.decrypt(secret_key, kem_ciphertext)
     except Exception as exc:
+        # Deliberately does not mention a wrong secret key: implicit rejection
+        # means a well-formed wrong key never reaches here, and saying so would
+        # invite the reader to distinguish two cases the code cannot.
         raise DecryptionError(
-            "PQ decapsulation failed: invalid KEM ciphertext or wrong secret key"
+            "PQ decapsulation failed: malformed KEM ciphertext"
         ) from exc
 
 

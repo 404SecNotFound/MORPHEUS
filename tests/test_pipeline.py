@@ -425,6 +425,57 @@ class TestV3Features:
         assert decrypted == text_300
 
 
+@pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
+class TestFIPS203InputChecking:
+    """FIPS 203 Sections 7.2 and 7.3 say implementers *shall* check KEM inputs.
+
+    Nothing below us did. pqcrypto validates type and length only, so before
+    this a secret key with one flipped byte decapsulated to a wrong-but-valid
+    shared secret and surfaced to the user as "incorrect password", and a
+    public key encoding a coefficient above q produced a normal-looking
+    ciphertext.
+
+    This is not a hardening claim. An attacker substituting a recipient's
+    public key substitutes a *valid* one, so the modulus check authenticates
+    nothing. The payoff is that a corrupt key file says it is corrupt, and
+    that a tool citing FIPS 203 in its documentation honours the parts of it
+    written as `shall`.
+    """
+
+    def test_public_key_with_a_coefficient_above_q_is_rejected(self):
+        from morpheus.core.errors import ConfigurationError
+        from morpheus.core.pipeline import _pq_encapsulate
+        pk, _ = pq_generate_keypair()
+        bad = bytearray(pk)
+        bad[0] = bad[1] = 0xFF          # first coefficient decodes to 4095 > 3328
+        with pytest.raises(ConfigurationError, match="modulus check"):
+            _pq_encapsulate(bytes(bad))
+
+    def test_secret_key_failing_the_hash_check_is_rejected(self):
+        from morpheus.core.errors import ConfigurationError
+        from morpheus.core.pipeline import _pq_decapsulate, _pq_encapsulate
+        pk, sk = pq_generate_keypair()
+        ct, _ = _pq_encapsulate(pk)
+        bad = bytearray(sk)
+        bad[1200] ^= 0x01               # inside the embedded encapsulation key
+        with pytest.raises(ConfigurationError, match="hash check"):
+            _pq_decapsulate(bytes(bad), ct)
+
+    @pytest.mark.parametrize("length", [0, 1183, 1185])
+    def test_wrong_length_public_key_is_rejected(self, length):
+        from morpheus.core.errors import ConfigurationError
+        from morpheus.core.pipeline import _pq_encapsulate
+        with pytest.raises(ConfigurationError, match="1184 bytes"):
+            _pq_encapsulate(b"\x00" * length)
+
+    def test_valid_keys_are_untouched(self):
+        """Otherwise the checks above could pass by rejecting everything."""
+        from morpheus.core.pipeline import _pq_decapsulate, _pq_encapsulate
+        pk, sk = pq_generate_keypair()
+        ct, ss_enc = _pq_encapsulate(pk)
+        assert _pq_decapsulate(sk, ct) == ss_enc
+
+
 class TestEncryptRefusesWhatDecryptWillReject:
     """Encrypt must not produce ciphertext that can never be decrypted.
 
