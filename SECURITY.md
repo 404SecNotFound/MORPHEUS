@@ -150,11 +150,23 @@ explicit ACL is a possible future change, not current behaviour.
 ### ML-KEM-768 implementation provenance
 
 The ML-KEM-768 post-quantum layer is provided by the `pqcrypto` community
-package, which binds to `liboqs` (Open Quantum Safe). This implementation:
+package (0.4.0), which wraps **PQClean**, not liboqs. Verified by inspecting
+the installed extension modules: `PQCLEAN_MLKEM768_CLEAN_*` symbols are
+present and no `liboqs`/`OQS_` symbols appear anywhere in the package.
+
+This distinction is worth stating precisely, because it cuts both ways. liboqs
+has a published third-party review (Trail of Bits, 2025) that this dependency
+does **not** inherit; liboqs also carries an explicit upstream warning against
+production use, which likewise does not apply here. PQClean and `pqcrypto` have
+no equivalent public audit at all.
+
+So, plainly:
 
 - Has **not** undergone FIPS 140-3 validation
 - Has **not** been independently audited by a third party
 - Is maintained by a small open-source community
+- Is an **optional** dependency. The default password-only path does not use it
+  and is already quantum-resistant; see the README
 
 The hybrid design ensures that overall security is **never weaker** than the
 password-based symmetric layer alone. ML-KEM-768 is an additional
@@ -182,6 +194,46 @@ UX tradeoff:
 For deployments requiring indistinguishable error behavior (e.g., plausible
 deniability use cases), v2 format can be used — it returns `InvalidTag`
 for both wrong password and tampering.
+
+#### Known limitation: this is not a key commitment
+
+The point above about PRF output is true, and it answers the wrong question.
+PRF security says the value looks random to someone who does not know the key.
+**Commitment** security says it is hard to find *two* keys producing the same
+value — and that is the property under attack in the literature on
+password-based encryption.
+
+Neither AES-GCM nor ChaCha20-Poly1305 is a committing AEAD. Efficient key
+multi-collision attacks against both are published (Len, Grubbs and Ristenpart,
+USENIX Security 2021), together with tooling that makes each decryption land as
+a plausible file in a real format (Albertini et al., USENIX Security 2022).
+RFC 9771 §4.3.3 names password-based encryption as an application requiring
+key commitment.
+
+The 8-byte key-check is the only commitment-shaped value in the format. By the
+size relation in Bellare and Hoang (CRYPTO 2024), 64 bits of expansion gives
+roughly **32 bits of committing security**. It also commits to the first
+encryption key alone — not the nonces, not the AAD, not the ML-KEM ciphertext,
+and not the second key in chained mode.
+
+**What this does and does not mean, stated honestly:**
+
+- There is **no partitioning oracle** here. MORPHEUS has no server and no
+  queryable decryption endpoint, so the remote password-recovery result in that
+  literature does **not** apply, and we do not claim otherwise.
+- The applicable risk is **deception by whoever created the ciphertext**: a
+  file crafted to decrypt to two different plausible documents under two
+  different passwords. This is irrelevant if you encrypted the file yourself,
+  which is the dominant use. It matters if you accept ciphertext from someone
+  else and treat "it decrypted" as proof of origin — evidence handling,
+  moderation, or scanning pipelines.
+- Your strong Argon2id default does **not** bound this attack, because the
+  attacker writes the header and decrypt rebuilds the KDF from it. The
+  header-legal floor is far cheaper than the default.
+
+**Do not rely on a successful decryption as proof that a third party's
+ciphertext has only one plaintext.** Widening this to a full 32-byte
+commitment requires a format change and is tracked as such.
 
 ### File envelope metadata
 

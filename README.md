@@ -566,7 +566,7 @@ morpheus/
 | `argon2-cffi` | Argon2id key derivation | Yes |
 | `textual` | Terminal GUI framework | Yes |
 | `pyperclip` | Clipboard access (Linux: requires `xclip` or `xsel`) | Yes |
-| `pqcrypto` | ML-KEM-768 post-quantum KEM (community binding to liboqs, not FIPS-validated) | Optional |
+| `pqcrypto` | ML-KEM-768 post-quantum KEM (community wrapper around PQClean, not FIPS-validated, no public audit) | Optional |
 
 Python 3.10+
 
