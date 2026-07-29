@@ -38,6 +38,14 @@ programme's register.
 ### Documentation
 - Corrected the test count in `README.md` and `CONTRIBUTING.md`, which still
   said 308.
+- **`SECURITY.md`'s unzeroable-copy table was incomplete** (DEF-007). Its
+  *Known Limitations* section enumerates the library boundaries where key
+  material is copied into an immutable `bytes` that cannot be zeroed, and read
+  as exhaustive while omitting `_combine_with_kem()` — the hybrid PQ path,
+  holding the password key concatenated with the ML-KEM shared secret. No
+  behaviour change and no new weakness: that buffer's mutable `bytearray` is
+  zeroed correctly, and the immutable copies are the same documented Python
+  limitation as the five sites already listed. The table now names all six.
 
 ## [2.1.0] - 2026-02-10
 

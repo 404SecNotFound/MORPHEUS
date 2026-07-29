@@ -105,6 +105,12 @@ copies that **cannot be zeroed** by the application:
 | `AES256GCM.encrypt/decrypt()` | `AESGCM(bytes(key))` | Key copy |
 | `ChaCha20Poly1305Cipher.encrypt/decrypt()` | `ChaCha20Poly1305(bytes(key))` | Key copy |
 | `_derive_keys()` | `HKDFExpand.derive(bytes(master))` | Master key copy |
+| `_combine_with_kem()` | `HKDF.derive(bytes(combined))` | Password key + KEM shared secret copy (hybrid PQ only) |
+
+The `_combine_with_kem()` site also builds its concatenation through
+`bytes(password_key) + kem_shared_secret`, producing two further short-lived
+immutable values before the mutable `bytearray` is created. The `bytearray`
+itself is zeroed in a `finally` block; the immutable copies cannot be.
 
 These copies persist on the Python heap until garbage collection. This is a
 fundamental limitation of Python and the `cryptography` library's API design.
