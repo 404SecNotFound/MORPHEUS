@@ -543,6 +543,19 @@ def run_cli(argv: list[str] | None = None) -> None:
             f"--cipher {args.cipher}. Drop one of the two flags."
         )
 
+    # pqcrypto is an optional extra and is deliberately absent from
+    # requirements.txt, so this is the state a user lands in by following the
+    # Quick Start and then reaching for the headline feature. Whether the
+    # package is importable is known here, long before a password is worth
+    # asking for.
+    if args.hybrid_pq and not PQ_AVAILABLE:
+        parser.error(
+            "--hybrid-pq needs the optional pqcrypto package, which is not "
+            "installed. Install it with `pip install pqcrypto` (or "
+            "`pip install \"morpheus[pq]\"`) and try again. Encrypting "
+            "without it would produce ordinary password-only ciphertext."
+        )
+
     # --- Resolve the ML-KEM secret key source ---
     # argv is readable by every local user through `ps` and
     # /proc/<pid>/cmdline, and it persists in shell history, so the file form

@@ -904,7 +904,46 @@ class TestFailsBeforeThePasswordPrompt:
             sys.stdin = old_stdin
         err = capsys.readouterr().err
         assert "--chain" in err
-        assert "password" not in err.lower(), "prompted before rejecting"
+        # Assert on the prompt itself, not the word "password": the error text
+        # may legitimately mention passwords while never having asked for one.
+        assert "enter password" not in err.lower(), "prompted before rejecting"
+
+    def test_hybrid_pq_without_pqcrypto_is_rejected_before_the_prompt(self, capsys):
+        """Availability is known at parse time, so the prompt is wasted work.
+
+        Found in UAT (DEF-001) by walking the documented first-contact path:
+        `pip install -r requirements.txt` deliberately omits pqcrypto, and the
+        README presents hybrid PQ as the headline feature, so a new user's
+        first attempt lands here. The old behaviour asked for a password,
+        asked again to confirm it, and only then said pqcrypto was missing.
+        """
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("")
+        try:
+            with patch("morpheus.cli.PQ_AVAILABLE", False):
+                with pytest.raises(SystemExit) as exc:
+                    run_cli(["-o", "encrypt", "--data", "x", "--hybrid-pq"])
+                assert exc.value.code == 2, "should be an argparse usage error"
+        finally:
+            sys.stdin = old_stdin
+        err = capsys.readouterr().err
+        assert "pqcrypto" in err, "must name the missing package"
+        # Assert on the prompt itself, not the word "password": the error text
+        # may legitimately mention passwords while never having asked for one.
+        assert "enter password" not in err.lower(), "prompted before rejecting"
+
+    def test_hybrid_pq_still_works_when_pqcrypto_is_present(self):
+        """The new gate must not fire on a correctly installed system."""
+        if not PQ_AVAILABLE:
+            pytest.skip("pqcrypto not installed")
+        pk, _ = pq_generate_keypair()
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(f"{PW}\n{PW}\n")
+        try:
+            run_cli(["-o", "encrypt", "--data", "still works", "--hybrid-pq",
+                     "--pq-public-key", base64.b64encode(pk).decode()])
+        finally:
+            sys.stdin = old_stdin
 
 
 class TestTopLevelExceptionHandler:
