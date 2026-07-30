@@ -15,10 +15,11 @@ programme's register.
     committing security, against ~32 for v3's 8-byte value by the size relation
     in Bellare–Hoang, CRYPTO 2024). Neither AES-GCM nor ChaCha20-Poly1305
     commits, and RFC 9771 §4.3.3 names password-based encryption as an
-    application that needs it. Shape follows CTX (Chan–Rogaway, ESORICS 2022)
-    over the key, both nonces, the AAD and the KEM prefix. It does **not** bind
-    the AEAD tag, which is what keeps wrong-password distinguishable from
-    tampering.
+    application that needs it. It binds **key material only** — both subkeys
+    when chained — because the AEAD tag already authenticates the nonce, header,
+    salt and KEM ciphertext. Binding those here as well would collapse
+    tampering into "incorrect password", which is exactly what an adversarial
+    review caught in the first draft of this change.
   - The **hybrid combiner binds the KEM ciphertext, encapsulation key and AAD**.
     v3's `HKDF(salt, pw_key ‖ ss, "hybrid-pq-v1")` is verbatim the construction
     NIST SP 800-227 §4.6.3 (final, September 2025) says does not preserve

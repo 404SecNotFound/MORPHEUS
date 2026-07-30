@@ -459,7 +459,7 @@ differences, all in what is bound and how widely:
 | | v3 | v4 |
 |---|---|---|
 | Key commitment | 8-byte truncated HMAC (~32-bit committing security) | **32-byte** CTX-shaped hash (~128-bit) |
-| Commitment covers | the first key only | key, both nonces, AAD, KEM prefix |
+| Commitment covers | the first key only | **all key material** (both subkeys when chained) |
 | AAD covers | the 18-byte header | header **+ salt + length-prefixed KEM ciphertext** |
 | Hybrid combiner | `HKDF(salt, pw_key ‖ ss, "hybrid-pq-v1")` | binds the **KEM ciphertext, encapsulation key and AAD** per NIST SP 800-227 §4.6.3 |
 
@@ -521,7 +521,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**412 tests** across 13 test files:
+**426 tests** across 13 test files:
 
 | File | Scope |
 |------|-------|
@@ -572,7 +572,7 @@ morpheus/
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # ctypes.memset zeroing of key buffers
 │       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 412 tests (NIST/RFC vectors included)
+├── tests/                     # 426 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

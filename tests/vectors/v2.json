@@ -1,0 +1,51 @@
+{
+  "format_version": 2,
+  "note": "v2 known-answer vectors. v2 has no key-check and no KDF params in the header, so the decrypting pipeline's own KDF must match. Built by assembling the v2 layout directly, because encrypt() now only emits v4. These pin the oldest decrypt path, which had no stored coverage at all until an adversarial review pointed out that a v2-only regression would be invisible.",
+  "cases": [
+    {
+      "name": "v2-AES256GCM-argon2",
+      "plaintext": "legacy known answer",
+      "password": "T3st!Passw0rd#Str0ng",
+      "ciphertext": "AgECAAAAK8svq5507dTZtG4Y584boH4AMHuDJ5o36TTgouzYugBopwvVsCfLoqh838DuERkmNDWqhYFgjz0gmhx1iRup",
+      "cipher": "AES256GCM",
+      "kdf": "Argon2idKDF",
+      "kdf_params": {
+        "time_cost": 1,
+        "memory_cost": 1024,
+        "parallelism": 1
+      },
+      "chain": false,
+      "hybrid_pq": false
+    },
+    {
+      "name": "v2-ChaCha20-scrypt",
+      "plaintext": "legacy known answer",
+      "password": "T3st!Passw0rd#Str0ng",
+      "ciphertext": "AgIBAAAA1lctvhvwP8ieFbJRJqE4y0oyYjy8lRQaWCmkc53EXFd+1XNQByPwZh6g8p/Uqtxa4nQjqu94vCQBAz6U+nXH",
+      "cipher": "ChaCha20Poly1305Cipher",
+      "kdf": "ScryptKDF",
+      "kdf_params": {
+        "n": 16384,
+        "r": 8,
+        "p": 1
+      },
+      "chain": false,
+      "hybrid_pq": false
+    },
+    {
+      "name": "v2-chained",
+      "plaintext": "legacy chained",
+      "password": "T3st!Passw0rd#Str0ng",
+      "ciphertext": "AgMCAQAALWPu3S4ArhDch++mqltpkM+DAv3LrXxQACiHjusNMbHgkEcnQV2FOWyh0B0fdfzY9zP27QNIIBgOjHnfkB0LhjRz1n+nW/G0Tth0G5ma4SJD55hC/oA=",
+      "cipher": "AES256GCM",
+      "kdf": "Argon2idKDF",
+      "kdf_params": {
+        "time_cost": 1,
+        "memory_cost": 1024,
+        "parallelism": 1
+      },
+      "chain": true,
+      "hybrid_pq": false
+    }
+  ]
+}

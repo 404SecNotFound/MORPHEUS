@@ -690,27 +690,41 @@ class TestV4CommitmentAndCombiner:
         # salt + nonce + commitment + at least a tag's worth of body
         assert len(payload) >= FAST_ARGON2.salt_size + 12 + COMMITMENT_SIZE
 
-    def test_the_commitment_covers_the_nonce(self):
-        """v3's key-check was computed before encryption, so it could not."""
+    def test_the_commitment_binds_the_key(self):
         from morpheus.core.pipeline import _compute_commitment
-        key = bytes(range(32))
-        a = _compute_commitment(key, nonce1=b"A" * 12)
-        b = _compute_commitment(key, nonce1=b"B" * 12)
-        assert a != b, "changing the nonce must change the commitment"
+        a = _compute_commitment(bytes(range(32)))
+        b = _compute_commitment(bytes(range(1, 33)))
+        assert a != b, "changing the key must change the commitment"
 
-    def test_the_commitment_covers_the_kem_prefix_and_aad(self):
+    def test_the_commitment_binds_the_second_chained_key(self):
+        """Committing to the first key alone would leave the second free."""
         from morpheus.core.pipeline import _compute_commitment
-        key = bytes(range(32))
-        base = _compute_commitment(key, nonce1=b"N" * 12)
-        assert _compute_commitment(key, nonce1=b"N" * 12, kem_prefix=b"\x00\x01x") != base
-        assert _compute_commitment(key, nonce1=b"N" * 12, aad=b"other") != base
+        k = bytes(range(32))
+        assert _compute_commitment(k, b"A" * 32) != _compute_commitment(k, b"B" * 32)
+        assert _compute_commitment(k, b"A" * 32) != _compute_commitment(k)
+
+    def test_the_commitment_does_not_bind_nonces_or_aad(self):
+        """Deliberate, and the reason is worth pinning.
+
+        The first v4 draft hashed the nonces and AAD in. Because this value is
+        checked before the AEAD, that meant tampering with a nonce or a header
+        byte failed here and was reported as an incorrect password — losing the
+        distinction v3 got right. Those fields are already covered by the AEAD
+        tag. This test fails if someone reintroduces them.
+        """
+        import inspect as _inspect
+
+        from morpheus.core.pipeline import _compute_commitment
+        params = set(_inspect.signature(_compute_commitment).parameters)
+        assert not params & {"nonce1", "nonce2", "aad", "kem_prefix"}, (
+            f"_compute_commitment binds AEAD-covered fields again: {params}"
+        )
 
     def test_length_prefixing_makes_the_commitment_injective(self):
         """Without length prefixes, moving a byte between fields would collide."""
         from morpheus.core.pipeline import _compute_commitment
-        key = bytes(range(32))
-        a = _compute_commitment(key, nonce1=b"AB", nonce2=b"C")
-        b = _compute_commitment(key, nonce1=b"A", nonce2=b"BC")
+        a = _compute_commitment(b"AB", b"C")
+        b = _compute_commitment(b"A", b"BC")
         assert a != b, "field boundaries are not being bound"
 
     @pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
@@ -747,3 +761,104 @@ class TestV4CommitmentAndCombiner:
                                        kem_ciphertext=b"ct", encapsulation_key=b"ek",
                                        aad=b"aad")
         assert bytes(plain) == bytes(with_extra)
+
+
+class TestFailureAttributionIsDistinct:
+    """A wrong password and a modified ciphertext must not look the same.
+
+    SECURITY.md presents this as a deliberate design property, and until now
+    nothing enforced it. The first v4 draft bound the nonces and AAD into the
+    pre-AEAD commitment, which collapsed nonce and header tampering into
+    WrongPasswordError — a silent regression against v3 that shipped, and that
+    the documentation actively denied. These tests exist so that cannot recur.
+
+    The rule: WrongPasswordError means the key is wrong. InvalidTag means the
+    bytes were modified. Anything that changes the derived key (salt, KEM
+    ciphertext) legitimately produces the former and is excluded here.
+    """
+
+    PW = PASSWORD
+
+    def _ct(self, **kw):
+        p = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2, **kw)
+        return p, p.encrypt("attribution probe", self.PW)
+
+    def _flip(self, ct: str, byte_index: int) -> str:
+        raw = bytearray(base64.b64decode(ct))
+        raw[byte_index] ^= 0x01
+        return base64.b64encode(bytes(raw)).decode()
+
+    def test_wrong_password_says_wrong_password(self):
+        from morpheus.core.errors import WrongPasswordError
+        p, ct = self._ct()
+        with pytest.raises(WrongPasswordError):
+            p.decrypt(ct, "Wr0ng!Password#X")
+
+    def test_nonce_tampering_says_tampering_not_wrong_password(self):
+        """The nonce is authenticated by the AEAD, so this must reach the tag."""
+        from morpheus.core.errors import WrongPasswordError
+        p, ct = self._ct()
+        # payload starts at 18; salt is 16, so the nonce begins at 34.
+        bad = self._flip(ct, 18 + 16)
+        with pytest.raises(InvalidTag):
+            try:
+                p.decrypt(bad, self.PW)
+            except WrongPasswordError as exc:
+                raise AssertionError(
+                    "nonce tampering reported as a wrong password; the "
+                    "pre-AEAD check is binding fields the AEAD already covers"
+                ) from exc
+
+    def test_body_tampering_says_tampering(self):
+        from morpheus.core.errors import WrongPasswordError
+        p, ct = self._ct()
+        raw = base64.b64decode(ct)
+        with pytest.raises(InvalidTag):
+            try:
+                p.decrypt(self._flip(ct, len(raw) - 4), self.PW)
+            except WrongPasswordError as exc:
+                raise AssertionError("body tampering reported as wrong password") from exc
+
+    def test_cipher_id_tampering_says_tampering(self):
+        """cipher_id does not feed key derivation, so the tag must catch it."""
+        from morpheus.core.errors import DecryptionError, WrongPasswordError
+        p, ct = self._ct()
+        with pytest.raises((InvalidTag, DecryptionError)):
+            try:
+                p.decrypt(self._flip(ct, 1), self.PW)
+            except WrongPasswordError as exc:
+                raise AssertionError("cipher_id tampering reported as wrong password") from exc
+
+    @pytest.mark.parametrize("field,index", [("kdf_id", 2), ("flags", 3)])
+    def test_derivation_affecting_fields_honestly_report_a_wrong_key(self, field, index):
+        """Not every "incorrect password" is a misattribution.
+
+        kdf_id selects the KDF and the flags byte selects chaining and hybrid
+        PQ, so altering either genuinely changes the derived key. The
+        commitment then fails for a true reason and "incorrect password" is the
+        accurate diagnosis, not a lost signal. The same holds for the salt and
+        the KEM ciphertext.
+
+        This is pinned so the distinction is deliberate rather than accidental:
+        the fix for the v4 regression was to stop binding fields the AEAD
+        already covers, not to force every tamper into InvalidTag.
+        """
+        from morpheus.core.errors import (
+            DecryptionError,
+            KDFParameterError,
+            WrongPasswordError,
+        )
+        # KDFParameterError is the best case: an unknown kdf_id is rejected by
+        # name before any key is derived at all.
+        with pytest.raises(
+            (WrongPasswordError, DecryptionError, KDFParameterError, InvalidTag)
+        ):
+            p, ct = self._ct()
+            p.decrypt(self._flip(ct, index), self.PW)
+
+    def test_salt_tampering_reports_a_wrong_key(self):
+        """Documented in SECURITY.md as inherent, so pinned rather than fixed."""
+        from morpheus.core.errors import WrongPasswordError
+        p, ct = self._ct()
+        with pytest.raises(WrongPasswordError):
+            p.decrypt(self._flip(ct, 18), self.PW)

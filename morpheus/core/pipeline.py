@@ -9,9 +9,10 @@ Format v4 is the default for new encryptions. It keeps v3's 18-byte header
 and KDF parameters, and adds three things:
 
   - a full 32-byte key commitment in place of v3's 8-byte truncated check,
-    computed over the key, nonces, AAD and KEM prefix (CTX-shaped, without
-    binding the AEAD tag so wrong-password stays distinguishable from
-    tampering)
+    binding the key material and nothing else. It answers "is this the right
+    key"; the AEAD tag answers "has anything been modified". Keeping those
+    separate is what preserves distinct errors for a wrong password and for
+    tampering
   - AAD extended over the salt and the length-prefixed KEM ciphertext, which
     in v3 sat in the payload outside the tag
   - a hybrid combiner that binds the KEM ciphertext, the encapsulation key
@@ -302,15 +303,11 @@ def _compute_key_check(key: bytes | bytearray) -> bytes:
 
 def _compute_commitment(
     key: bytes | bytearray,
-    *,
-    nonce1: bytes,
-    nonce2: bytes = b"",
-    aad: bytes = b"",
-    kem_prefix: bytes = b"",
+    key2: bytes | bytearray = b"",
 ) -> bytes:
-    """v4 key commitment: a full 32-byte hash over the key and its context.
+    """v4 key commitment: a 32-byte hash binding the key material.
 
-    Replaces the 8-byte truncated HMAC for v4. Neither AES-GCM nor
+    Replaces v3's 8-byte truncated HMAC. Neither AES-GCM nor
     ChaCha20-Poly1305 is a committing AEAD, and efficient key multi-collision
     attacks against both are published (Len, Grubbs, Ristenpart, USENIX
     Security 2021; the file-shaping half in Albertini et al., USENIX Security
@@ -318,23 +315,30 @@ def _compute_commitment(
     application that needs key commitment. By the size relation in Bellare and
     Hoang (CRYPTO 2024), s bits of committing security needs 2s bits of
     expansion, so v3's 64 bits gave roughly 32 — enough to detect a wrong
-    password, not enough to stop a deliberately constructed collision.
+    password, nowhere near enough to stop a deliberately constructed collision.
 
-    Shape follows CTX (Chan and Rogaway, ESORICS 2022): hash the key together
-    with the full context, every field length-prefixed and the whole thing
-    domain-separated. Unlike CTX this does *not* bind the outer AEAD tag. Every
-    input here is known before the cipher runs, which keeps the check ahead of
-    AEAD decryption and preserves the wrong-password versus tampered-data
-    distinction that SECURITY.md documents as deliberate. Binding the tag would
-    collapse both into one message. Committing to the key at 128 bits already
-    removes the practical multi-collision attack.
+    **Binds key material only, deliberately.** The first draft of v4 followed
+    CTX (Chan and Rogaway, ESORICS 2022) and hashed the nonces, the AAD and the
+    KEM prefix in as well. An adversarial review showed that broke something v3
+    got right: this value is verified *before* the AEAD, so binding fields the
+    AEAD tag already authenticates meant tampering with a nonce or a header byte
+    failed here rather than at the tag, and was reported to the user as an
+    incorrect password. The justification written for the design claimed the
+    opposite of what it did.
 
-    Chained mode commits to both nonces and, unlike v3, to the KEM ciphertext.
+    The division of labour is now clean. This commitment answers "is this the
+    right key", which the AEAD cannot. The AEAD tag answers "has anything been
+    modified", covering the nonce implicitly and the header, salt and KEM
+    ciphertext through the v4 AAD. Neither duplicates the other, so each failure
+    mode keeps a distinct error.
+
+    Committing to the key alone is sufficient against the attack that motivates
+    this: a ciphertext that opens under two passwords needs two keys with the
+    same 32-byte commitment, which is 2^128 work. Chained mode binds both
+    subkeys, since committing to the first alone would leave the second free.
     """
     return hashlib.sha256(
-        b"morpheus-cmt-v5"
-        + _lp(bytes(key)) + _lp(nonce1) + _lp(nonce2)
-        + _lp(aad) + _lp(kem_prefix)
+        b"morpheus-cmt-v4" + _lp(bytes(key)) + _lp(bytes(key2))
     ).digest()
 
 
@@ -644,10 +648,15 @@ class EncryptionPipeline:
             if not self.pq_public_key:
                 raise ConfigurationError("Hybrid PQ requires a public key for encryption")
             kem_ct, raw_ss = _pq_encapsulate(self.pq_public_key)
-            if len(kem_ct) > 0xFFFF:
+            # The ceiling is 0xFFFF minus the 2-byte length word, because what
+            # gets length-prefixed into the v4 AAD is kem_prefix (2 + kem_ct),
+            # not kem_ct. Guarding kem_ct at 0xFFFF left a two-value window
+            # where this passed and _lp() then raised a bare struct.error.
+            max_kem_ct = 0xFFFF - 2
+            if len(kem_ct) > max_kem_ct:
                 raise ConfigurationError(
                     f"KEM ciphertext too large ({len(kem_ct)} bytes); "
-                    f"format supports max 65535 bytes"
+                    f"format supports max {max_kem_ct} bytes"
                 )
             kem_prefix = struct.pack("!H", len(kem_ct)) + kem_ct
 
@@ -688,12 +697,11 @@ class EncryptionPipeline:
             else:
                 nonce2, body = b"", ct1
 
-            # The commitment is computed after encryption because it binds the
-            # nonces, which the cipher generates. v3 computed its 8-byte check
-            # before, and so could not cover them.
+            # Binds key material only, so it does not need the nonces and can be
+            # computed at any point. See _compute_commitment for why binding the
+            # nonces and AAD here was wrong.
             commitment = _compute_commitment(
-                keys[0], nonce1=nonce1, nonce2=nonce2, aad=aad,
-                kem_prefix=kem_prefix,
+                keys[0], keys[1] if self.chain else b""
             )
             payload = salt + nonce1 + nonce2 + kem_prefix + commitment + body
 
@@ -850,8 +858,7 @@ class EncryptionPipeline:
             if stored_key_check is not None:
                 if is_v4:
                     computed = _compute_commitment(
-                        keys[0], nonce1=nonce1, nonce2=nonce2, aad=aad,
-                        kem_prefix=kem_prefix,
+                        keys[0], keys[1] if is_chained else b""
                     )
                 else:
                     computed = _compute_key_check(keys[0])

@@ -12,9 +12,9 @@ from hypothesis import strategies as st
 
 from morpheus.core.formats import (
     FORMAT_VERSION,
-    FORMAT_VERSION_3,
     HEADER_FORMAT,
     HEADER_SIZE,
+    SUPPORTED_VERSIONS,
     deserialize,
     serialize,
 )
@@ -103,10 +103,19 @@ class TestDeserializeFuzz:
             pass
 
     @given(version=st.integers(min_value=0, max_value=255).filter(
-        lambda v: v not in (FORMAT_VERSION, FORMAT_VERSION_3)))
+        lambda v: v not in SUPPORTED_VERSIONS))
     @settings(max_examples=100)
     def test_wrong_version_always_rejected(self, version: int):
-        """Any version other than FORMAT_VERSION or FORMAT_VERSION_3 must be rejected."""
+        """Any version outside the supported set must be rejected.
+
+        The filter is derived from SUPPORTED_VERSIONS rather than listing
+        versions inline. When v4 was added, the inline list still excluded only
+        v2 and v3, so hypothesis generated 4 as a "wrong" version, deserialize
+        correctly accepted it, and the test asserted a property that had become
+        false. It passed anyway because the generator rarely picks one value out
+        of 254 — a bug that only shows up on some runs is worse than one that
+        always does.
+        """
         header = struct.pack(HEADER_FORMAT, version, 0x01, 0x02, 0x00, 0)
         b64 = base64.b64encode(header + b"payload").decode()
         try:

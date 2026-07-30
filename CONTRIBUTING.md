@@ -27,7 +27,7 @@ pip install pqcrypto             # For post-quantum tests
 
 ```bash
 python -m pytest tests/ -v
-# All 412 tests should pass
+# All 426 tests should pass
 ```
 
 ## What We Welcome

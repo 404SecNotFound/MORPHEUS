@@ -199,15 +199,25 @@ for both wrong password and tampering.
 
 **Format v4 (the default for new encryptions) replaces the 8-byte check with a
 full 32-byte commitment**, giving roughly 128 bits of committing security
-instead of ~32. It is computed as a CTX-shaped hash (Chan and Rogaway, ESORICS
-2022) over the key, both nonces, the AAD and the KEM prefix, each field
-length-prefixed and the whole thing domain-separated.
+instead of ~32. It is a domain-separated SHA-256 over the length-prefixed key
+material — both subkeys in chained mode, since committing to the first alone
+would leave the second free.
 
-It deliberately does **not** bind the outer AEAD tag. Every other input is known
-before the cipher runs, which keeps the check ahead of AEAD decryption and so
-preserves the wrong-password versus tampered-data distinction described above.
-Binding the tag would collapse both into one message, and committing to the key
-at 128 bits already removes the practical multi-collision attack.
+**It binds key material and nothing else, deliberately.** The first draft
+followed CTX (Chan and Rogaway, ESORICS 2022) and hashed the nonces, AAD and
+KEM prefix in as well. An adversarial review showed that broke something v3 got
+right: this value is checked *before* the AEAD, so binding fields the AEAD tag
+already authenticates meant tampering with a nonce or a header byte failed here
+rather than at the tag, and was reported to the user as an incorrect password.
+
+The division of labour is now clean. The commitment answers *is this the right
+key*, which an AEAD cannot. The tag answers *has anything been modified*,
+covering the nonce implicitly and the header, salt and KEM ciphertext through
+the v4 AAD. Neither duplicates the other, so each failure keeps its own error.
+
+Committing to the key alone is sufficient against the attack that motivates
+this: a ciphertext opening under two passwords requires two keys with the same
+32-byte commitment, which is 2^128 work.
 
 The rest of this section describes the **v2 and v3** situation, which still
 applies to ciphertexts written by those versions and is why v4 exists.

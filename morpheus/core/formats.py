@@ -41,6 +41,12 @@ FORMAT_VERSION = 0x02      # Legacy default
 FORMAT_VERSION_3 = 0x03    # Extended with KDF params
 FORMAT_VERSION_4 = 0x04    # v3 layout, wider commitment, extended AAD
 
+# Single source of truth for what deserialize() accepts. Tests derive their
+# "unsupported version" generators from this: an inline list in test_fuzz.py
+# silently stopped matching reality when v4 landed, leaving a property test
+# asserting something false.
+SUPPORTED_VERSIONS = frozenset({FORMAT_VERSION, FORMAT_VERSION_3, FORMAT_VERSION_4})
+
 HEADER_FORMAT = "!BBBBH"   # version, cipher_id, kdf_id, flags, reserved
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)  # 6 bytes
 
@@ -166,7 +172,7 @@ def deserialize(b64_data: str) -> tuple[int, int, int, int, bytes,
             )
         return version, cipher_id, kdf_id, flags, raw[HEADER_SIZE_V3:], (p1, p2, p3)
 
+    supported = ", ".join(f"{v:#04x}" for v in sorted(SUPPORTED_VERSIONS))
     raise FormatError(
-        f"Unsupported ciphertext version {version:#04x} (supported: "
-        f"{FORMAT_VERSION:#04x}, {FORMAT_VERSION_3:#04x}, {FORMAT_VERSION_4:#04x})"
+        f"Unsupported ciphertext version {version:#04x} (supported: {supported})"
     )

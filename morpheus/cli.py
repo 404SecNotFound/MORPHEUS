@@ -29,6 +29,7 @@ from .core.errors import (
     WrongPasswordError,
 )
 from .core.formats import (
+    COMMITMENT_SIZE,
     FLAG_CHAINED,
     FLAG_HYBRID_PQ,
     FLAG_PADDED,
@@ -450,7 +451,15 @@ def _run_inspect(b64_data: str) -> None:
     salt_size = 16
     nonce_size = 12 * nonce_count
     tag_size = 16 * (2 if is_chained else 1)
-    key_check_size = KEY_CHECK_SIZE if is_v3 else 0
+    # v4 stores a 32-byte commitment where v3 stores an 8-byte check. Using
+    # the v3 width for both misattributed 24 bytes of every v4 ciphertext,
+    # understating Overhead and overstating Encrypted.
+    if version == FORMAT_VERSION_4:
+        key_check_size = COMMITMENT_SIZE
+    elif is_v3:
+        key_check_size = KEY_CHECK_SIZE
+    else:
+        key_check_size = 0
     overhead = header_size + salt_size + nonce_size + tag_size + key_check_size
     payload_size = len(payload)
     estimated_ct = max(0, payload_size - salt_size - nonce_size - key_check_size)
