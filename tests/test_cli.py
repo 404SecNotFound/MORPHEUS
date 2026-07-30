@@ -254,11 +254,11 @@ class TestDiagnoseCiphertext:
     """Test the ciphertext diagnosis helper for error context."""
 
     def test_v3_aes_argon2(self):
-        """Diagnose a standard v3 AES+Argon2 ciphertext."""
+        """Diagnose a standard v4 AES+Argon2 ciphertext."""
         p = EncryptionPipeline()
         ct = p.encrypt("test", "Test-Pass1!")
         diag = _diagnose_ciphertext(ct)
-        assert "v3" in diag
+        assert "v4" in diag
         assert "AES-256-GCM" in diag
         assert "Argon2id" in diag
         assert "t=3" in diag
@@ -457,13 +457,13 @@ class TestInspect:
     """Test --inspect command for ciphertext triage."""
 
     def test_inspect_v3_aes(self, capsys):
-        """Inspecting a v3 AES ciphertext shows all header details."""
+        """Inspecting a v4 AES ciphertext shows all header details."""
         p = EncryptionPipeline()
         ct = p.encrypt("hello world", "Test-Pass1!")
         run_cli(["--inspect", "--data", ct])
         out = capsys.readouterr().out
         assert "MORPHEUS Ciphertext Inspection" in out
-        assert "v3" in out
+        assert "v4" in out
         assert "AES-256-GCM" in out
         assert "Argon2id" in out
         assert "Total size" in out
@@ -1200,9 +1200,15 @@ class TestHelpEpilogExamplesAreReal:
         )
 
     def test_the_two_prefixes_differ(self):
-        """Otherwise both assertions above could pass against one value."""
+        """Otherwise both assertions above could pass against one value.
+
+        Deliberately does not hardcode the leading characters. An earlier
+        version matched `Aw...` and went stale the moment the format version
+        byte changed, which is the same failure the surrounding class exists
+        to prevent.
+        """
         from morpheus.cli import _EPILOG
-        shown = set(re.findall(r"\b(Aw[A-Za-z0-9+/]{4})\.\.\.", _EPILOG))
+        shown = set(re.findall(r'"([A-Za-z0-9+/]{6})\.\.\."', _EPILOG))
         assert len(shown) >= 2, (
             f"the epilog should distinguish password-only from hybrid-PQ "
             f"ciphertexts, but shows {shown}"

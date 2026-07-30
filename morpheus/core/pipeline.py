@@ -5,9 +5,22 @@ This is the main API surface for encrypt/decrypt operations. It assembles
 the versioned ciphertext format, derives keys, and optionally layers
 ML-KEM-768 key encapsulation on top of password-based encryption.
 
-Format v3 (default for new encryptions) stores KDF parameters in the
-header and includes a key-check value for better error diagnostics.
-Format v2 ciphertexts can still be decrypted for backward compatibility.
+Format v4 is the default for new encryptions. It keeps v3's 18-byte header
+and KDF parameters, and adds three things:
+
+  - a full 32-byte key commitment in place of v3's 8-byte truncated check,
+    computed over the key, nonces, AAD and KEM prefix (CTX-shaped, without
+    binding the AEAD tag so wrong-password stays distinguishable from
+    tampering)
+  - AAD extended over the salt and the length-prefixed KEM ciphertext, which
+    in v3 sat in the payload outside the tag
+  - a hybrid combiner that binds the KEM ciphertext, the encapsulation key
+    and the AAD, per NIST SP 800-227 section 4.6.3
+
+v2 and v3 ciphertexts still decrypt. Their derivation is frozen: the v3 HKDF
+subkey label and 8-byte check must never change, or archived ciphertexts stop
+opening. tests/vectors/ holds stored ciphertexts for both versions and is the
+only thing that catches such a change.
 """
 
 from __future__ import annotations
@@ -34,10 +47,12 @@ from .errors import (
     WrongPasswordError,
 )
 from .formats import (
+    COMMITMENT_SIZE,
     FLAG_CHAINED,
     FLAG_HYBRID_PQ,
     FLAG_PADDED,
     FORMAT_VERSION_3,
+    FORMAT_VERSION_4,
     KEY_CHECK_SIZE,
     build_aad,
     deserialize,
@@ -173,6 +188,7 @@ def _derive_keys(
     password_bytes: bytearray,
     salt: bytes,
     num_keys: int = 1,
+    version: int = FORMAT_VERSION_3,
 ) -> list[bytearray]:
     """
     Derive one or more 32-byte keys from a password.
@@ -180,16 +196,24 @@ def _derive_keys(
     For a single cipher, returns [key] as bytearray.
     For chained ciphers, returns [key_cipher1, key_cipher2] using HKDF-Expand.
     All returned keys are mutable bytearrays that can be zeroed by the caller.
+
+    The HKDF label is version-gated and must stay that way. v2 and v3
+    ciphertexts were written with the literal string "morpheus-v2-key-N", and
+    that string is now part of their wire format whether or not it was intended
+    to be: changing it for existing versions makes every archived chained
+    ciphertext undecryptable, with every test still passing. v4 uses its own
+    label. tests/vectors/ is what catches a mistake here.
     """
     master = kdf.derive(password_bytes, salt, key_length=32)  # returns bytearray
 
     if num_keys == 1:
         return [master]
 
+    label = "morpheus-v4-key-" if version == FORMAT_VERSION_4 else "morpheus-v2-key-"
     keys: list[bytearray] = []
     for i in range(num_keys):
         # Domain-separate each subkey by binding application context and salt
-        info = f"morpheus-v2-key-{i}".encode() + salt
+        info = f"{label}{i}".encode() + salt
         expanded = HKDFExpand(
             algorithm=SHA256(),
             length=32,
@@ -203,19 +227,63 @@ def _derive_keys(
     return keys
 
 
-def _combine_with_kem(password_key: bytes | bytearray, kem_shared_secret: bytes, salt: bytes) -> bytearray:
+def _lp(data: bytes) -> bytes:
+    """Length-prefix a field so a concatenation of fields is injective."""
+    if len(data) > 0xFFFF:
+        raise ConfigurationError(f"field too long to length-prefix ({len(data)} bytes)")
+    return struct.pack("!H", len(data)) + data
+
+
+def _combine_with_kem(
+    password_key: bytes | bytearray,
+    kem_shared_secret: bytes,
+    salt: bytes,
+    *,
+    version: int = FORMAT_VERSION_3,
+    kem_ciphertext: bytes = b"",
+    encapsulation_key: bytes = b"",
+    aad: bytes = b"",
+) -> bytearray:
     """Combine a password-derived key with a KEM shared secret via HKDF.
 
-    Uses a mutable bytearray for the concatenated intermediate to enable
-    zeroing after derivation. Returns a mutable bytearray.
+    v3 derived from the two secrets alone. NIST SP 800-227 (final, September
+    2025) section 4.6.3 states that the combiner K <- KDF(K1, K2), using only
+    the shared secrets, "does not preserve IND-CCA security, regardless of the
+    properties of the KDF", and recommends binding both ciphertexts and both
+    encapsulation keys plus a domain separator. X-Wing (Barbosa et al., IACR
+    CiC 1(1) 2024) and Giacon-Heuer-Poettering (PKC 2018) are the underlying
+    results; Alagic-Bajaj-Kocoglu (ePrint 2025/1444) state the general rule.
+
+    v4 therefore binds the KEM ciphertext, the encapsulation key and the AAD
+    into `info`. There is no live attack on the v3 form here — this tool is
+    offline with no decapsulation oracle, and the KEM ciphertext is already
+    bound indirectly because mutating it yields a different shared secret. The
+    reason to change is that a tool published as a quantum-resistance tool
+    should not ship the construction the current NIST recommendation prints as
+    its negative example, and this is the last moment the format change is free.
+
+    The encapsulation key costs zero wire bytes: for ML-KEM-768 it is embedded
+    in the decapsulation key at dk[1152:2336], so the decryptor recovers it
+    locally.
+
+    Deliberately keeps HKDF rather than adopting a split-key-PRF core
+    (HMAC(pw,ctx) XOR HMAC(ss,ctx)). The SP 800-227 gap closes by including the
+    ciphertext and encapsulation key, not by changing the core function, and an
+    XOR-shaped combiner reads as a downgrade to a non-expert reader.
     """
+    if version == FORMAT_VERSION_4:
+        info = (b"morpheus-hybrid-v4"
+                + _lp(kem_ciphertext) + _lp(encapsulation_key) + _lp(aad))
+    else:
+        info = b"hybrid-pq-v1"
+
     combined = bytearray(bytes(password_key) + kem_shared_secret)
     try:
         result = HKDF(
             algorithm=SHA256(),
             length=32,
             salt=salt,
-            info=b"hybrid-pq-v1",
+            info=info,
         ).derive(bytes(combined))
         return bytearray(result)
     finally:
@@ -230,6 +298,44 @@ def _compute_key_check(key: bytes | bytearray) -> bytes:
     HMAC-SHA256 is a PRF, so revealing 8 bytes is safe.
     """
     return hmac.new(bytes(key), b"morpheus-key-check", "sha256").digest()[:KEY_CHECK_SIZE]
+
+
+def _compute_commitment(
+    key: bytes | bytearray,
+    *,
+    nonce1: bytes,
+    nonce2: bytes = b"",
+    aad: bytes = b"",
+    kem_prefix: bytes = b"",
+) -> bytes:
+    """v4 key commitment: a full 32-byte hash over the key and its context.
+
+    Replaces the 8-byte truncated HMAC for v4. Neither AES-GCM nor
+    ChaCha20-Poly1305 is a committing AEAD, and efficient key multi-collision
+    attacks against both are published (Len, Grubbs, Ristenpart, USENIX
+    Security 2021; the file-shaping half in Albertini et al., USENIX Security
+    2022). RFC 9771 section 4.3.3 names password-based encryption as an
+    application that needs key commitment. By the size relation in Bellare and
+    Hoang (CRYPTO 2024), s bits of committing security needs 2s bits of
+    expansion, so v3's 64 bits gave roughly 32 — enough to detect a wrong
+    password, not enough to stop a deliberately constructed collision.
+
+    Shape follows CTX (Chan and Rogaway, ESORICS 2022): hash the key together
+    with the full context, every field length-prefixed and the whole thing
+    domain-separated. Unlike CTX this does *not* bind the outer AEAD tag. Every
+    input here is known before the cipher runs, which keeps the check ahead of
+    AEAD decryption and preserves the wrong-password versus tampered-data
+    distinction that SECURITY.md documents as deliberate. Binding the tag would
+    collapse both into one message. Committing to the key at 128 bits already
+    removes the practical multi-collision attack.
+
+    Chained mode commits to both nonces and, unlike v3, to the KEM ciphertext.
+    """
+    return hashlib.sha256(
+        b"morpheus-cmt-v4"
+        + _lp(bytes(key)) + _lp(nonce1) + _lp(nonce2)
+        + _lp(aad) + _lp(kem_prefix)
+    ).digest()
 
 
 # Padding buckets: data is padded to the next bucket boundary.
@@ -515,7 +621,7 @@ class EncryptionPipeline:
             flags |= FLAG_PADDED
 
         kdf_params = _get_kdf_params(self.kdf)
-        version = FORMAT_VERSION_3
+        version = FORMAT_VERSION_4
 
         # Refuse here what decrypt will refuse later. These bounds were applied
         # only when reading a header, so a caller constructing a pipeline with
@@ -528,47 +634,68 @@ class EncryptionPipeline:
         # decrypt costs the data.
         _build_kdf_from_params(self.kdf.kdf_id, kdf_params)
 
+        # Encapsulation moved above the AAD, because v4 binds the KEM ciphertext
+        # into it. It only needs the public key, so nothing here depends on the
+        # password keys and the ordering is not circular — but the previous
+        # order (AAD first, encapsulate later) cannot express this.
+        kem_prefix = b""
+        kem_ct = b""
+        if self.hybrid_pq:
+            if not self.pq_public_key:
+                raise ConfigurationError("Hybrid PQ requires a public key for encryption")
+            kem_ct, raw_ss = _pq_encapsulate(self.pq_public_key)
+            if len(kem_ct) > 0xFFFF:
+                raise ConfigurationError(
+                    f"KEM ciphertext too large ({len(kem_ct)} bytes); "
+                    f"format supports max 65535 bytes"
+                )
+            kem_prefix = struct.pack("!H", len(kem_ct)) + kem_ct
+
         aad = build_aad(version, cipher_id, self.kdf.kdf_id, flags,
-                        kdf_params=kdf_params)
+                        kdf_params=kdf_params, salt=salt, kem_prefix=kem_prefix)
 
         keys: list[bytearray] = []
         try:
             # Key derivation (returns list of bytearray)
             num_keys = 2 if self.chain else 1
-            keys = _derive_keys(self.kdf, password_bytes, salt, num_keys)
+            keys = _derive_keys(self.kdf, password_bytes, salt, num_keys,
+                                version=version)
 
             # Hybrid PQ layer
-            kem_prefix = b""
-            kem_ss: bytearray | None = None
             if self.hybrid_pq:
-                if not self.pq_public_key:
-                    raise ConfigurationError("Hybrid PQ requires a public key for encryption")
-                kem_ct, raw_ss = _pq_encapsulate(self.pq_public_key)
                 kem_ss = bytearray(raw_ss)
                 old_keys = keys
-                keys = [_combine_with_kem(k, kem_ss, salt) for k in keys]
+                keys = [
+                    _combine_with_kem(
+                        k, kem_ss, salt,
+                        version=version,
+                        kem_ciphertext=kem_ct,
+                        encapsulation_key=self.pq_public_key,
+                        aad=aad,
+                    )
+                    for k in keys
+                ]
                 for k in old_keys:
                     secure_zero(k)
                 secure_zero(kem_ss)
-                if len(kem_ct) > 0xFFFF:
-                    raise ConfigurationError(
-                        f"KEM ciphertext too large ({len(kem_ct)} bytes); "
-                        f"format supports max 65535 bytes"
-                    )
-                kem_prefix = struct.pack("!H", len(kem_ct)) + kem_ct
-
-            # Key-check value: allows distinguishing wrong password from
-            # wrong KDF params without weakening security
-            key_check = _compute_key_check(keys[0])
 
             # Encrypt with primary cipher
             nonce1, ct1 = self.cipher.encrypt(keys[0], data, aad)
 
             if self.chain:
                 nonce2, ct2 = self.chain_cipher.encrypt(keys[1], ct1, aad)
-                payload = salt + nonce1 + nonce2 + kem_prefix + key_check + ct2
+                body = ct2
             else:
-                payload = salt + nonce1 + kem_prefix + key_check + ct1
+                nonce2, body = b"", ct1
+
+            # The commitment is computed after encryption because it binds the
+            # nonces, which the cipher generates. v3 computed its 8-byte check
+            # before, and so could not cover them.
+            commitment = _compute_commitment(
+                keys[0], nonce1=nonce1, nonce2=nonce2, aad=aad,
+                kem_prefix=kem_prefix,
+            )
+            payload = salt + nonce1 + nonce2 + kem_prefix + commitment + body
 
             return serialize(cipher_id, self.kdf.kdf_id, flags, payload,
                              version=version, kdf_params=kdf_params)
@@ -597,7 +724,10 @@ class EncryptionPipeline:
         is_chained = bool(flags & FLAG_CHAINED)
         is_hybrid = bool(flags & FLAG_HYBRID_PQ)
         is_padded = bool(flags & FLAG_PADDED)
-        is_v3 = version == FORMAT_VERSION_3
+        is_v4 = version == FORMAT_VERSION_4
+        # v4 shares v3's header layout and its KDF-params-in-header behaviour,
+        # so everything keyed off is_v3 below applies to v4 too.
+        is_v3 = version in (FORMAT_VERSION_3, FORMAT_VERSION_4)
 
         # Resolve cipher(s)
         if is_chained:
@@ -666,37 +796,65 @@ class EncryptionPipeline:
                 )
             kem_ct = payload[offset : offset + kem_ct_len]
             offset += kem_ct_len
+            kem_prefix = struct.pack("!H", kem_ct_len) + kem_ct
             kem_ss = bytearray(_pq_decapsulate(self.pq_secret_key, kem_ct))
+        else:
+            kem_ct = b""
+            kem_prefix = b""
 
-        # Key-check value (v3 only)
+        # Key-check value (v3), or the wider commitment (v4)
+        check_size = COMMITMENT_SIZE if is_v4 else KEY_CHECK_SIZE
         stored_key_check: bytes | None = None
         if is_v3:
-            if payload_len < offset + KEY_CHECK_SIZE:
+            if payload_len < offset + check_size:
                 raise DecryptionError("Truncated ciphertext: missing key-check value")
-            stored_key_check = payload[offset : offset + KEY_CHECK_SIZE]
-            offset += KEY_CHECK_SIZE
+            stored_key_check = payload[offset : offset + check_size]
+            offset += check_size
 
         ciphertext = payload[offset:]
         if not ciphertext:
             raise DecryptionError("Truncated ciphertext: no encrypted data after header fields")
 
-        aad = build_aad(version, cipher_id, kdf_id, flags, kdf_params=kdf_params)
+        aad = build_aad(version, cipher_id, kdf_id, flags, kdf_params=kdf_params,
+                        salt=salt, kem_prefix=kem_prefix)
 
         keys: list[bytearray] = []
         try:
             num_keys = 2 if is_chained else 1
-            keys = _derive_keys(kdf, password_bytes, salt, num_keys)
+            keys = _derive_keys(kdf, password_bytes, salt, num_keys,
+                                version=version)
 
             if is_hybrid and kem_ss is not None:
+                # The encapsulation key is not transmitted: ML-KEM-768 embeds it
+                # in the decapsulation key, so v4 recovers it locally at zero
+                # wire cost. Verified: dk[1152:2336] == ek.
+                ek = (self.pq_secret_key[_MLKEM_DK_EK_START:_MLKEM_DK_EK_END]
+                      if is_v4 and self.pq_secret_key else b"")
                 old_keys = keys
-                keys = [_combine_with_kem(k, kem_ss, salt) for k in keys]
+                keys = [
+                    _combine_with_kem(
+                        k, kem_ss, salt,
+                        version=version,
+                        kem_ciphertext=kem_ct,
+                        encapsulation_key=ek,
+                        aad=aad,
+                    )
+                    for k in keys
+                ]
                 for k in old_keys:
                     secure_zero(k)
                 secure_zero(kem_ss)
 
-            # Verify key-check (v3) — clear error before AEAD attempt
+            # Verify the key-check (v3) or commitment (v4) before the AEAD, so a
+            # wrong password stays distinguishable from tampered data.
             if stored_key_check is not None:
-                computed = _compute_key_check(keys[0])
+                if is_v4:
+                    computed = _compute_commitment(
+                        keys[0], nonce1=nonce1, nonce2=nonce2, aad=aad,
+                        kem_prefix=kem_prefix,
+                    )
+                else:
+                    computed = _compute_key_check(keys[0])
                 if not hmac.compare_digest(stored_key_check, computed):
                     raise WrongPasswordError("Key verification failed: incorrect password")
 

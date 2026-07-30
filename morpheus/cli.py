@@ -33,6 +33,7 @@ from .core.formats import (
     FLAG_HYBRID_PQ,
     FLAG_PADDED,
     FORMAT_VERSION_3,
+    FORMAT_VERSION_4,
     HEADER_SIZE,
     HEADER_SIZE_V3,
     KEY_CHECK_SIZE,
@@ -57,7 +58,7 @@ examples:
 
   Encrypt and decrypt some text
     morpheus -o encrypt --data "sensitive text"
-    morpheus -o decrypt --data "AwECAA..."
+    morpheus -o decrypt --data "BAECAA..."
 
   Encrypt a file, then restore it
     morpheus -o encrypt -f report.pdf     # -> morpheus_<random>.enc
@@ -70,14 +71,14 @@ examples:
   Hybrid post-quantum: encrypt to a public key, no shared password
     morpheus --generate-keypair --output my.key    # writes my.key + my.key.pub
     morpheus -o encrypt --data "secret" --hybrid-pq --pq-public-key-file my.key.pub
-    morpheus -o decrypt --data "AwECAg..." --hybrid-pq --pq-secret-key-file my.key
+    morpheus -o decrypt --data "BAECAg..." --hybrid-pq --pq-secret-key-file my.key
 
   Share my.key.pub freely; keep my.key. Anyone with the public key can encrypt
   to you, and only your secret key opens it. Your data is quantum-resistant
   without this — see the README on what ML-KEM does and does not add.
 
   Inspect a ciphertext without a password
-    morpheus --inspect --data "AwECAA..."
+    morpheus --inspect --data "BAECAA..."
 
   Stronger settings
     morpheus -o encrypt --data "secret" --chain --kdf Scrypt --pad
@@ -85,6 +86,20 @@ examples:
 Hybrid post-quantum needs the optional pqcrypto package: pip install pqcrypto
 Full guide: docs/USAGE.md      Security policy: SECURITY.md
 """
+
+
+def _format_label(version: int) -> str:
+    """Human-readable format version, in one place.
+
+    Three separate sites each spelled this out as a v3-or-else-v2 ternary, so
+    adding v4 silently relabelled every v4 ciphertext as "v2 (legacy)" in both
+    --inspect and the error diagnostics.
+    """
+    if version == FORMAT_VERSION_4:
+        return "v4 (committing)"
+    if version == FORMAT_VERSION_3:
+        return "v3 (self-describing)"
+    return "v2 (legacy)"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -292,7 +307,7 @@ def _diagnose_ciphertext(b64_data: str) -> str:
         return ""
 
     # Version
-    ver_str = "v3 (self-describing)" if version == FORMAT_VERSION_3 else "v2 (legacy)"
+    ver_str = _format_label(version)
 
     # Cipher
     if flags & FLAG_CHAINED:
@@ -307,7 +322,7 @@ def _diagnose_ciphertext(b64_data: str) -> str:
 
     # KDF params
     params_str = ""
-    if kdf_params and version == FORMAT_VERSION_3:
+    if kdf_params and version in (FORMAT_VERSION_3, FORMAT_VERSION_4):
         if kdf_id == 0x02:  # Argon2id
             params_str = f" (t={kdf_params[0]}, m={kdf_params[1]} KiB, p={kdf_params[2]})"
         elif kdf_id == 0x01:  # Scrypt
@@ -392,13 +407,13 @@ def _run_inspect(b64_data: str) -> None:
     except Exception:
         raw = b""
 
-    is_v3 = version == FORMAT_VERSION_3
+    is_v3 = version in (FORMAT_VERSION_3, FORMAT_VERSION_4)
     is_chained = bool(flags & FLAG_CHAINED)
     is_hybrid = bool(flags & FLAG_HYBRID_PQ)
     is_padded = bool(flags & FLAG_PADDED)
 
     # Version
-    ver_str = "v3 (self-describing)" if is_v3 else "v2 (legacy)"
+    ver_str = _format_label(version)
 
     # Cipher
     if is_chained:

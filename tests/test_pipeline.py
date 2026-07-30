@@ -11,7 +11,7 @@ from morpheus.core.formats import (
     FLAG_CHAINED,
     FLAG_HYBRID_PQ,
     FORMAT_VERSION,
-    FORMAT_VERSION_3,
+    FORMAT_VERSION_4,
     HEADER_FORMAT,
 )
 from morpheus.core.kdf import Argon2idKDF, ScryptKDF
@@ -403,11 +403,11 @@ class TestV3Features:
             pipeline.decrypt(encrypted, "Wr0ng!Password#X")
 
     def test_v3_format_version_in_output(self):
-        """Pipeline encrypt produces v3 format by default."""
+        """Pipeline encrypt produces v4 format by default (was v3)."""
         pipeline = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
         ct = pipeline.encrypt("test", PASSWORD)
         raw = base64.b64decode(ct)
-        assert raw[0] == FORMAT_VERSION_3
+        assert raw[0] == FORMAT_VERSION_4
 
     def test_chained_padding_roundtrip(self):
         """Padding works with cipher chaining."""
@@ -676,3 +676,74 @@ class TestFixedSizePadding:
         ct = p.encrypt("test", "Test-Pass1!", fixed_size=True)
         _, _, _, flags, _, _ = deserialize(ct)
         assert flags & FLAG_PADDED
+
+
+class TestV4CommitmentAndCombiner:
+    """The three properties v4 exists to deliver, asserted rather than assumed."""
+
+    def test_the_commitment_is_a_full_32_bytes(self):
+        """v3 stored 8 bytes, which is ~32 bits of committing security."""
+        from morpheus.core.formats import COMMITMENT_SIZE, deserialize
+        assert COMMITMENT_SIZE == 32
+        p = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
+        _, _, _, _, payload, _ = deserialize(p.encrypt("x", PASSWORD))
+        # salt + nonce + commitment + at least a tag's worth of body
+        assert len(payload) >= FAST_ARGON2.salt_size + 12 + COMMITMENT_SIZE
+
+    def test_the_commitment_covers_the_nonce(self):
+        """v3's key-check was computed before encryption, so it could not."""
+        from morpheus.core.pipeline import _compute_commitment
+        key = bytes(range(32))
+        a = _compute_commitment(key, nonce1=b"A" * 12)
+        b = _compute_commitment(key, nonce1=b"B" * 12)
+        assert a != b, "changing the nonce must change the commitment"
+
+    def test_the_commitment_covers_the_kem_prefix_and_aad(self):
+        from morpheus.core.pipeline import _compute_commitment
+        key = bytes(range(32))
+        base = _compute_commitment(key, nonce1=b"N" * 12)
+        assert _compute_commitment(key, nonce1=b"N" * 12, kem_prefix=b"\x00\x01x") != base
+        assert _compute_commitment(key, nonce1=b"N" * 12, aad=b"other") != base
+
+    def test_length_prefixing_makes_the_commitment_injective(self):
+        """Without length prefixes, moving a byte between fields would collide."""
+        from morpheus.core.pipeline import _compute_commitment
+        key = bytes(range(32))
+        a = _compute_commitment(key, nonce1=b"AB", nonce2=b"C")
+        b = _compute_commitment(key, nonce1=b"A", nonce2=b"BC")
+        assert a != b, "field boundaries are not being bound"
+
+    @pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
+    def test_the_combiner_binds_the_kem_transcript(self):
+        """NIST SP 800-227 4.6.3: KDF(K1, K2) alone does not preserve IND-CCA.
+
+        v4 binds the KEM ciphertext, the encapsulation key and the AAD into the
+        HKDF info, so changing any of them changes the derived key.
+        """
+        from morpheus.core.formats import FORMAT_VERSION_4
+        from morpheus.core.pipeline import _combine_with_kem
+        pw_key, ss, salt = bytes(range(32)), bytes(range(32, 64)), b"S" * 16
+        common = {"version": FORMAT_VERSION_4, "aad": b"aad"}
+        base = _combine_with_kem(pw_key, ss, salt, kem_ciphertext=b"ct",
+                                 encapsulation_key=b"ek", **common)
+        assert _combine_with_kem(pw_key, ss, salt, kem_ciphertext=b"CT",
+                                 encapsulation_key=b"ek", **common) != base
+        assert _combine_with_kem(pw_key, ss, salt, kem_ciphertext=b"ct",
+                                 encapsulation_key=b"EK", **common) != base
+        assert _combine_with_kem(pw_key, ss, salt, kem_ciphertext=b"ct",
+                                 encapsulation_key=b"ek",
+                                 version=FORMAT_VERSION_4, aad=b"AAD") != base
+
+    @pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
+    def test_the_v3_combiner_is_unchanged(self):
+        """v3 must keep deriving exactly what it derived before, or the stored
+        v3 vectors stop decrypting."""
+        from morpheus.core.formats import FORMAT_VERSION_3
+        from morpheus.core.pipeline import _combine_with_kem
+        pw_key, ss, salt = bytes(range(32)), bytes(range(32, 64)), b"S" * 16
+        # v3 ignores the transcript entirely: passing it must change nothing.
+        plain = _combine_with_kem(pw_key, ss, salt, version=FORMAT_VERSION_3)
+        with_extra = _combine_with_kem(pw_key, ss, salt, version=FORMAT_VERSION_3,
+                                       kem_ciphertext=b"ct", encapsulation_key=b"ek",
+                                       aad=b"aad")
+        assert bytes(plain) == bytes(with_extra)

@@ -1,0 +1,120 @@
+{
+  "format_version": 3,
+  "note": "Generated from the v3 implementation before the v4 change. These pin the legacy decrypt path: if any of them stops decrypting, v3 compatibility has been broken and archived ciphertexts are unreadable.",
+  "cases": [
+    {
+      "name": "v3-AES256GCM-argon2",
+      "plaintext": "known answer vector",
+      "password": "T3st!Passw0rd#Str0ng",
+      "ciphertext": "AwECAAAAAAAAAQAABAAAAAABje6IZg+vKSfLjviFasJeO7IluIsUL/s5jMvea0/KbN3/s+gJZoQDK4dQ3/9hZO3E6gJW4ciSDCclXDc4JvQ2+LYubFThNlQ=",
+      "cipher": "AES256GCM",
+      "kdf": "Argon2idKDF",
+      "kdf_params": {
+        "time_cost": 1,
+        "memory_cost": 1024,
+        "parallelism": 1
+      },
+      "chain": false,
+      "hybrid_pq": false,
+      "pad": false
+    },
+    {
+      "name": "v3-AES256GCM-scrypt",
+      "plaintext": "known answer vector",
+      "password": "T3st!Passw0rd#Str0ng",
+      "ciphertext": "AwEBAAAAAABAAAAAAAgAAAABAy/sE3B0JENBPUIZCQPSjtpvnoHWu8/hlfEBk3L0e/OREvgMiXMtx8dhoPOcb00lMHs0lebtDDNVrBmO4csuad//FIkWVR0=",
+      "cipher": "AES256GCM",
+      "kdf": "ScryptKDF",
+      "kdf_params": {
+        "n": 16384,
+        "r": 8,
+        "p": 1
+      },
+      "chain": false,
+      "hybrid_pq": false,
+      "pad": false
+    },
+    {
+      "name": "v3-ChaCha20Poly1305Cipher-argon2",
+      "plaintext": "known answer vector",
+      "password": "T3st!Passw0rd#Str0ng",
+      "ciphertext": "AwICAAAAAAAAAQAABAAAAAABDh0BGQbj5fTvoiJVNgAtf0yOj4GtXRppkAnTNuRrBMJRkMF0EPAwQmzv3LsiAxpWVNAEgyhtaZE5xwggRQGQO10fAfq4Urc=",
+      "cipher": "ChaCha20Poly1305Cipher",
+      "kdf": "Argon2idKDF",
+      "kdf_params": {
+        "time_cost": 1,
+        "memory_cost": 1024,
+        "parallelism": 1
+      },
+      "chain": false,
+      "hybrid_pq": false,
+      "pad": false
+    },
+    {
+      "name": "v3-ChaCha20Poly1305Cipher-scrypt",
+      "plaintext": "known answer vector",
+      "password": "T3st!Passw0rd#Str0ng",
+      "ciphertext": "AwIBAAAAAABAAAAAAAgAAAABN9QgHMZfmb/geKO1fFgIH3aURafsqOodjljEnXc3C1+8qzVRTZWPtF+KgobyisOwGT7rC9JH3gIKQKpbbCoCjWCI0S5Dp9o=",
+      "cipher": "ChaCha20Poly1305Cipher",
+      "kdf": "ScryptKDF",
+      "kdf_params": {
+        "n": 16384,
+        "r": 8,
+        "p": 1
+      },
+      "chain": false,
+      "hybrid_pq": false,
+      "pad": false
+    },
+    {
+      "name": "v3-chained",
+      "plaintext": "chained known answer",
+      "password": "T3st!Passw0rd#Str0ng",
+      "ciphertext": "AwMCAQAAAAAAAQAABAAAAAABubop7+XpFXbsxohReEz5tLYPX5zi+eZIgHY/QA6ccTFn/enVp9gd1ZlJBfQMsU17kqfaMgh3Wgt4XmtC/ebHGW/4t2Dq2EKPE/drQyQp5xG3ZKsaCGYIMWVtGvKUmRwaAvhRmQ==",
+      "cipher": "AES256GCM",
+      "kdf": "Argon2idKDF",
+      "kdf_params": {
+        "time_cost": 1,
+        "memory_cost": 1024,
+        "parallelism": 1
+      },
+      "chain": true,
+      "hybrid_pq": false,
+      "pad": false
+    },
+    {
+      "name": "v3-hybrid-pq",
+      "plaintext": "hybrid known answer",
+      "password": "T3st!Passw0rd#Str0ng",
+      "ciphertext": "AwECAgAAAAAAAQAABAAAAAABCUkz6JnWyto7IEpV0xStBbsBfGcjNhY0PJUjaARAUvcHpxwAWCxBvctDQKkKWDHS/zQcjrtIbevjxdB7vb6U1r5JLu+wkHnwLwLXu57tokCLRqDJ6/R0WSpvdOLJE6Z13wew48bBRx2HBHQiHUpaDFjfhoLy47bvnmD23t2CMgPRT75XeU9Q65kkwP/VmhE52w5ovDvpaaNntGWsmdvJjJvSKWkNIRkHQo5MfHp45UEc59QGO2trieOxj+4vQ17Y6UdxwvJ6ueKxJCef6eko6RbDHqNkAzRiw2daxoWtPd3XCdHHO2y4jqsk2b1MdYhpbyMmMwaHAaY5jLISB1gsxSFSBGQ9u/FsSgd0WoXAN1lcJeB5vUbBdhJ7WTdmroXconmsvhA9g2dhO78z2p1OVUODbxGUyxCIfZ7S5QBTvP8ElmJ4KbeyjieFb2XV9c23eMjO9hTpmPz6Vv1MWQPXQ+2S4DQOO0IpaWsX00VhRNNIdJC/1M1ju/BVNpFWBD1DKJ5We2qVNEyUYha0XUviGFR51lmvuFrtrRWy3wQeQZd1/+yYTm3rC1Rrx0bmpV5yI9QNZi81woCQ2VaF5zoaAEINxmT5RywdNiP1JxN+viqTkEDnhKFxj9D9wdFhi++vYEb6uNxiDwpcrKwZ5NvpaydjPv/YAp7Or0vSX9KCFqbSa6PtnqiAJoOgwDJADtLMqWzz9MzX1Ng4kbodAZ40MYRdB3ynzbHS8XTgnx1QPCeTmiv752GdNE4ZbDAH0D8CrgqJVCHR9QRatfj+M+sp2aQSJO05j47JNmPAmjIP3Xrtb3nIoiXUSwCptgC2HgznrmIhNK5QGxP74GAXVwSVMzRyf2gySzOHvnNNlwkqTI8XwAPgyzlvvNcRPNCNueDZ3Aa2Cp4Ravq784JW5YXsB1S7aCyeGDf6xviaoSujHhQ8n7L9f0h+8z/uqyXvXZDNJop2vOz91nGRRt34wBHvP2D1Ch3Rp+8inyzZUVxHqkD2/uIU50ci7ZBqjjkxdPVpSGcUeNxLyxXwVDv64/ZdWrvsxqVrXhmgsYiTIfPyzQfVp81BFcqWyvDtSUW9tD5NWQltKL4G3NvVq9odu5U34tZcdFqSqSbFyiY7vySMzZfk44GRFQYHegu0Px8tDEt1o0Qtt7reCA6vw1cS/aTDxXMozlNYFTMK9S5I5vWqi/O1KLLj3fyIy09BvkzcKvGqfHKrQshkvSFhPZ//uzs+aL2cxLgZWF+m10HQvIR+oIRShCsp7xMZukpxMww6XmYkIFfMkc9rc+K9+b3QcTa671i3rhH0t5BEn1sQyhFpytssjA/xfKVhFkZHb3dm+6znyeD8h6TYDnU7q2ZRUZafjTTrI9Tv6fprEDyJuDObIcDq1avd9X/uEJQ73DUb8i7yHKldDcqVhBaQZES9UAHmCkWLwEM/TooAeRFaRn5EfHDCV47YZCMExZmy/sJhMVe0OifC2k2evVMElJR2CZ43bwv+ADL0sbHtq4pDKkHJjslssTYxw/ud9i6LSRfC/r0Mr+NFlNH9n/dp",
+      "cipher": "AES256GCM",
+      "kdf": "Argon2idKDF",
+      "kdf_params": {
+        "time_cost": 1,
+        "memory_cost": 1024,
+        "parallelism": 1
+      },
+      "chain": false,
+      "hybrid_pq": true,
+      "pad": false,
+      "pq_secret_key": "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"
+    },
+    {
+      "name": "v3-hybrid-pq-chained",
+      "plaintext": "hybrid chained",
+      "password": "T3st!Passw0rd#Str0ng",
+      "ciphertext": "AwMCAwAAAAAAAQAABAAAAAABoXpgfhMILqzZmbDyXPflY+y4WaYOFQTMFdwFEcV/gaWkl7oUWRyCYwRAbCyWPzdRD4+NcrxO7D0vh8XGFLTt9ZlWX6pQHwbeMfPX1NGwfpphljspZT5kPuieN7HPOe5sI12IXNML2HHdDsDwNt5pKB+3LHnlNBsBbqln5jdD/v+g5fcRjju1Bx2sBYArU4p87Gr4hoYXuMwj+t5t5J2APr5ohPM5hPfF0FF9+1PyO4nVuBHpkY0JqcYHf0PIj71oCrLkFUcejB3UvrBhf+FWQ1/r6EqJJVrGs2Wj3cxqdYPbWZk1rz/t+EslQwmERLEHsK1ENFM4tZYar+5HnZBrDmQPmoV6Pp2nkdXd39x39YVlF7H54KiVNRMVpRSEGkC/r6yLJZbTMt0SjtlPWGc4sQAy/IBt2cxNmjFX2jydXUYlhIVMYSiS7ujyXhZp2QQomjKwZiOaaqsAA6BIrpXRX3f8V/Gzw/7KcLBRAEbl/iwnTlZ539bMenK6m8n2RjwP//CRkzjdjqfwjRuhX4HsJkSO5DlqnIx/3BsdcuJLgLM5GcswO3kB2ssGmxULZsXzrw11suQskQcMWoioz7RVkjNLjOtlBchLOJmhJYLrNCxVR2+dr2+sfpATPFBbhlZU7l5eVVYmT60+qMFFhUi/6dn8WKF6ZYZ81oQXkD7q/Mh+wIHS58LB/L9LQX3P5JDqWI3SwV+HBd6tvGn1q8E4smfFbMEbPjahOIOhFpZSLGC2UDg+FLQNNWoWgYZTOHS3ti1Gnm3rvfZDfXySx3Wz/AW+VpkZlu29wh9242muu/eH/nxmMzKCJda9JSEcMrOfKgitWI11diDGDqmGAw5kBtWqcMscp+iH7kuBfkHvnC64YSWqFvtkMhedbxEmTGGfr6BEVEkSZXhtWNxeM//qDDC2eeKpNLQ9nNpMSUved0r4/L6Vw8kbvCOOi9FtXPe3xHeQ83M6dwuiet1BbxNrezm9GPOMHOhvqENDbEYBzIpKwiSFkP3ZZc/5CS3suoNr1ySbSUU5M64MKRWjddTFEKxbJB8ql4CKjKXXxUUyarb58jM8C92qkLuinEgd5V+aX3yKDKIHMVacCnQA+1cXUoy6artZ6zsWz9HEVjNnbP+5rulboX6i/M2I/tTQChPzLVIi124npdFksaLK0WNgpzl0bBpNkc5bxMuBHKqxEJ6U9UwWSuT0JdQGYTYbr7dw5u5C7hehvJ8rO84o29chyWRsuLL8tPCoCo7vVaOrMcuPazgr4mFBOvBmFrHwKO5x3hvf/TDiR8xWkeyuReEtTjNy2DQ/4g1DNU4zFgaput38glePP2HsqJdHumYUy6Bbran4rq7xzeHqgW8UN0Df0vrtt7nvtErIPY/E6q0PipsIOUkDe3Jjhga/y7fG9QplGSObPh71ovE/DKv24ioWOvvoKW0ndrAc4WmTrdZuy6tHjWDiAgoKqBSMuHZwamZnXPrja5fm5M5N4zHRAKzA7k4QCvcG5w+QvJy4F0zVG//1Amu1S9tG7by6M6jAr2z55Fjwl9gNd0UBpQflvHoPhXwclYJtKgYOAXwFh1r1abA=",
+      "cipher": "AES256GCM",
+      "kdf": "Argon2idKDF",
+      "kdf_params": {
+        "time_cost": 1,
+        "memory_cost": 1024,
+        "parallelism": 1
+      },
+      "chain": true,
+      "hybrid_pq": true,
+      "pad": false,
+      "pq_secret_key": "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"
+    }
+  ]
+}
