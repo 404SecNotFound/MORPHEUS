@@ -9,6 +9,36 @@ Findings from the pre-publication UAT programme. Defect IDs refer to that
 programme's register.
 
 ### Added
+- **Ciphertext format v4**, now the default. v2 and v3 still decrypt. Three
+  changes, each traced to published guidance:
+  - The key check becomes a real **32-byte key commitment** (~128-bit
+    committing security, against ~32 for v3's 8-byte value by the size relation
+    in Bellare–Hoang, CRYPTO 2024). Neither AES-GCM nor ChaCha20-Poly1305
+    commits, and RFC 9771 §4.3.3 names password-based encryption as an
+    application that needs it. Shape follows CTX (Chan–Rogaway, ESORICS 2022)
+    over the key, both nonces, the AAD and the KEM prefix. It does **not** bind
+    the AEAD tag, which is what keeps wrong-password distinguishable from
+    tampering.
+  - The **hybrid combiner binds the KEM ciphertext, encapsulation key and AAD**.
+    v3's `HKDF(salt, pw_key ‖ ss, "hybrid-pq-v1")` is verbatim the construction
+    NIST SP 800-227 §4.6.3 (final, September 2025) says does not preserve
+    IND-CCA security regardless of the KDF. The encapsulation key costs zero
+    wire bytes: ML-KEM-768 embeds it in the secret key.
+  - **AAD extended over the salt and KEM ciphertext**, which in v3 sat in the
+    payload outside the tag.
+
+  There was no live attack on v3 — this tool is offline with no decapsulation
+  oracle. The reasons to change were conformance, and that zero release tags
+  meant the break was free exactly once.
+
+  Not fixed, and not claimed: salt or KEM-ciphertext tampering is detected but
+  still reports as a wrong password, because altering either changes the derived
+  key.
+- **Known-answer test vectors** for v3 and v4 in `tests/vectors/`. None existed;
+  every crypto test round-tripped in-process, so any rename of an HKDF label or
+  reorder of a payload field would have kept the suite green while making every
+  archived ciphertext undecryptable. The v3 vectors were generated *before* the
+  v4 work and are what proves v3 still decrypts.
 - **`--version`** prints the version and exits (DEF-002). It previously exited
   2 with "unrecognized arguments", which is the first thing an issue reporter
   is asked to supply. A test pins the reported string to the packaged version,

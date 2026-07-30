@@ -398,7 +398,8 @@ Passing any flag runs the CLI. Running `python morpheus.py` with no arguments la
 | Single-algorithm compromise | Cipher chaining (two independent algorithms, independent keys) |
 | Memory forensics | Best-effort `ctypes.memset` zeroing of key buffers after use. See limitations |
 | Ciphertext tampering | AEAD authentication tag (16 bytes) |
-| Algorithm downgrade | Header authenticated as AAD (v3: 18-byte binding incl. KDF params) |
+| Algorithm downgrade | Header authenticated as AAD (v4 also binds salt and KEM ciphertext) |
+| Ciphertext opening to two plaintexts | v4 32-byte key commitment (~128-bit committing security) |
 
 > **On brute-force cost.** The defence is memory-hardness, not wall-clock time. Each
 > guess costs 64 MiB, which is what constrains large-scale parallel attack on GPUs and
@@ -450,7 +451,28 @@ decrypting sensitive files.
 The format is **self-describing** — the header tells the decryptor exactly what
 algorithms were used. No out-of-band configuration needed.
 
-### Format v3 (default for new encryptions)
+### Format v4 (default for new encryptions)
+
+Same 18-byte header as v3, with the version byte set to `0x04`. Three
+differences, all in what is bound and how widely:
+
+| | v3 | v4 |
+|---|---|---|
+| Key commitment | 8-byte truncated HMAC (~32-bit committing security) | **32-byte** CTX-shaped hash (~128-bit) |
+| Commitment covers | the first key only | key, both nonces, AAD, KEM prefix |
+| AAD covers | the 18-byte header | header **+ salt + length-prefixed KEM ciphertext** |
+| Hybrid combiner | `HKDF(salt, pw_key ‖ ss, "hybrid-pq-v1")` | binds the **KEM ciphertext, encapsulation key and AAD** per NIST SP 800-227 §4.6.3 |
+
+**v4 payload:** `[salt][nonce(s)][KEM prefix if hybrid][32B commitment][ciphertext + tag(s)]`
+
+The encapsulation key costs no wire bytes — ML-KEM-768 embeds it in the secret
+key, so the decryptor recovers it locally.
+
+One limitation v4 does not remove: tampering with the salt or the KEM ciphertext
+is detected but still reports as a wrong password, because changing either
+changes the derived key. See [SECURITY.md](SECURITY.md).
+
+### Format v3 (still supported for decryption)
 
 ```
 Offset  Size  Field
@@ -499,7 +521,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**387 tests** across 12 test files:
+**412 tests** across 13 test files:
 
 | File | Scope |
 |------|-------|
@@ -550,7 +572,7 @@ morpheus/
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # ctypes.memset zeroing of key buffers
 │       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 387 tests (NIST/RFC vectors included)
+├── tests/                     # 412 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

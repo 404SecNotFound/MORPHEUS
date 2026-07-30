@@ -195,7 +195,24 @@ For deployments requiring indistinguishable error behavior (e.g., plausible
 deniability use cases), v2 format can be used — it returns `InvalidTag`
 for both wrong password and tampering.
 
-#### Known limitation: this is not a key commitment
+#### Resolved in format v4: this is now a real key commitment
+
+**Format v4 (the default for new encryptions) replaces the 8-byte check with a
+full 32-byte commitment**, giving roughly 128 bits of committing security
+instead of ~32. It is computed as a CTX-shaped hash (Chan and Rogaway, ESORICS
+2022) over the key, both nonces, the AAD and the KEM prefix, each field
+length-prefixed and the whole thing domain-separated.
+
+It deliberately does **not** bind the outer AEAD tag. Every other input is known
+before the cipher runs, which keeps the check ahead of AEAD decryption and so
+preserves the wrong-password versus tampered-data distinction described above.
+Binding the tag would collapse both into one message, and committing to the key
+at 128 bits already removes the practical multi-collision attack.
+
+The rest of this section describes the **v2 and v3** situation, which still
+applies to ciphertexts written by those versions and is why v4 exists.
+
+#### The v2/v3 limitation: the 8-byte check is not a key commitment
 
 The point above about PRF output is true, and it answers the wrong question.
 PRF security says the value looks random to someone who does not know the key.
@@ -231,9 +248,16 @@ and not the second key in chained mode.
   attacker writes the header and decrypt rebuilds the KDF from it. The
   header-legal floor is far cheaper than the default.
 
-**Do not rely on a successful decryption as proof that a third party's
-ciphertext has only one plaintext.** Widening this to a full 32-byte
-commitment requires a format change and is tracked as such.
+**For v2 and v3 ciphertexts, do not rely on a successful decryption as proof
+that a third party's ciphertext has only one plaintext.** Re-encrypt anything
+you rely on that property for; v4 output carries the full commitment.
+
+One thing v4 does **not** fix, stated so it is not mistaken for solved:
+tampering with the salt or the ML-KEM ciphertext is detected, but is still
+reported as an incorrect password. Altering either changes the derived key, so
+the commitment check fails for a legitimate reason and the code cannot tell the
+two cases apart. Distinguishing them needs an independently keyed MAC over the
+whole ciphertext, which v4 does not add.
 
 ### File envelope metadata
 
