@@ -450,7 +450,6 @@ def _run_inspect(b64_data: str) -> None:
     header_size = HEADER_SIZE_V3 if is_v3 else HEADER_SIZE
     salt_size = 16
     nonce_size = 12 * nonce_count
-    tag_size = 16 * (2 if is_chained else 1)
     # v4 stores a 32-byte commitment where v3 stores an 8-byte check. Using
     # the v3 width for both misattributed 24 bytes of every v4 ciphertext,
     # understating Overhead and overstating Encrypted.
@@ -460,9 +459,21 @@ def _run_inspect(b64_data: str) -> None:
         key_check_size = KEY_CHECK_SIZE
     else:
         key_check_size = 0
-    overhead = header_size + salt_size + nonce_size + tag_size + key_check_size
+    # The KEM prefix is framing, not encrypted data. Omitting it from both
+    # figures made a 19-byte hybrid plaintext report as ~1125 bytes "Encrypted".
+    kem_size = 0
+    if is_hybrid and len(payload) >= salt_size + nonce_size + 2:
+        offset = salt_size + nonce_size
+        kem_size = 2 + int.from_bytes(payload[offset:offset + 2], "big")
+
     payload_size = len(payload)
-    estimated_ct = max(0, payload_size - salt_size - nonce_size - key_check_size)
+    # Overhead and Encrypted are disjoint and sum to the total. They used to
+    # both include the AEAD tag, so the two printed lines exceeded the printed
+    # total and read as an arithmetic error.
+    overhead = header_size + salt_size + nonce_size + key_check_size + kem_size
+    estimated_ct = max(
+        0, payload_size - salt_size - nonce_size - key_check_size - kem_size
+    )
 
     print("MORPHEUS Ciphertext Inspection")
     print("=" * 44)
@@ -473,7 +484,9 @@ def _run_inspect(b64_data: str) -> None:
     print(f"  Total size: {len(raw)} bytes ({len(b64_data)} base64 chars)")
     print(f"  Header:     {header_size} bytes")
     print(f"  Payload:    {payload_size} bytes")
-    print(f"  Overhead:   ~{overhead} bytes (header+salt+nonce+tag+key-check)")
+    label = "commitment" if version == FORMAT_VERSION_4 else "key-check"
+    kem_note = "+kem" if kem_size else ""
+    print(f"  Framing:    ~{overhead} bytes (header+salt+nonce+{label}{kem_note})")
     print(f"  Encrypted:  ~{estimated_ct} bytes (ciphertext + AEAD tag)")
     if is_padded:
         print("  Note:       Plaintext was padded before encryption (exact length hidden)")

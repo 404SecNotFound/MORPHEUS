@@ -521,7 +521,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**426 tests** across 13 test files:
+**429 tests** across 13 test files:
 
 | File | Scope |
 |------|-------|
@@ -572,7 +572,7 @@ morpheus/
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # ctypes.memset zeroing of key buffers
 │       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 426 tests (NIST/RFC vectors included)
+├── tests/                     # 429 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

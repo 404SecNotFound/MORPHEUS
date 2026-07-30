@@ -82,14 +82,26 @@ class TestStoredVectorsStillDecrypt:
         cases = _all_cases()
         assert len(cases) >= 5, f"only {len(cases)} vectors found; the set has been gutted"
 
-    def test_every_declared_format_version_is_covered(self):
-        """Each shipped format version needs at least one stored ciphertext."""
-        from morpheus.core.formats import FORMAT_VERSION_3, FORMAT_VERSION_4
-        covered = set()
-        for path in VECTOR_DIR.glob("*.json"):
-            covered.add(json.loads(path.read_text())["format_version"])
-        assert FORMAT_VERSION_3 in covered, "no v3 vectors; the legacy path is unpinned"
-        assert FORMAT_VERSION_4 in covered, "no v4 vectors; the current path is unpinned"
+    def test_every_supported_format_version_is_covered(self):
+        """Every version `deserialize` accepts needs stored ciphertexts.
+
+        Derived from SUPPORTED_VERSIONS rather than listing versions by hand.
+        The hand-written version of this test named only v3 and v4 while v2 was
+        still an accepted, documented decrypt path, so the guard the project
+        relies on to promise "v2 and v3 still decrypt" covered two of the three
+        versions it promised. Deriving it means adding a version to the format
+        forces vectors for it.
+        """
+        from morpheus.core.formats import SUPPORTED_VERSIONS
+        covered = {
+            json.loads(path.read_text())["format_version"]
+            for path in VECTOR_DIR.glob("*.json")
+        }
+        missing = set(SUPPORTED_VERSIONS) - covered
+        assert not missing, (
+            f"deserialize() accepts version(s) {sorted(missing)} with no stored "
+            "ciphertexts, so a regression on those paths would be invisible"
+        )
 
     @pytest.mark.parametrize("path", sorted(VECTOR_DIR.glob("*.json")),
                              ids=lambda p: p.stem)

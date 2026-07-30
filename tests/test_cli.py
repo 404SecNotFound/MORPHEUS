@@ -1438,3 +1438,53 @@ class TestPQSecretKeyFile:
             assert len(base64.b64decode(secret_b64)) == 2400
             assert secret_b64 not in captured.out, "secret key printed to stdout"
             assert secret_b64 not in captured.err, "secret key printed to stderr"
+
+
+class TestInspectSizeBreakdownIsArithmeticallySound:
+    """`--inspect`'s figures must partition the ciphertext, not overlap it.
+
+    Three separate defects lived here. The 16-byte AEAD tag was counted in both
+    Overhead and Encrypted, so the two lines summed above the printed total. v4
+    ciphertexts were measured with v3's 8-byte check width, misattributing 24
+    bytes of every one. And the hybrid branch never subtracted the KEM prefix,
+    reporting a 19-byte plaintext as ~1125 bytes "Encrypted".
+
+    All three are cosmetic, and all three appear in the tool a user is pointed
+    at when decryption fails, which is a bad place to print something that does
+    not add up.
+    """
+
+    def _figures(self, ct: str) -> dict[str, int]:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run_cli(["--inspect", "--data", ct])
+        out = {}
+        for line in buf.getvalue().splitlines():
+            for key in ("Total size", "Framing", "Encrypted"):
+                if line.strip().startswith(key):
+                    out[key] = int(re.search(r"(\d+)", line.split(":", 1)[1]).group(1))
+        return out
+
+    def test_framing_plus_encrypted_equals_total(self):
+        p = EncryptionPipeline()
+        f = self._figures(p.encrypt("0123456789", PW))
+        assert f["Framing"] + f["Encrypted"] == f["Total size"], (
+            f"breakdown does not partition the ciphertext: {f}"
+        )
+
+    def test_chained_breakdown_also_balances(self):
+        p = EncryptionPipeline(chain=True)
+        f = self._figures(p.encrypt("0123456789", PW))
+        assert f["Framing"] + f["Encrypted"] == f["Total size"], f
+
+    @pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
+    def test_hybrid_does_not_count_the_kem_prefix_as_ciphertext(self):
+        """The KEM prefix is framing. Counting it inflated Encrypted ~40x."""
+        pk, _ = pq_generate_keypair()
+        p = EncryptionPipeline(hybrid_pq=True, pq_public_key=pk)
+        f = self._figures(p.encrypt("0123456789", PW))
+        assert f["Framing"] + f["Encrypted"] == f["Total size"], f
+        assert f["Encrypted"] < 100, (
+            f"a 10-byte plaintext reports {f['Encrypted']} bytes encrypted; "
+            "the KEM prefix is being counted as ciphertext"
+        )
