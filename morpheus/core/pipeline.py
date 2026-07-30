@@ -332,7 +332,7 @@ def _compute_commitment(
     Chained mode commits to both nonces and, unlike v3, to the KEM ciphertext.
     """
     return hashlib.sha256(
-        b"morpheus-cmt-v4"
+        b"morpheus-cmt-v5"
         + _lp(bytes(key)) + _lp(nonce1) + _lp(nonce2)
         + _lp(aad) + _lp(kem_prefix)
     ).digest()
