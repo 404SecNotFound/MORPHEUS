@@ -17,10 +17,11 @@ import base64
 import json
 import os
 
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.geometry import Size
 from textual.widget import Widget
 from textual.widgets import Button, Footer, Static
 
@@ -50,6 +51,18 @@ from .steps.output import OutputStep
 from .steps.password import PasswordStep
 from .steps.review import ReviewStep
 from .steps.settings import SettingsStep
+
+# The terminal the wizard is declared to fit, enforced by `_update_size_gate`
+# and pinned by tests/test_gui.py::TestMinimumTerminalSize. Below this the
+# sidebar drops step 6 and the step labels truncate.
+#
+# 100x30 rather than the 80x24 default: at 24 rows the six-step sidebar, the top
+# bar, the nav bar and the footer leave four rows for the step itself, which is
+# not enough for the Settings step's cipher and KDF controls. Declaring a floor
+# and saying so is honest; silently reflowing key material into a cramped column
+# is not.
+MIN_WIDTH = 100
+MIN_HEIGHT = 30
 
 
 class MorpheusWizard(App):
@@ -124,8 +137,69 @@ class MorpheusWizard(App):
 
         yield Footer()
 
+        # Last, so it is above the wizard in document order as well as on its
+        # own CSS layer. Starts hidden via `display: none` in the stylesheet;
+        # `_update_size_gate` sets the inline style from then on.
+        with Vertical(id="size-gate"):
+            yield Static("Terminal too small", id="size-gate-title")
+            yield Static("", id="size-gate-detail")
+
     def on_mount(self) -> None:
         self._show_step(self._current_step)
+        self._update_size_gate()
+
+    # ── Terminal size gate ───────────────────────────────────────
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Textual fires this on mount and on every terminal resize.
+
+        The event's size is passed rather than read back off `self.size`, which
+        still reports the *previous* dimensions while this handler runs. Reading
+        it here left the gate one resize behind: shrinking the window did
+        nothing until you shrank it a second time.
+        """
+        self._update_size_gate(event.size)
+
+    def _update_size_gate(self, size: Size | None = None) -> None:
+        """Cover the wizard when the terminal is below the declared minimum.
+
+        Deliberately does not touch step state, focus or the workers. Resizing
+        is not a user edit, so it must not discard a finished result, and coming
+        back up to a usable size must land the user exactly where they were.
+
+        The nav buttons are disabled while the gate is up, because the wizard
+        underneath still holds the keyboard and Execute is the one control whose
+        blind activation the user cannot see the outcome of.
+        """
+        if size is None:
+            size = self.size
+        width, height = size.width, size.height
+        too_small = width < MIN_WIDTH or height < MIN_HEIGHT
+
+        try:
+            gate = self.query_one("#size-gate", Vertical)
+            detail = self.query_one("#size-gate-detail", Static)
+        except Exception:
+            # Called before compose finished; on_mount will call again.
+            return
+
+        if too_small:
+            detail.update(
+                f"MORPHEUS needs at least {MIN_WIDTH}x{MIN_HEIGHT}.\n"
+                f"This terminal is {width}x{height}.\n\n"
+                "Resize the window and the wizard returns as you left it."
+            )
+        gate.display = too_small
+
+        for selector in ("#btn-back", "#btn-next", "#btn-run"):
+            try:
+                self.query_one(selector, Button).disabled = too_small
+            except Exception:
+                pass
+        if not too_small:
+            # Hand the buttons back to the ordinary rules rather than leaving
+            # them all enabled, which would offer Next on an invalid step.
+            self._update_nav()
 
     # ── Step management ──────────────────────────────────────────
 

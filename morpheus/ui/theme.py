@@ -70,6 +70,46 @@ _VARS = "\n".join(
 WIZARD_CSS = _VARS + """
 Screen {
     background: $m-bg;
+    layers: base gate;
+}
+
+/* The declared minimum terminal, enforced in app.py against MIN_WIDTH and
+   MIN_HEIGHT. Below it the sidebar drops step 6 and the labels truncate, so the
+   first thing a user saw at the standard 80x24 default was a clipped wizard.
+   Nothing was unreachable, which is why this reads as a presentation choice
+   rather than a bug, and why it needs stating rather than fixing by reflow: six
+   steps of key material and cipher settings do not belong in 24 rows.
+
+   An overlay on its own layer, not a pushed Screen. The wizard stays mounted
+   underneath, so dragging the window small and back again loses no input and no
+   finished result -- the same property the derived-staleness fix exists to
+   protect. A Screen push would also fight the exclusive worker that mounts
+   steps.
+
+   No accent here. The window being small is a condition, not an error and not
+   exposed secret material, so it takes the ordinary text tiers. */
+#size-gate {
+    layer: gate;
+    display: none;
+    width: 100%;
+    height: 100%;
+    background: $m-bg;
+    align: center middle;
+    padding: 1 2;
+}
+
+#size-gate-title {
+    width: 100%;
+    text-align: center;
+    color: $m-text;
+    text-style: bold;
+}
+
+#size-gate-detail {
+    width: 100%;
+    text-align: center;
+    color: $m-text-2;
+    padding-top: 1;
 }
 
 /* Textual answers "what is focused" twice: a border, and

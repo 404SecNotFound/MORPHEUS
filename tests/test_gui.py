@@ -15,7 +15,7 @@ from textual.widgets._footer import FooterKey
 from morpheus import __version__
 from morpheus.core.validation import check_password_strength
 from morpheus.ui import theme
-from morpheus.ui.app import MorpheusWizard
+from morpheus.ui.app import MIN_HEIGHT, MIN_WIDTH, MorpheusWizard
 from morpheus.ui.clipboard import clipboard_copy, clipboard_paste
 from morpheus.ui.state import (
     STEP_INPUT,
@@ -782,10 +782,100 @@ class TestExecuteWorkerIsExclusive:
     async def test_execute_button_disables_while_running(self):
         """The button must go dead for the duration of the run."""
         app = MorpheusWizard()
-        async with app.run_test() as pilot:
+        # Explicit size: `run_test()` defaults to 80x24, which is below the
+        # declared minimum, and the size gate disables this button on purpose.
+        # This test is about the worker, so it needs a terminal the wizard runs
+        # in rather than one the gate covers.
+        async with app.run_test(size=(120, 50)) as pilot:
             app._set_execute_enabled(False)
             await pilot.pause()
             assert app.query_one("#btn-run", Button).disabled is True
             app._set_execute_enabled(True)
             await pilot.pause()
             assert app.query_one("#btn-run", Button).disabled is False
+
+
+class TestMinimumTerminalSize:
+    """The declared floor, enforced in both directions.
+
+    Every other TUI test runs at 120x50 and the screenshots at 110x40, so until
+    now nothing exercised a small terminal and 80x24 -- the standard default --
+    rendered a wizard with step 6 missing from the sidebar and the labels
+    truncated. Nothing was unreachable, which is why it survived: it reads as
+    cramped rather than broken.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_wizard_runs_at_exactly_the_declared_minimum(self):
+        """The boundary is inclusive, so the declared figure is usable."""
+        app = MorpheusWizard()
+        async with app.run_test(size=(MIN_WIDTH, MIN_HEIGHT)) as pilot:
+            await pilot.pause()
+            assert app.query_one("#size-gate").display is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "size",
+        [
+            (80, 24),                     # the standard terminal default
+            (MIN_WIDTH - 1, MIN_HEIGHT),  # one column short
+            (MIN_WIDTH, MIN_HEIGHT - 1),  # one row short
+        ],
+    )
+    async def test_the_gate_covers_the_wizard_below_the_minimum(self, size):
+        app = MorpheusWizard()
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            assert app.query_one("#size-gate").display is True, (
+                f"{size[0]}x{size[1]} is below {MIN_WIDTH}x{MIN_HEIGHT} "
+                "and must not render a clipped wizard"
+            )
+
+    @pytest.mark.asyncio
+    async def test_the_message_names_the_requirement_and_the_actual_size(self):
+        """"Too small" without the numbers leaves the user guessing."""
+        app = MorpheusWizard()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            rendered = str(app.query_one("#size-gate-detail", Static).render())
+            assert f"{MIN_WIDTH}x{MIN_HEIGHT}" in rendered
+            assert "80x24" in rendered
+
+    @pytest.mark.asyncio
+    async def test_the_nav_buttons_are_dead_while_the_gate_is_up(self):
+        """The wizard underneath still holds the keyboard.
+
+        Execute is the control that matters: its outcome lands in a pane the
+        user cannot see while the gate covers it.
+        """
+        app = MorpheusWizard()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            for selector in ("#btn-back", "#btn-next", "#btn-run"):
+                assert app.query_one(selector, Button).disabled is True, (
+                    f"{selector} is live behind the size gate"
+                )
+
+    @pytest.mark.asyncio
+    async def test_resizing_below_the_minimum_and_back_keeps_a_finished_result(self):
+        """Resizing is not a user edit, so it must not discard a result.
+
+        This is the derived-staleness property from the S5 fix, restated for a
+        new trigger. An earlier design pushed a Screen instead of overlaying a
+        layer; that unmounted the step panel, and the ciphertext went with it.
+        """
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app._state.record_output("CIPHERTEXT-THAT-MUST-SURVIVE")
+            await pilot.pause()
+
+            await pilot.resize_terminal(80, 24)
+            await pilot.pause()
+            assert app.query_one("#size-gate").display is True
+
+            await pilot.resize_terminal(120, 50)
+            await pilot.pause()
+            assert app.query_one("#size-gate").display is False
+            assert app._state.output == "CIPHERTEXT-THAT-MUST-SURVIVE", (
+                "resizing the terminal destroyed a finished result"
+            )

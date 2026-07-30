@@ -147,6 +147,10 @@ below.
 ### Prerequisites
 - Python 3.10 or newer
 - A terminal that supports colors (most modern terminals do)
+- A terminal at least **100 columns by 30 rows** for the GUI. Below that,
+  MORPHEUS shows a "terminal too small" screen naming your current size instead
+  of a clipped wizard; resize and it returns exactly as you left it, including
+  any finished result. The CLI has no size requirement.
 
 ### Steps
 

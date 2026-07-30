@@ -40,6 +40,26 @@ programme's register.
   reorder of a payload field would have kept the suite green while making every
   archived ciphertext undecryptable. The v3 vectors were generated *before* the
   v4 work and are what proves v3 still decrypts.
+- **A declared minimum terminal of 100x30**, with a "terminal too small" screen
+  below it naming both the requirement and the current size. Every TUI test ran
+  at 120x50 and the screenshots at 110x40, so nothing exercised a small
+  terminal, and at the standard 80x24 default the sidebar dropped step 6 and the
+  labels truncated. Nothing was unreachable, which is why it read as cramped
+  rather than broken and survived this long.
+
+  Implemented as an overlay on its own CSS layer, not a pushed screen: the
+  wizard stays mounted underneath, so shrinking the window and restoring it
+  loses neither input nor a finished result. That is the derived-staleness
+  property from the S5 fix restated for a new trigger — resizing is not a user
+  edit. The nav buttons are disabled while the overlay is up, because the wizard
+  below still holds the keyboard and Execute's outcome lands in a pane the user
+  cannot see. Seven tests, two of them mutation-proven, including the
+  resize-down-and-back round trip.
+
+  One bug found while building it, worth recording because it would have shipped
+  as "the warning only appears if you resize twice": inside `on_resize`,
+  `self.size` still reports the *previous* dimensions. The handler now takes the
+  size off the event.
 - **A CI job that runs the known-answer vectors at every commit in a push**,
   not just at its tip. `d6e4374` changed one character of a v4 domain separator,
   swept in by a broad `git add` inside a commit titled "docs:"; a checkout of it

@@ -595,6 +595,10 @@ morpheus/
 
 Python 3.10+
 
+> **Terminal size**: the GUI needs at least **100x30**. Below that it shows a
+> "terminal too small" screen rather than a clipped wizard, and resizing back up
+> restores your place and any finished result. The CLI has no size requirement.
+
 > **Linux clipboard**: Install `xclip` or `xsel` for clipboard support: `sudo apt install xclip`
 
 ---
