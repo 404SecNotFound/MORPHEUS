@@ -74,8 +74,8 @@ required.
 ## Quick Start
 
 ```bash
-git clone https://github.com/404SecNotFound/MORPHEUS.git
-cd MORPHEUS && pip install -r requirements.txt
+git clone https://github.com/404SecNotFound/Morpheus.git
+cd Morpheus && pip install -r requirements.txt
 
 # Launch the GUI
 python morpheus.py

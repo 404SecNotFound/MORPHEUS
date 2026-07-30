@@ -156,8 +156,8 @@ below.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/404SecNotFound/MORPHEUS.git
-cd MORPHEUS
+git clone https://github.com/404SecNotFound/Morpheus.git
+cd Morpheus
 
 # 2. Create a virtual environment (recommended)
 python -m venv venv

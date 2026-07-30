@@ -8,8 +8,8 @@ get started, what we expect from contributions, and how to submit your work.
 ### 1. Fork and Clone
 
 ```bash
-git clone https://github.com/<your-username>/MORPHEUS.git
-cd MORPHEUS
+git clone https://github.com/<your-username>/Morpheus.git
+cd Morpheus
 ```
 
 ### 2. Set Up Your Environment
