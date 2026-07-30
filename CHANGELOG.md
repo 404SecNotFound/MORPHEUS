@@ -60,6 +60,27 @@ programme's register.
   as "the warning only appears if you resize twice": inside `on_resize`,
   `self.size` still reports the *previous* dimensions. The handler now takes the
   size off the event.
+- **A release workflow**, tag-driven, publishing to PyPI over **Trusted
+  Publishing (OIDC)**. No API token exists in this repository, in an environment
+  variable, or on a laptop: GitHub mints a short-lived identity token per run and
+  PyPI verifies it against the publisher configured for this repository. A
+  long-lived token was the single recorded objection to publishing at all, and it
+  stopped applying once the repo went public and Actions started working, since
+  OIDC needs both.
+
+  The distributions are built once and every later job consumes that artefact, so
+  what is verified is what is published. Before anything is uploaded the job runs
+  the full suite, `twine check`, and three assertions: the tag matches the
+  packaged version (PyPI versions are immutable, so a mismatched tag is
+  unrecoverable), `py.typed` and the subpackages are present, and **the wheel
+  contains no top-level `morpheus`** — the collision the rename exists to
+  prevent, now enforced at the point of publication. That last guard is
+  mutation-proven: injecting a `morpheus/__init__.py` into a built wheel makes it
+  exit 1 naming the offending path.
+
+  `workflow_dispatch` publishes to TestPyPI so the first upload of a name can be
+  rehearsed somewhere recoverable; the real index refuses a re-used version even
+  after a deletion.
 - **A CI job that runs the known-answer vectors at every commit in a push**,
   not just at its tip. `d6e4374` changed one character of a v4 domain separator,
   swept in by a broad `git add` inside a commit titled "docs:"; a checkout of it
