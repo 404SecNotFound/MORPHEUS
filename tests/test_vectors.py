@@ -35,13 +35,13 @@ VECTOR_DIR = Path(__file__).parent / "vectors"
 
 
 def _load(name: str) -> dict:
-    return json.loads((VECTOR_DIR / name).read_text())
+    return json.loads((VECTOR_DIR / name).read_text(encoding="utf-8"))
 
 
 def _all_cases() -> list[tuple[str, dict]]:
     cases = []
     for path in sorted(VECTOR_DIR.glob("*.json")):
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         for case in data["cases"]:
             cases.append((f"{path.stem}:{case['name']}", case))
     return cases
@@ -94,7 +94,7 @@ class TestStoredVectorsStillDecrypt:
         """
         from morpheus.core.formats import SUPPORTED_VERSIONS
         covered = {
-            json.loads(path.read_text())["format_version"]
+            json.loads(path.read_text(encoding="utf-8"))["format_version"]
             for path in VECTOR_DIR.glob("*.json")
         }
         missing = set(SUPPORTED_VERSIONS) - covered
@@ -115,7 +115,7 @@ class TestStoredVectorsStillDecrypt:
         emits v4 exclusively, regenerating v2.json or v3.json in place would
         write v4 ciphertexts into them and fail here loudly.
         """
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         declared = data["format_version"]
         for case in data["cases"]:
             actual = base64.b64decode(case["ciphertext"])[0]
@@ -131,7 +131,7 @@ class TestStoredVectorsStillDecrypt:
         from collections import Counter
         counts = Counter()
         for path in VECTOR_DIR.glob("*.json"):
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
             counts[data["format_version"]] += len(data["cases"])
         assert counts, "no vector files at all"
         thin = {v: n for v, n in counts.items() if n < 2}

@@ -113,6 +113,9 @@ def clipboard_paste() -> str | None:
 def save_to_file(text: str, prefix: str = "morpheus") -> str:
     """Save *text* to a temp file as a clipboard fallback.  Returns path."""
     fd, path = tempfile.mkstemp(prefix=f"{prefix}_", suffix=".txt")
-    with os.fdopen(fd, "w") as fh:
+    # Explicit codec and newlines: this is the clipboard fallback, so what lands
+    # here is ciphertext the user is about to move somewhere else, and it has to
+    # be the same bytes on every platform.
+    with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
     return path

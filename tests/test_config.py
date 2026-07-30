@@ -130,7 +130,7 @@ class TestSecuritySettingsAreNotPersistable:
                     "passphrase": True,
                     "check_leaks": True,
                 })
-            written = cfg_file.read_text()
+            written = cfg_file.read_text(encoding="utf-8")
             assert "passphrase" not in written
             assert "check_leaks" not in written
             assert "cipher" in written

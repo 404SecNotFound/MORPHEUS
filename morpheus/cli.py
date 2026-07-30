@@ -737,7 +737,9 @@ def run_cli(argv: list[str] | None = None) -> None:
             if not os.path.isfile(args.file):
                 _print_status(f"Error: file not found: {args.file}", error=True)
                 sys.exit(1)
-            with open(args.file, "r") as f:
+            # utf-8-sig, not utf-8: a ciphertext saved by Notepad carries a BOM,
+            # and left in place it makes base64 reject the whole payload.
+            with open(args.file, "r", encoding="utf-8-sig") as f:
                 inspect_data = f.read().strip()
         elif args.data:
             inspect_data = args.data
@@ -1101,7 +1103,13 @@ def _open_secure_output(path: str, force: bool, binary: bool = False):
     except OSError:
         os.close(fd)
         raise
-    return os.fdopen(fd, "wb" if binary else "w")
+    if binary:
+        return os.fdopen(fd, "wb")
+    # Text mode names both its codec and its newlines. The locale codec is UTF-8
+    # on the macOS and Linux legs and cp1252 on the Windows one, and Windows text
+    # mode also rewrites "\n" as "\r\n" -- which silently changed the bytes of a
+    # decrypted file on that platform, through the plain-text fallback below.
+    return os.fdopen(fd, "w", encoding="utf-8", newline="")
 
 
 def _default_output_name(file_path: str) -> str:
@@ -1204,7 +1212,10 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             _progress(hint)
 
     else:
-        with open(file_path, "r") as f:
+        # utf-8-sig strips a BOM if one is there and is identical to utf-8 when
+        # it is not. Without it, a ciphertext round-tripped through a Windows
+        # editor fails as "Invalid base64 encoding", which blames the payload.
+        with open(file_path, "r", encoding="utf-8-sig") as f:
             encrypted_data = f.read().strip()
 
         _progress(f"Deriving key and decrypting {file_path}...")

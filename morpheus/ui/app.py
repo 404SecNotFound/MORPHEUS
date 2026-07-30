@@ -549,7 +549,9 @@ class MorpheusWizard(App):
         path = self._state.input_file
         if not os.path.isfile(path):
             raise FileNotFoundError(f"File not found: {path}")
-        with open(path, "r") as f:
+        # Same codec choice as the CLI decrypt path: utf-8-sig so a ciphertext
+        # carrying a Windows editor's BOM is not reported as invalid base64.
+        with open(path, "r", encoding="utf-8-sig") as f:
             data = f.read().strip()
         return pipeline.decrypt(data, self._state.password)
 

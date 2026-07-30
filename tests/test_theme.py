@@ -714,7 +714,7 @@ class TestAllColoursGoThroughTokens:
         pkg = Path(__file__).resolve().parent.parent / "morpheus"
         offenders = []
         for path in sorted(pkg.rglob("*.py")):
-            source = path.read_text()
+            source = path.read_text(encoding="utf-8")
             if path.name == "theme.py":
                 # The token block legitimately defines the palette.
                 source = source.partition("WIZARD_CSS = ")[2]

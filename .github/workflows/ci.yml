@@ -89,6 +89,116 @@ jobs:
         if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
         run: python -m pytest tests/ --cov --cov-report=term-missing
 
+  # The known-answer vectors, run at every commit in the push rather than only
+  # at its tip.
+  #
+  # d6e4374 is why. It changed one character of a v4 domain separator --
+  # `morpheus-cmt-v4` to `-v5` -- swept in by a broad `git add` while other
+  # edits were in flight, inside a commit titled "docs:". A checkout of that
+  # commit fails its own vector tests, but CI only ever tested the tip of the
+  # push, so nothing noticed until a reviewer checked the commit out by hand.
+  #
+  # The tip being clean is not enough for wire-format evidence specifically. A
+  # broken intermediate commit is a commit someone can bisect to, build from, and
+  # write a ciphertext with, and this repo has already published history once.
+  vectors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Needed to resolve the range; the default shallow clone has no
+          # history to walk.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # The editable install points at the working tree, so it follows each
+      # checkout below without reinstalling per commit.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run the vector tests at every commit in the range
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          TIP: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          MAX=20
+          ZERO=0000000000000000000000000000000000000000
+
+          base="${PR_BASE:-${PUSH_BEFORE:-}}"
+
+          # A new branch, a force-push, or a squashed base leaves `before`
+          # pointing at something this clone cannot resolve. Degrade to the tip
+          # rather than failing the job on a bookkeeping detail.
+          if [ -z "$base" ] || [ "$base" = "$ZERO" ] \
+             || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "::notice::no resolvable base ref; testing the tip commit only"
+            commits="$TIP"
+          else
+            commits=$(git rev-list --reverse "${base}..${TIP}")
+          fi
+
+          total=$(printf '%s\n' "$commits" | grep -c . || true)
+          if [ "$total" -eq 0 ]; then
+            echo "::notice::range is empty; nothing to check"
+            exit 0
+          fi
+
+          # Bounded, and says so. A silent top-N reads as "everything passed".
+          if [ "$total" -gt "$MAX" ]; then
+            echo "::warning::${total} commits in range; checking the newest ${MAX}. Not checked: $((total - MAX))"
+            commits=$(printf '%s\n' "$commits" | tail -n "$MAX")
+          fi
+
+          # Read from a file rather than iterating an unquoted variable. Word
+          # splitting on the SHA list is shell-dependent, and a pipe would put
+          # the loop in a subshell where `failed` does not survive it.
+          printf '%s\n' "$commits" > "${RUNNER_TEMP}/commits.txt"
+
+          failed=""
+          while IFS= read -r sha; do
+            [ -n "$sha" ] || continue
+
+            # Checked, not assumed. An unchecked failure here leaves the tree at
+            # the previous commit and the vectors then pass *for that tree* while
+            # the log claims the commit under test was fine -- a green tick for a
+            # commit that was never actually built.
+            if ! git checkout --quiet --detach "$sha"; then
+              echo "::error::cannot check out ${sha}"
+              failed="${failed} ${sha}"
+              continue
+            fi
+
+            if [ ! -f tests/test_vectors.py ]; then
+              echo "::notice::${sha} predates tests/test_vectors.py; skipped"
+              continue
+            fi
+
+            echo "::group::vectors @ ${sha}"
+            if python -m pytest tests/test_vectors.py -q; then
+              echo "ok ${sha}"
+            else
+              echo "::error::vector tests fail at ${sha}"
+              failed="${failed} ${sha}"
+            fi
+            echo "::endgroup::"
+          done < "${RUNNER_TEMP}/commits.txt"
+
+          git checkout --quiet --detach "$TIP"
+
+          if [ -n "$failed" ]; then
+            echo "the wire format is broken at:${failed}"
+            exit 1
+          fi
+          echo "wire format intact at every checked commit"
+
   build:
     runs-on: ubuntu-latest
     steps:

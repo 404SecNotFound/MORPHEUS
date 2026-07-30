@@ -1,5 +1,6 @@
 """Tests for CLI file encryption/decryption."""
 
+import ast
 import base64
 import contextlib
 import io
@@ -1142,7 +1143,11 @@ class TestNoInstallInstructionNamesADistributionWeDoNotOwn:
             path = root / rel
             if not path.exists():
                 continue
-            for match in self._PIP_MORPHEUS.finditer(path.read_text()):
+            # Explicit utf-8: these are the shipped docs, and README.md holds
+            # bytes that cp1252 has no mapping for, so the Windows leg failed
+            # here with UnicodeDecodeError rather than on anything it asserts.
+            text = path.read_text(encoding="utf-8")
+            for match in self._PIP_MORPHEUS.finditer(text):
                 args = match.group("args")
                 if '"."' in args or "'.'" in args or args.strip().startswith("."):
                     continue  # a local path install, not the index
@@ -1488,3 +1493,146 @@ class TestInspectSizeBreakdownIsArithmeticallySound:
             f"a 10-byte plaintext reports {f['Encrypted']} bytes encrypted; "
             "the KEM prefix is being counted as ciphertext"
         )
+
+
+class TestTextIOIsExplicitlyEncoded:
+    """Every text read and write must name its encoding and its newlines.
+
+    ``open(path, "r")`` takes ``locale.getpreferredencoding(False)``, which is
+    UTF-8 on the macOS and Linux legs and cp1252 on the Windows one. That is not
+    a portability nicety here: the same ciphertext file is a valid input on one
+    runner and a decode error on another, and the failure surfaces as
+    "Invalid base64 encoding", which points the user at their ciphertext rather
+    than at the codec.
+
+    Text mode also translates ``\\n`` to ``\\r\\n`` when writing on Windows, so
+    the plain-text decrypt fallback returned a file whose bytes differed from
+    the ones that were encrypted. A tool whose whole promise is that the bytes
+    come back unchanged cannot rewrite line endings on one platform.
+
+    ``config.py`` already passed ``encoding="utf-8"`` on both sides, so this is
+    drift from an established convention rather than a new rule.
+    """
+
+    def test_a_ciphertext_file_with_a_utf8_bom_still_decrypts(self):
+        """Notepad writes UTF-8 with a BOM by default, and it is the obvious
+        Windows way to save a ciphertext someone pasted to you.
+
+        Reproduced before the fix on macOS, so this is not a Windows-only
+        defect: the three BOM bytes survive the read as one leading character,
+        base64 rejects it, and the user is told their ciphertext is invalid.
+        """
+        p = EncryptionPipeline()
+        ciphertext = p.encrypt("alpha canary one", PW)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ct_path = os.path.join(tmpdir, "ct.enc")
+            out_path = os.path.join(tmpdir, "out.txt")
+            # utf-8-sig on the *write* side is what puts the BOM there.
+            with open(ct_path, "w", encoding="utf-8-sig") as fh:
+                fh.write(ciphertext)
+            assert Path(ct_path).read_bytes()[:3] == b"\xef\xbb\xbf", (
+                "fixture is not exercising the bug: no BOM was written"
+            )
+
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO(f"{PW}\n")
+            try:
+                run_cli(["-o", "decrypt", "-f", ct_path, "--output", out_path])
+            finally:
+                sys.stdin = old_stdin
+
+            assert Path(out_path).read_bytes() == b"alpha canary one"
+
+    def test_the_plain_text_decrypt_fallback_preserves_line_endings(self):
+        """LF in, LF out, on every platform.
+
+        This asserts raw bytes rather than text, because reading the result back
+        in text mode would undo the very translation being tested. On POSIX it
+        passes without the fix and only the Windows matrix leg can fail it,
+        which is precisely what that leg is in the matrix for.
+        """
+        payload = "line one\nline two\nline three\n"
+        p = EncryptionPipeline()
+        ciphertext = p.encrypt(payload, PW)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ct_path = os.path.join(tmpdir, "ct.enc")
+            out_path = os.path.join(tmpdir, "out.txt")
+            Path(ct_path).write_text(ciphertext, encoding="utf-8")
+
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO(f"{PW}\n")
+            try:
+                run_cli(["-o", "decrypt", "-f", ct_path, "--output", out_path])
+            finally:
+                sys.stdin = old_stdin
+
+            written = Path(out_path).read_bytes()
+            assert b"\r\n" not in written, (
+                "text mode translated the line endings: "
+                f"{written!r} was written for {payload.encode()!r}"
+            )
+            assert written == payload.encode()
+
+    def test_no_shipped_module_opens_text_without_an_explicit_encoding(self):
+        """The guard, parsed rather than grepped.
+
+        ruff has this as ``PLW1514``, but in the pinned 0.16.0 it is preview
+        only, and switching ``preview = true`` on to reach one rule turns on
+        every other unstable rule in a gate that was pinned specifically to stop
+        drifting. So the rule lives here instead.
+
+        ``os.fdopen`` is checked alongside ``open`` because ruff's rule does not
+        cover it, and ``_open_secure_output`` -- the one writer that every
+        output path in the CLI goes through -- is an ``os.fdopen`` call.
+        """
+        root = Path(__file__).resolve().parents[1] / "morpheus"
+        offenders = []
+
+        for path in sorted(root.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = _called_name(node.func)
+                if name not in ("open", "os.fdopen"):
+                    continue
+                if _mode_is_binary(node, name):
+                    continue
+                if any(kw.arg == "encoding" for kw in node.keywords):
+                    continue
+                offenders.append(f"{path.relative_to(root.parent)}:{node.lineno} {name}()")
+
+        assert not offenders, (
+            "text-mode IO without an explicit encoding takes the locale codec, "
+            "which differs between the CI legs:\n  " + "\n  ".join(offenders)
+        )
+
+
+def _called_name(func: ast.AST) -> str:
+    """``open`` / ``os.fdopen`` as written, or "" for anything else."""
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        return f"{func.value.id}.{func.attr}"
+    return ""
+
+
+def _mode_is_binary(node: ast.Call, name: str) -> bool:
+    """True when the call is unambiguously binary, so encoding cannot apply.
+
+    A non-literal mode counts as text, deliberately. ``_open_secure_output``
+    picks its mode with ``"wb" if binary else "w"``, so treating a computed mode
+    as "cannot tell, assume text" is what makes the guard see it at all.
+    """
+    mode_index = 1 if name == "open" else 1
+    mode: ast.AST | None = None
+    if len(node.args) > mode_index:
+        mode = node.args[mode_index]
+    for kw in node.keywords:
+        if kw.arg == "mode":
+            mode = kw.value
+    if isinstance(mode, ast.Constant) and isinstance(mode.value, str):
+        return "b" in mode.value
+    return False

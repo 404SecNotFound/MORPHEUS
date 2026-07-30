@@ -270,7 +270,14 @@ def check_password_leaked(password: str, *, timeout: float = 5.0) -> tuple[bool,
     if not url.startswith("https://"):  # pragma: no cover - defensive
         raise ValueError("HIBP lookup must use https")
 
-    req = urllib.request.Request(  # nosec B310 - https scheme asserted above
+    # The https scheme is asserted above, so B310 cannot be reached with a
+    # file:/ or custom scheme.
+    #
+    # Prose stays off the nosec line on purpose. bandit parses everything after
+    # `nosec` as a comma- or space-separated list of test IDs, so a trailing
+    # explanation became sixteen "Test in comment: ... is not a test name or id"
+    # warnings on every scan -- which is where a genuine warning would have hidden.
+    req = urllib.request.Request(  # nosec B310
         url,
         headers={
             "User-Agent": "MORPHEUS-EncryptionTool",
@@ -279,9 +286,8 @@ def check_password_leaked(password: str, *, timeout: float = 5.0) -> tuple[bool,
             "Add-Padding": "true",
         },
     )
-    # nosec: the URL is a fixed https literal with only a hex prefix
-    # interpolated, and the scheme is asserted above, so no file:/ or custom
-    # scheme can reach this call.
+    # The URL is a fixed https literal with only a hex prefix interpolated, and
+    # the scheme is asserted above, so no file:/ or custom scheme reaches here.
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
         body = resp.read().decode("utf-8")
 

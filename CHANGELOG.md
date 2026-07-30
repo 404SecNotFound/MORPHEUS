@@ -40,6 +40,15 @@ programme's register.
   reorder of a payload field would have kept the suite green while making every
   archived ciphertext undecryptable. The v3 vectors were generated *before* the
   v4 work and are what proves v3 still decrypts.
+- **A CI job that runs the known-answer vectors at every commit in a push**,
+  not just at its tip. `d6e4374` changed one character of a v4 domain separator,
+  swept in by a broad `git add` inside a commit titled "docs:"; a checkout of it
+  fails its own vector tests, and CI never noticed because it only ever tested
+  the tip. Verified by replaying the shipped job script over
+  `f521fa7..756a90c`: it fails at `d6e4374` with 8 vector errors and passes at
+  the two commits after it. Bounded to the newest 20 commits and it says so in
+  an annotation when it truncates, rather than reporting a partial sweep as a
+  clean one.
 - **`--version`** prints the version and exits (DEF-002). It previously exited
   2 with "unrecognized arguments", which is the first thing an issue reporter
   is asked to supply. A test pins the reported string to the packaged version,
@@ -56,6 +65,39 @@ programme's register.
   button. No such button ever existed.
 
 ### Fixed
+- **Text file reads and writes now name their encoding and their newlines.**
+  Three defects from one cause — `open(path, "r")` and `os.fdopen(fd, "w")` take
+  `locale.getpreferredencoding()`, which is UTF-8 on the macOS and Linux CI legs
+  and cp1252 on the Windows one:
+  - **A ciphertext file carrying a UTF-8 BOM failed to decrypt** with "Invalid
+    base64 encoding", which blames the payload rather than the codec. Notepad
+    writes a BOM by default, so this is the obvious Windows way to save a
+    ciphertext someone sent you. Reproduced on macOS too, so it was never
+    Windows-specific. The three ciphertext readers now use `utf-8-sig`, which
+    strips a BOM when present and is identical to `utf-8` when it is not.
+  - **The plain-text decrypt fallback rewrote line endings on Windows.** Text
+    mode translates `\n` to `\r\n`, so a multi-line payload came back with
+    different bytes than went in. `_open_secure_output` — the single writer every
+    CLI output path goes through — now passes `newline=""`. The file-envelope
+    decrypt path was already binary and was never affected.
+  - **The Windows CI leg was failing on a decode error, not on anything it
+    asserts.** `TestNoInstallInstructionNamesADistributionWeDoNotOwn` read the
+    shipped docs with the locale codec, and `README.md` holds a byte cp1252
+    cannot map. This was invisible for four pushes because Actions was
+    billing-blocked and every job died in about two seconds before running.
+
+  A guard test walks the AST of every module under `morpheus/` and fails on
+  text-mode `open` or `os.fdopen` without an explicit `encoding`. ruff has this
+  as `PLW1514`, but in the pinned 0.16.0 it is preview-only and enabling preview
+  to reach one rule would activate every other unstable rule in a gate that was
+  pinned specifically to stop drifting. The guard also covers `os.fdopen`, which
+  ruff's rule does not — and which is where the newline defect lived.
+- **`bandit`'s `nosec` markers carried their explanation on the same line**, so
+  bandit parsed the prose as a list of test IDs and printed sixteen "Test in
+  comment: ... is not a test name or id" warnings on every scan. Exit status was
+  always 0 and the one load-bearing suppression still applied, so nothing was
+  broken — but sixteen lines of noise is where a real warning goes unnoticed.
+  The prose moved to its own comment line; the scan is now silent.
 - **The GUI test helper `settle()` waited for the wrong condition.** It
   returned as soon as focus stopped changing, which is also true while focus
   is still on the sidebar and the step's `call_after_refresh` handoff has not
