@@ -75,6 +75,48 @@ programme's register.
   so the two cannot drift apart unnoticed.
 
 ### Changed
+- **Renamed: the distribution is `morpheus-crypt` and the import package is
+  `morpheus_crypt`.** The command you type is still `morpheus`, and nothing about
+  the ciphertext format, the config file or the CLI changes.
+
+  `morpheus` on PyPI is an unrelated abandoned package (a dict schema helper,
+  v0.0.4), and it also ships a top-level `morpheus` import package. Renaming only
+  the distribution was considered and rejected: it would have left this project's
+  directory as `morpheus/`, so installing both put two different `morpheus`
+  packages at the same site-packages path with whichever installed second
+  winning — inside a cryptography tool's trust boundary. Both names had to move.
+
+  What deliberately did **not** move, because a blanket find-and-replace on the
+  string "morpheus" would have taken all of it:
+  - The five frozen wire-format literals in `pipeline.py` — `morpheus-v2-key-`,
+    `morpheus-v4-key-`, `morpheus-hybrid-v4`, `morpheus-key-check` and
+    `morpheus-cmt-v4`. Changing any one of them orphans every ciphertext ever
+    written. Verified identical before and after, and the v2, v3 and v4 vector
+    files are byte-for-byte unchanged.
+  - `~/.morpheus/config.toml`. That is user state keyed to the command, which is
+    unchanged, so moving it would have silently orphaned existing preferences.
+  - The `morpheus` command itself, `prog="morpheus"`, and the CLI help that
+    tells users to run `morpheus --generate-keypair`.
+
+  Verified by building the wheel and installing it into a clean interpreter: the
+  distribution reports as `morpheus-crypt`, site-packages contains only
+  `morpheus_crypt`, `py.typed` survives, the `morpheus` command works, and a
+  round trip succeeds. Then, with a stand-in for the stranger's package
+  installed alongside, both import independently from separate directories and
+  the tool still round-trips — which is the collision this rename existed to
+  prevent, demonstrated rather than asserted.
+
+  The install-instruction guard had to get sharper rather than looser. It used
+  to flag the substring `morpheus` anywhere in a `pip install` line, so it would
+  have failed the build on the correct new instruction. It now parses out each
+  requirement and compares its PEP 503 normalised name, so `morpheus-crypt` and
+  `morpheus_crypt` pass while `morpheus`, `Morpheus` and `MORPHEUS` are still
+  refused. Writing that surfaced a bug in the parser itself: `-r
+  requirements.txt` was being read as a package named `requirements-txt`.
+
+  Not published to PyPI. Reserving the name is a separate step, and the
+  standing decision is not to publish a wheel before a tag and a release
+  workflow exist.
 - **Hybrid post-quantum is now command-line only** (DEF-006). The wizard
   offered a "Hybrid Post-Quantum" checkbox while having no keypair generation,
   no key entry and no key display, so ticking it walked the user through four
@@ -106,7 +148,7 @@ programme's register.
     cannot map. This was invisible for four pushes because Actions was
     billing-blocked and every job died in about two seconds before running.
 
-  A guard test walks the AST of every module under `morpheus/` and fails on
+  A guard test walks the AST of every module under `morpheus_crypt/` and fails on
   text-mode `open` or `os.fdopen` without an explicit `encoding`. ruff has this
   as `PLW1514`, but in the pinned 0.16.0 it is preview-only and enabling preview
   to reach one rule would activate every other unstable rule in a gate that was

@@ -10,7 +10,7 @@ import struct
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from morpheus.core.formats import (
+from morpheus_crypt.core.formats import (
     FORMAT_VERSION,
     HEADER_FORMAT,
     HEADER_SIZE,

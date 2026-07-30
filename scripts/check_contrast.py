@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from morpheus.ui import theme  # noqa: E402
+from morpheus_crypt.ui import theme  # noqa: E402
 
 
 def _linear(channel: float) -> float:

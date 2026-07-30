@@ -11,7 +11,7 @@ Usage:
     python morpheus.py --help      # Every flag, with worked examples
 """
 
-from morpheus.__main__ import main
+from morpheus_crypt.__main__ import main
 
 if __name__ == "__main__":
     main()

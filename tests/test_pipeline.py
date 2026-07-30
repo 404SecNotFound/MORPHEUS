@@ -6,16 +6,16 @@ import struct
 import pytest
 from cryptography.exceptions import InvalidTag
 
-from morpheus.core.ciphers import AES256GCM, ChaCha20Poly1305Cipher
-from morpheus.core.formats import (
+from morpheus_crypt.core.ciphers import AES256GCM, ChaCha20Poly1305Cipher
+from morpheus_crypt.core.formats import (
     FLAG_CHAINED,
     FLAG_HYBRID_PQ,
     FORMAT_VERSION,
     FORMAT_VERSION_4,
     HEADER_FORMAT,
 )
-from morpheus.core.kdf import Argon2idKDF, ScryptKDF
-from morpheus.core.pipeline import (
+from morpheus_crypt.core.kdf import Argon2idKDF, ScryptKDF
+from morpheus_crypt.core.pipeline import (
     PQ_AVAILABLE,
     EncryptionPipeline,
     pq_generate_keypair,
@@ -443,8 +443,8 @@ class TestFIPS203InputChecking:
     """
 
     def test_public_key_with_a_coefficient_above_q_is_rejected(self):
-        from morpheus.core.errors import ConfigurationError
-        from morpheus.core.pipeline import _pq_encapsulate
+        from morpheus_crypt.core.errors import ConfigurationError
+        from morpheus_crypt.core.pipeline import _pq_encapsulate
         pk, _ = pq_generate_keypair()
         bad = bytearray(pk)
         bad[0] = bad[1] = 0xFF          # first coefficient decodes to 4095 > 3328
@@ -452,8 +452,8 @@ class TestFIPS203InputChecking:
             _pq_encapsulate(bytes(bad))
 
     def test_secret_key_failing_the_hash_check_is_rejected(self):
-        from morpheus.core.errors import ConfigurationError
-        from morpheus.core.pipeline import _pq_decapsulate, _pq_encapsulate
+        from morpheus_crypt.core.errors import ConfigurationError
+        from morpheus_crypt.core.pipeline import _pq_decapsulate, _pq_encapsulate
         pk, sk = pq_generate_keypair()
         ct, _ = _pq_encapsulate(pk)
         bad = bytearray(sk)
@@ -463,14 +463,14 @@ class TestFIPS203InputChecking:
 
     @pytest.mark.parametrize("length", [0, 1183, 1185])
     def test_wrong_length_public_key_is_rejected(self, length):
-        from morpheus.core.errors import ConfigurationError
-        from morpheus.core.pipeline import _pq_encapsulate
+        from morpheus_crypt.core.errors import ConfigurationError
+        from morpheus_crypt.core.pipeline import _pq_encapsulate
         with pytest.raises(ConfigurationError, match="1184 bytes"):
             _pq_encapsulate(b"\x00" * length)
 
     def test_valid_keys_are_untouched(self):
         """Otherwise the checks above could pass by rejecting everything."""
-        from morpheus.core.pipeline import _pq_decapsulate, _pq_encapsulate
+        from morpheus_crypt.core.pipeline import _pq_decapsulate, _pq_encapsulate
         pk, sk = pq_generate_keypair()
         ct, ss_enc = _pq_encapsulate(pk)
         assert _pq_decapsulate(sk, ct) == ss_enc
@@ -496,7 +496,7 @@ class TestEncryptRefusesWhatDecryptWillReject:
         (ScryptKDF(n=2 ** 9, r=8, p=1), "scrypt-n"),
     ])
     def test_out_of_range_params_fail_at_encrypt(self, kdf, label):
-        from morpheus.core.errors import KDFParameterError
+        from morpheus_crypt.core.errors import KDFParameterError
         with pytest.raises(KDFParameterError, match="out of allowed range"):
             EncryptionPipeline(kdf=kdf).encrypt("data", PASSWORD)
 
@@ -514,31 +514,31 @@ class TestKDFBoundsValidation:
 
     def test_argon2_time_cost_too_high(self):
         """Argon2 time_cost above limit should raise ValueError."""
-        from morpheus.core.pipeline import _build_kdf_from_params
+        from morpheus_crypt.core.pipeline import _build_kdf_from_params
         with pytest.raises(ValueError, match="out of allowed range"):
             _build_kdf_from_params(0x02, (999, 65536, 4))
 
     def test_argon2_memory_cost_too_low(self):
         """Argon2 memory_cost below limit should raise ValueError."""
-        from morpheus.core.pipeline import _build_kdf_from_params
+        from morpheus_crypt.core.pipeline import _build_kdf_from_params
         with pytest.raises(ValueError, match="out of allowed range"):
             _build_kdf_from_params(0x02, (3, 0, 4))
 
     def test_scrypt_n_too_high(self):
         """Scrypt n above limit should raise ValueError."""
-        from morpheus.core.pipeline import _build_kdf_from_params
+        from morpheus_crypt.core.pipeline import _build_kdf_from_params
         with pytest.raises(ValueError, match="out of allowed range"):
             _build_kdf_from_params(0x01, (2**30, 8, 1))
 
     def test_valid_params_accepted(self):
         """Normal KDF params should be accepted without error."""
-        from morpheus.core.pipeline import _build_kdf_from_params
+        from morpheus_crypt.core.pipeline import _build_kdf_from_params
         kdf = _build_kdf_from_params(0x02, (3, 65536, 4))
         assert kdf.time_cost == 3
 
     def test_unknown_kdf_id_rejected(self):
         """Unknown KDF ID should raise ValueError."""
-        from morpheus.core.pipeline import _build_kdf_from_params
+        from morpheus_crypt.core.pipeline import _build_kdf_from_params
         with pytest.raises(ValueError, match="Unknown KDF ID"):
             _build_kdf_from_params(0xFF, (1, 1, 1))
 
@@ -558,52 +558,52 @@ class TestKDFWorkingSetCap:
         This is the case per-parameter validation cannot catch: Scrypt
         allocates 128 * n * r, so the product is the quantity that matters.
         """
-        from morpheus.core.pipeline import _build_kdf_from_params
+        from morpheus_crypt.core.pipeline import _build_kdf_from_params
         with pytest.raises(ValueError, match="working set"):
             _build_kdf_from_params(0x01, (2**23, 64, 1))
 
     def test_argon2_four_gib_is_rejected(self):
         """4 GiB memory_cost sat inside the old per-parameter ceiling."""
-        from morpheus.core.pipeline import _build_kdf_from_params
+        from morpheus_crypt.core.pipeline import _build_kdf_from_params
         with pytest.raises(ValueError, match="out of allowed range|working set"):
             _build_kdf_from_params(0x02, (3, 4194304, 4))
 
     def test_realistic_scrypt_params_still_accepted(self):
         """A normal Scrypt header must survive the new cap."""
-        from morpheus.core.pipeline import _build_kdf_from_params
+        from morpheus_crypt.core.pipeline import _build_kdf_from_params
         kdf = _build_kdf_from_params(0x01, (2**14, 8, 1))
         assert kdf.n == 2**14
 
     def test_realistic_argon2_params_still_accepted(self):
         """A normal Argon2id header must survive the new cap."""
-        from morpheus.core.pipeline import _build_kdf_from_params
+        from morpheus_crypt.core.pipeline import _build_kdf_from_params
         kdf = _build_kdf_from_params(0x02, (3, 65536, 4))
         assert kdf.memory_cost == 65536
 
 
 class TestStructuredErrors:
-    """Verify specific error types from morpheus.core.errors are raised."""
+    """Verify specific error types from morpheus_crypt.core.errors are raised."""
 
     def test_wrong_password_raises_wrong_password_error(self):
-        from morpheus.core.errors import WrongPasswordError
+        from morpheus_crypt.core.errors import WrongPasswordError
         p = EncryptionPipeline()
         ct = p.encrypt("test", "correct-Pass1!")
         with pytest.raises(WrongPasswordError, match="incorrect password"):
             p.decrypt(ct, "wrong-Pass1!")
 
     def test_chain_config_raises_configuration_error(self):
-        from morpheus.core.errors import ConfigurationError
+        from morpheus_crypt.core.errors import ConfigurationError
         with pytest.raises(ConfigurationError, match="Cannot combine"):
             EncryptionPipeline(cipher=ChaCha20Poly1305Cipher(), chain=True)
 
     def test_kdf_bounds_raises_kdf_parameter_error(self):
-        from morpheus.core.errors import KDFParameterError
-        from morpheus.core.pipeline import _build_kdf_from_params
+        from morpheus_crypt.core.errors import KDFParameterError
+        from morpheus_crypt.core.pipeline import _build_kdf_from_params
         with pytest.raises(KDFParameterError, match="out of allowed range"):
             _build_kdf_from_params(0x02, (999, 65536, 4))
 
     def test_truncated_ciphertext_raises_decryption_error(self):
-        from morpheus.core.errors import DecryptionError
+        from morpheus_crypt.core.errors import DecryptionError
         p = EncryptionPipeline()
         ct = p.encrypt("hello", "Test-Pass1!")
         # Corrupt by truncating the base64
@@ -613,13 +613,13 @@ class TestStructuredErrors:
             p.decrypt(truncated, "Test-Pass1!")
 
     def test_format_error_on_bad_base64(self):
-        from morpheus.core.errors import FormatError
-        from morpheus.core.formats import deserialize
+        from morpheus_crypt.core.errors import FormatError
+        from morpheus_crypt.core.formats import deserialize
         with pytest.raises(FormatError, match="Invalid base64"):
             deserialize("not-valid-base64!!!")
 
     def test_all_errors_inherit_from_morpheus_error(self):
-        from morpheus.core.errors import (
+        from morpheus_crypt.core.errors import (
             ConfigurationError,
             DecryptionError,
             FormatError,
@@ -634,7 +634,7 @@ class TestStructuredErrors:
             assert issubclass(cls, ValueError)
 
     def test_wrong_password_is_decryption_error(self):
-        from morpheus.core.errors import DecryptionError, WrongPasswordError
+        from morpheus_crypt.core.errors import DecryptionError, WrongPasswordError
         assert issubclass(WrongPasswordError, DecryptionError)
 
 
@@ -663,7 +663,7 @@ class TestFixedSizePadding:
 
     def test_fixed_size_too_large_rejected(self):
         """Input larger than 64 KiB - 4 bytes should be rejected."""
-        from morpheus.core.errors import PaddingError
+        from morpheus_crypt.core.errors import PaddingError
         p = EncryptionPipeline()
         big_text = "x" * 65533  # > 65536 - 4
         with pytest.raises(PaddingError, match="too large for --fixed-size"):
@@ -671,7 +671,7 @@ class TestFixedSizePadding:
 
     def test_fixed_size_sets_padded_flag(self):
         """fixed_size=True should set the FLAG_PADDED bit."""
-        from morpheus.core.formats import FLAG_PADDED, deserialize
+        from morpheus_crypt.core.formats import FLAG_PADDED, deserialize
         p = EncryptionPipeline()
         ct = p.encrypt("test", "Test-Pass1!", fixed_size=True)
         _, _, _, flags, _, _ = deserialize(ct)
@@ -683,7 +683,7 @@ class TestV4CommitmentAndCombiner:
 
     def test_the_commitment_is_a_full_32_bytes(self):
         """v3 stored 8 bytes, which is ~32 bits of committing security."""
-        from morpheus.core.formats import COMMITMENT_SIZE, deserialize
+        from morpheus_crypt.core.formats import COMMITMENT_SIZE, deserialize
         assert COMMITMENT_SIZE == 32
         p = EncryptionPipeline(cipher=AES256GCM(), kdf=FAST_ARGON2)
         _, _, _, _, payload, _ = deserialize(p.encrypt("x", PASSWORD))
@@ -691,14 +691,14 @@ class TestV4CommitmentAndCombiner:
         assert len(payload) >= FAST_ARGON2.salt_size + 12 + COMMITMENT_SIZE
 
     def test_the_commitment_binds_the_key(self):
-        from morpheus.core.pipeline import _compute_commitment
+        from morpheus_crypt.core.pipeline import _compute_commitment
         a = _compute_commitment(bytes(range(32)))
         b = _compute_commitment(bytes(range(1, 33)))
         assert a != b, "changing the key must change the commitment"
 
     def test_the_commitment_binds_the_second_chained_key(self):
         """Committing to the first key alone would leave the second free."""
-        from morpheus.core.pipeline import _compute_commitment
+        from morpheus_crypt.core.pipeline import _compute_commitment
         k = bytes(range(32))
         assert _compute_commitment(k, b"A" * 32) != _compute_commitment(k, b"B" * 32)
         assert _compute_commitment(k, b"A" * 32) != _compute_commitment(k)
@@ -714,7 +714,7 @@ class TestV4CommitmentAndCombiner:
         """
         import inspect as _inspect
 
-        from morpheus.core.pipeline import _compute_commitment
+        from morpheus_crypt.core.pipeline import _compute_commitment
         params = set(_inspect.signature(_compute_commitment).parameters)
         assert not params & {"nonce1", "nonce2", "aad", "kem_prefix"}, (
             f"_compute_commitment binds AEAD-covered fields again: {params}"
@@ -722,7 +722,7 @@ class TestV4CommitmentAndCombiner:
 
     def test_length_prefixing_makes_the_commitment_injective(self):
         """Without length prefixes, moving a byte between fields would collide."""
-        from morpheus.core.pipeline import _compute_commitment
+        from morpheus_crypt.core.pipeline import _compute_commitment
         a = _compute_commitment(b"AB", b"C")
         b = _compute_commitment(b"A", b"BC")
         assert a != b, "field boundaries are not being bound"
@@ -734,8 +734,8 @@ class TestV4CommitmentAndCombiner:
         v4 binds the KEM ciphertext, the encapsulation key and the AAD into the
         HKDF info, so changing any of them changes the derived key.
         """
-        from morpheus.core.formats import FORMAT_VERSION_4
-        from morpheus.core.pipeline import _combine_with_kem
+        from morpheus_crypt.core.formats import FORMAT_VERSION_4
+        from morpheus_crypt.core.pipeline import _combine_with_kem
         pw_key, ss, salt = bytes(range(32)), bytes(range(32, 64)), b"S" * 16
         common = {"version": FORMAT_VERSION_4, "aad": b"aad"}
         base = _combine_with_kem(pw_key, ss, salt, kem_ciphertext=b"ct",
@@ -752,8 +752,8 @@ class TestV4CommitmentAndCombiner:
     def test_the_v3_combiner_is_unchanged(self):
         """v3 must keep deriving exactly what it derived before, or the stored
         v3 vectors stop decrypting."""
-        from morpheus.core.formats import FORMAT_VERSION_3
-        from morpheus.core.pipeline import _combine_with_kem
+        from morpheus_crypt.core.formats import FORMAT_VERSION_3
+        from morpheus_crypt.core.pipeline import _combine_with_kem
         pw_key, ss, salt = bytes(range(32)), bytes(range(32, 64)), b"S" * 16
         # v3 ignores the transcript entirely: passing it must change nothing.
         plain = _combine_with_kem(pw_key, ss, salt, version=FORMAT_VERSION_3)
@@ -789,14 +789,14 @@ class TestFailureAttributionIsDistinct:
         return base64.b64encode(bytes(raw)).decode()
 
     def test_wrong_password_says_wrong_password(self):
-        from morpheus.core.errors import WrongPasswordError
+        from morpheus_crypt.core.errors import WrongPasswordError
         p, ct = self._ct()
         with pytest.raises(WrongPasswordError):
             p.decrypt(ct, "Wr0ng!Password#X")
 
     def test_nonce_tampering_says_tampering_not_wrong_password(self):
         """The nonce is authenticated by the AEAD, so this must reach the tag."""
-        from morpheus.core.errors import WrongPasswordError
+        from morpheus_crypt.core.errors import WrongPasswordError
         p, ct = self._ct()
         # payload starts at 18; salt is 16, so the nonce begins at 34.
         bad = self._flip(ct, 18 + 16)
@@ -810,7 +810,7 @@ class TestFailureAttributionIsDistinct:
                 ) from exc
 
     def test_body_tampering_says_tampering(self):
-        from morpheus.core.errors import WrongPasswordError
+        from morpheus_crypt.core.errors import WrongPasswordError
         p, ct = self._ct()
         raw = base64.b64decode(ct)
         with pytest.raises(InvalidTag):
@@ -821,7 +821,7 @@ class TestFailureAttributionIsDistinct:
 
     def test_cipher_id_tampering_says_tampering(self):
         """cipher_id does not feed key derivation, so the tag must catch it."""
-        from morpheus.core.errors import DecryptionError, WrongPasswordError
+        from morpheus_crypt.core.errors import DecryptionError, WrongPasswordError
         p, ct = self._ct()
         with pytest.raises((InvalidTag, DecryptionError)):
             try:
@@ -843,7 +843,7 @@ class TestFailureAttributionIsDistinct:
         the fix for the v4 regression was to stop binding fields the AEAD
         already covers, not to force every tamper into InvalidTag.
         """
-        from morpheus.core.errors import (
+        from morpheus_crypt.core.errors import (
             DecryptionError,
             KDFParameterError,
             WrongPasswordError,
@@ -858,7 +858,7 @@ class TestFailureAttributionIsDistinct:
 
     def test_salt_tampering_reports_a_wrong_key(self):
         """Documented in SECURITY.md as inherent, so pinned rather than fixed."""
-        from morpheus.core.errors import WrongPasswordError
+        from morpheus_crypt.core.errors import WrongPasswordError
         p, ct = self._ct()
         with pytest.raises(WrongPasswordError):
             p.decrypt(self._flip(ct, 18), self.PW)

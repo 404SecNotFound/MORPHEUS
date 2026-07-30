@@ -14,21 +14,21 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from morpheus import __version__
-from morpheus.__main__ import main
-from morpheus.cli import (
+from morpheus_crypt import __version__
+from morpheus_crypt.__main__ import main
+from morpheus_crypt.cli import (
     _diagnose_ciphertext,
     _padding_hint,
     _suggest_fix,
     run_cli,
 )
-from morpheus.core.errors import (
+from morpheus_crypt.core.errors import (
     ConfigurationError,
     DecryptionError,
     FormatError,
     WrongPasswordError,
 )
-from morpheus.core.pipeline import (
+from morpheus_crypt.core.pipeline import (
     PQ_AVAILABLE,
     EncryptionPipeline,
     pq_generate_keypair,
@@ -358,7 +358,7 @@ class TestSaveConfig:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
-            with patch("morpheus.cli.save_config") as mock_save:
+            with patch("morpheus_crypt.cli.save_config") as mock_save:
                 mock_save.return_value = cfg_file
                 run_cli(["--save-config", "--cipher", "ChaCha20-Poly1305", "--pad"])
             mock_save.assert_called_once()
@@ -372,7 +372,7 @@ class TestSaveConfig:
         Saving it would produce a config that makes every later invocation
         fail with an error naming flags the user is no longer passing.
         """
-        with patch("morpheus.cli.save_config") as mock_save:
+        with patch("morpheus_crypt.cli.save_config") as mock_save:
             with pytest.raises(SystemExit) as exc:
                 run_cli(["--save-config", "--cipher", "ChaCha20-Poly1305",
                          "--chain"])
@@ -404,7 +404,7 @@ class TestCheckLeaks:
         old_stdin = sys.stdin
         sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
         try:
-            with patch("morpheus.core.validation.urllib.request.urlopen",
+            with patch("morpheus_crypt.core.validation.urllib.request.urlopen",
                         return_value=fake_response):
                 with pytest.raises(SystemExit):
                     run_cli([
@@ -422,7 +422,7 @@ class TestCheckLeaks:
         old_stdin = sys.stdin
         sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
         try:
-            with patch("morpheus.core.validation.urllib.request.urlopen",
+            with patch("morpheus_crypt.core.validation.urllib.request.urlopen",
                         return_value=fake_response):
                 run_cli([
                     "-o", "encrypt",
@@ -440,7 +440,7 @@ class TestCheckLeaks:
         sys.stdin = io.StringIO("T3st!Passw0rd#Str0ng\nT3st!Passw0rd#Str0ng\n")
         try:
             with patch(
-                "morpheus.core.validation.urllib.request.urlopen",
+                "morpheus_crypt.core.validation.urllib.request.urlopen",
                 side_effect=urllib.error.URLError("no network"),
             ):
                 run_cli([
@@ -927,7 +927,7 @@ class TestFailsBeforeThePasswordPrompt:
         old_stdin = sys.stdin
         sys.stdin = io.StringIO("")
         try:
-            with patch("morpheus.cli.PQ_AVAILABLE", False):
+            with patch("morpheus_crypt.cli.PQ_AVAILABLE", False):
                 with pytest.raises(SystemExit) as exc:
                     run_cli(["-o", "encrypt", "--data", "x", "--hybrid-pq"])
                 assert exc.value.code == 2, "should be an argparse usage error"
@@ -984,7 +984,7 @@ class TestVersionFlag:
         assert match, "pyproject.toml has no project version to compare against"
         assert match.group(1) == __version__, (
             f"pyproject.toml says {match.group(1)}, "
-            f"morpheus.__version__ says {__version__}"
+            f"morpheus_crypt.__version__ says {__version__}"
         )
 
 
@@ -1102,8 +1102,8 @@ class TestDocumentedOutputNameMatchesReality:
 
     def test_the_file_flag_help_does_not_promise_the_old_naming(self):
         """The help text is where a user checks before running anything."""
-        import morpheus.cli
-        help_text = morpheus.cli._build_parser().format_help()
+        import morpheus_crypt.cli
+        help_text = morpheus_crypt.cli._build_parser().format_help()
         assert "FILE.enc" not in help_text, (
             "--help still promises FILE.enc naming, which the tool does not do"
         )
@@ -1124,44 +1124,119 @@ class TestNoInstallInstructionNamesADistributionWeDoNotOwn:
     Local installs (`pip install -e ".[pq]"`) are fine: they resolve to this
     checkout, not to the index. The rule is about naming a *distribution* we
     do not control.
+
+    Since the rename this has to **distinguish** rather than substring-match.
+    `morpheus-crypt` is ours and must be instructed freely; `morpheus` is still
+    the stranger's. The previous regex looked for the substring `morpheus`
+    anywhere in the arguments, so the moment the docs correctly said
+    `pip install "morpheus-crypt[pq]"` it would have failed the build on the
+    right answer — and the tempting fix, loosening the pattern, silently stops
+    catching the wrong one. So the check now parses out each requirement and
+    compares its PEP 503 normalised name.
     """
 
-    # `pip install` ... `morpheus`, unless it is a local path install.
-    _PIP_MORPHEUS = re.compile(
-        r"pip\s+install\s+(?!-e\s)(?P<args>[^\n`]*morpheus[^\n`]*)", re.I
-    )
+    _PIP_INSTALL = re.compile(r"pip\s+install\s+(?P<args>[^\n`]*)", re.I)
+
+    # The name on PyPI that is not ours, normalised.
+    TAKEN = "morpheus"
+
+    # pip flags whose *next* token is the flag's value rather than a package.
+    _FLAGS_TAKING_A_VALUE = frozenset({
+        "-r", "--requirement", "-c", "--constraint", "-e", "--editable",
+        "-f", "--find-links", "-i", "--index-url", "--extra-index-url",
+        "-t", "--target", "--prefix", "--root",
+    })
 
     SHIPPED = [
         "README.md", "SECURITY.md", "CONTRIBUTING.md", "requirements.txt",
-        "docs/USAGE.md", "morpheus/cli.py", "morpheus/__main__.py",
+        "docs/USAGE.md", "morpheus_crypt/cli.py", "morpheus_crypt/__main__.py",
     ]
+
+    @staticmethod
+    def _normalise(name: str) -> str:
+        """PEP 503 name normalisation, so `Morpheus` and `morpheus` are one name."""
+        return re.sub(r"[-_.]+", "-", name).lower()
+
+    @classmethod
+    def _requirements_named(cls, text: str) -> list[str]:
+        """Every index requirement any `pip install` line in *text* names.
+
+        Flags, local paths and editable installs are dropped, since those
+        resolve to this checkout rather than to PyPI.
+        """
+        found = []
+        for match in cls._PIP_INSTALL.finditer(text):
+            skip_next = False
+            for token in match.group("args").split():
+                token = token.strip("\"'")
+                if not token:
+                    continue
+                if skip_next:
+                    # The argument belonging to the previous flag, not a package.
+                    skip_next = False
+                    continue
+                if token.startswith("-"):
+                    # `-r requirements.txt` names a file, not a distribution, and
+                    # reading the file name as one reported `requirements-txt` as
+                    # an installed package.
+                    skip_next = token in cls._FLAGS_TAKING_A_VALUE
+                    continue
+                if token.startswith((".", "/")):
+                    continue                      # a local path install
+                # Trim extras and any version specifier: morpheus-crypt[pq]>=1 .
+                name = re.split(r"[\[<>=!~;]", token, maxsplit=1)[0]
+                if name:
+                    found.append(cls._normalise(name))
+        return found
 
     def test_no_shipped_file_instructs_installing_the_taken_name(self):
         root = Path(__file__).resolve().parents[1]
         offenders = []
         for rel in self.SHIPPED:
             path = root / rel
-            if not path.exists():
-                continue
+            # Asserted rather than skipped. `if not path.exists(): continue`
+            # turns a renamed or moved file into silently reduced coverage, and
+            # this list has just been rewritten by a package rename.
+            assert path.exists(), f"{rel} is in SHIPPED but does not exist"
             # Explicit utf-8: these are the shipped docs, and README.md holds
             # bytes that cp1252 has no mapping for, so the Windows leg failed
             # here with UnicodeDecodeError rather than on anything it asserts.
             text = path.read_text(encoding="utf-8")
-            for match in self._PIP_MORPHEUS.finditer(text):
-                args = match.group("args")
-                if '"."' in args or "'.'" in args or args.strip().startswith("."):
-                    continue  # a local path install, not the index
-                offenders.append(f"{rel}: pip install {args.strip()[:60]}")
+            offenders += [
+                f"{rel}: pip install {name}"
+                for name in self._requirements_named(text)
+                if name == self.TAKEN
+            ]
         assert not offenders, (
             "these tell a user to install the PyPI name 'morpheus', which is "
-            "an unrelated package:\n  " + "\n  ".join(offenders)
+            "an unrelated package. Ours is 'morpheus-crypt':\n  "
+            + "\n  ".join(offenders)
         )
 
-    def test_the_pattern_would_catch_the_original_wording(self):
-        """Guards against a regex that quietly matches nothing."""
-        assert self._PIP_MORPHEUS.search('run `pip install "morpheus[pq]"` now')
-        assert not self._PIP_MORPHEUS.search('run `pip install -e ".[pq]"` now')
-        assert not self._PIP_MORPHEUS.search("run `pip install pqcrypto` now")
+    @pytest.mark.parametrize(
+        "line,expected",
+        [
+            # The original wording, which is what this test exists to catch.
+            ('run `pip install "morpheus[pq]"` now', ["morpheus"]),
+            ("pip install morpheus", ["morpheus"]),
+            # Normalisation, so a capitalised spelling cannot slip past.
+            ("pip install MORPHEUS", ["morpheus"]),
+            # Ours. Must not be flagged, and must not be mistaken for the above.
+            ('pip install "morpheus-crypt[pq]"', ["morpheus-crypt"]),
+            ("pip install morpheus_crypt", ["morpheus-crypt"]),
+            ("pip install morpheus-crypt>=2.1.0", ["morpheus-crypt"]),
+            # Local and editable installs resolve to this checkout.
+            ('run `pip install -e ".[pq]"` now', []),
+            # `-r` takes a filename. Reading it as a package reported
+            # `requirements-txt` as an installed distribution.
+            ("pip install -r requirements.txt", []),
+            # An unrelated third-party package is named, not flagged.
+            ("run `pip install pqcrypto` now", ["pqcrypto"]),
+        ],
+    )
+    def test_the_parser_separates_our_name_from_the_taken_one(self, line, expected):
+        """Both directions, so neither a vacuous matcher nor a too-broad one passes."""
+        assert self._requirements_named(line) == expected
 
 
 class TestHelpEpilogExamplesAreReal:
@@ -1184,7 +1259,7 @@ class TestHelpEpilogExamplesAreReal:
         return out.getvalue().strip().splitlines()[-1][:6]
 
     def test_password_only_prefix_matches_the_epilog(self):
-        from morpheus.cli import _EPILOG
+        from morpheus_crypt.cli import _EPILOG
         actual = self._prefix(["-o", "encrypt", "--data", "x"])
         assert f"{actual}..." in _EPILOG, (
             f"--help shows a password-only ciphertext prefix that the tool does "
@@ -1193,7 +1268,7 @@ class TestHelpEpilogExamplesAreReal:
 
     @pytest.mark.skipif(not PQ_AVAILABLE, reason="pqcrypto not installed")
     def test_hybrid_pq_prefix_matches_the_epilog(self):
-        from morpheus.cli import _EPILOG
+        from morpheus_crypt.cli import _EPILOG
         pk, _ = pq_generate_keypair()
         actual = self._prefix([
             "-o", "encrypt", "--data", "x", "--hybrid-pq",
@@ -1212,7 +1287,7 @@ class TestHelpEpilogExamplesAreReal:
         byte changed, which is the same failure the surrounding class exists
         to prevent.
         """
-        from morpheus.cli import _EPILOG
+        from morpheus_crypt.cli import _EPILOG
         shown = set(re.findall(r'"([A-Za-z0-9+/]{6})\.\.\."', _EPILOG))
         assert len(shown) >= 2, (
             f"the epilog should distinguish password-only from hybrid-PQ "
@@ -1227,7 +1302,7 @@ class TestTopLevelExceptionHandler:
     """
 
     def test_unexpected_error_is_reported_without_a_traceback(self, capsys):
-        with patch("morpheus.cli.run_cli", side_effect=RuntimeError("boom")), \
+        with patch("morpheus_crypt.cli.run_cli", side_effect=RuntimeError("boom")), \
              patch.object(sys, "argv", ["morpheus", "-o", "encrypt"]):
             with pytest.raises(SystemExit) as exc:
                 main()
@@ -1238,7 +1313,7 @@ class TestTopLevelExceptionHandler:
         assert os.path.dirname(os.__file__) not in err, "leaked an install path"
 
     def test_keyboard_interrupt_exits_quietly(self, capsys):
-        with patch("morpheus.cli.run_cli", side_effect=KeyboardInterrupt), \
+        with patch("morpheus_crypt.cli.run_cli", side_effect=KeyboardInterrupt), \
              patch.object(sys, "argv", ["morpheus", "-o", "encrypt"]):
             with pytest.raises(SystemExit) as exc:
                 main()
@@ -1250,11 +1325,11 @@ class TestDocstringMatchesReality:
     """cli.py claimed passwords never come from argv while -p existed."""
 
     def test_docstring_does_not_deny_a_flag_that_exists(self):
-        import morpheus.cli
+        import morpheus_crypt.cli
 
-        parser = morpheus.cli._build_parser()
+        parser = morpheus_crypt.cli._build_parser()
         options = {s for a in parser._actions for s in a.option_strings}
-        doc = (morpheus.cli.__doc__ or "").lower()
+        doc = (morpheus_crypt.cli.__doc__ or "").lower()
         if "--password" in options:
             assert "never from argv" not in doc, (
                 "-p/--password exists, so the docstring must not claim "
@@ -1279,7 +1354,7 @@ class TestConfigPrecedence:
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg = Path(tmpdir) / "config.toml"
             cfg.write_text(text)
-            with patch("morpheus.core.config._CONFIG_FILE", cfg):
+            with patch("morpheus_crypt.core.config._CONFIG_FILE", cfg):
                 yield cfg
 
     @staticmethod
@@ -1326,11 +1401,11 @@ class TestConfigPrecedence:
 
     def test_config_cannot_enable_network_calls(self):
         """`check_leaks = true` in a config must not trigger outbound HTTPS."""
-        # Patched on morpheus.cli, not morpheus.core.validation: cli.py binds
+        # Patched on morpheus_crypt.cli, not morpheus_crypt.core.validation: cli.py binds
         # the name at import time, so patching the source module would leave
         # the real function in place and pass vacuously.
         with self._config("check_leaks = true\n"):
-            with patch("morpheus.cli.check_password_leaked") as leak:
+            with patch("morpheus_crypt.cli.check_password_leaked") as leak:
                 leak.return_value = (False, 0)
                 self._encrypt(["-o", "encrypt", "--data", "hello"])
             assert not leak.called, "config file triggered a network call"
@@ -1587,7 +1662,7 @@ class TestTextIOIsExplicitlyEncoded:
         cover it, and ``_open_secure_output`` -- the one writer that every
         output path in the CLI goes through -- is an ``os.fdopen`` call.
         """
-        root = Path(__file__).resolve().parents[1] / "morpheus"
+        root = Path(__file__).resolve().parents[1] / "morpheus_crypt"
         offenders = []
 
         for path in sorted(root.rglob("*.py")):

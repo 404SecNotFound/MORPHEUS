@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from morpheus.core.config import (
+from morpheus_crypt.core.config import (
     load_config,
     save_config,
 )
@@ -19,8 +19,8 @@ class TestSaveLoadConfig:
     def test_save_and_load_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
-            with patch("morpheus.core.config._CONFIG_DIR", Path(tmpdir)), \
-                 patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+            with patch("morpheus_crypt.core.config._CONFIG_DIR", Path(tmpdir)), \
+                 patch("morpheus_crypt.core.config._CONFIG_FILE", cfg_file):
                 settings = {
                     "cipher": "ChaCha20-Poly1305",
                     "kdf": "Scrypt",
@@ -37,14 +37,14 @@ class TestSaveLoadConfig:
     def test_missing_file_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "nonexistent" / "config.toml"
-            with patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+            with patch("morpheus_crypt.core.config._CONFIG_FILE", cfg_file):
                 assert load_config() == {}
 
     def test_invalid_keys_skipped(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
             cfg_file.write_text('unknown_key = "value"\ncipher = "AES-256-GCM"\n')
-            with patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+            with patch("morpheus_crypt.core.config._CONFIG_FILE", cfg_file):
                 loaded = load_config()
                 assert "unknown_key" not in loaded
                 assert loaded["cipher"] == "AES-256-GCM"
@@ -53,7 +53,7 @@ class TestSaveLoadConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
             cfg_file.write_text('cipher = "InvalidCipher"\nkdf = "Argon2id"\n')
-            with patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+            with patch("morpheus_crypt.core.config._CONFIG_FILE", cfg_file):
                 loaded = load_config()
                 assert "cipher" not in loaded
                 assert loaded["kdf"] == "Argon2id"
@@ -62,7 +62,7 @@ class TestSaveLoadConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
             cfg_file.write_text("chain = true\npad = false\nfixed_size = yes\n")
-            with patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+            with patch("morpheus_crypt.core.config._CONFIG_FILE", cfg_file):
                 loaded = load_config()
                 assert loaded["chain"] is True
                 assert loaded["pad"] is False
@@ -72,7 +72,7 @@ class TestSaveLoadConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
             cfg_file.write_text("# comment\n\ncipher = \"AES-256-GCM\"\n# another\n")
-            with patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+            with patch("morpheus_crypt.core.config._CONFIG_FILE", cfg_file):
                 loaded = load_config()
                 assert loaded["cipher"] == "AES-256-GCM"
 
@@ -85,8 +85,8 @@ class TestSaveLoadConfig:
     def test_file_permissions(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
-            with patch("morpheus.core.config._CONFIG_DIR", Path(tmpdir)), \
-                 patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+            with patch("morpheus_crypt.core.config._CONFIG_DIR", Path(tmpdir)), \
+                 patch("morpheus_crypt.core.config._CONFIG_FILE", cfg_file):
                 save_config({"cipher": "AES-256-GCM"})
                 mode = oct(os.stat(cfg_file).st_mode & 0o777)
                 assert mode == "0o600"
@@ -112,7 +112,7 @@ class TestSecuritySettingsAreNotPersistable:
                 "passphrase = true\ncheck_leaks = true\ncipher = \"Scrypt\"\n"
                 "chain = true\n"
             )
-            with patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+            with patch("morpheus_crypt.core.config._CONFIG_FILE", cfg_file):
                 loaded = load_config()
             assert "passphrase" not in loaded
             assert "check_leaks" not in loaded
@@ -123,8 +123,8 @@ class TestSecuritySettingsAreNotPersistable:
     def test_they_are_not_written_even_if_passed_to_save(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "config.toml"
-            with patch("morpheus.core.config._CONFIG_DIR", Path(tmpdir)), \
-                 patch("morpheus.core.config._CONFIG_FILE", cfg_file):
+            with patch("morpheus_crypt.core.config._CONFIG_DIR", Path(tmpdir)), \
+                 patch("morpheus_crypt.core.config._CONFIG_FILE", cfg_file):
                 save_config({
                     "cipher": "AES-256-GCM",
                     "passphrase": True,

@@ -7,7 +7,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305 as _ChaCha20
 
-from morpheus.core.ciphers import (
+from morpheus_crypt.core.ciphers import (
     AES256GCM,
     CIPHER_CHOICES,
     CIPHER_REGISTRY,

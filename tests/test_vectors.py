@@ -26,10 +26,10 @@ from pathlib import Path
 import pytest
 from cryptography.exceptions import InvalidTag
 
-from morpheus.core.ciphers import CIPHER_CHOICES
-from morpheus.core.errors import DecryptionError, FormatError, WrongPasswordError
-from morpheus.core.kdf import Argon2idKDF, ScryptKDF
-from morpheus.core.pipeline import PQ_AVAILABLE, EncryptionPipeline
+from morpheus_crypt.core.ciphers import CIPHER_CHOICES
+from morpheus_crypt.core.errors import DecryptionError, FormatError, WrongPasswordError
+from morpheus_crypt.core.kdf import Argon2idKDF, ScryptKDF
+from morpheus_crypt.core.pipeline import PQ_AVAILABLE, EncryptionPipeline
 
 VECTOR_DIR = Path(__file__).parent / "vectors"
 
@@ -92,7 +92,7 @@ class TestStoredVectorsStillDecrypt:
         versions it promised. Deriving it means adding a version to the format
         forces vectors for it.
         """
-        from morpheus.core.formats import SUPPORTED_VERSIONS
+        from morpheus_crypt.core.formats import SUPPORTED_VERSIONS
         covered = {
             json.loads(path.read_text(encoding="utf-8"))["format_version"]
             for path in VECTOR_DIR.glob("*.json")

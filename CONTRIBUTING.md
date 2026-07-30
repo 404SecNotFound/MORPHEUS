@@ -102,7 +102,7 @@ This is a cryptographic tool. All contributions must:
 Understanding the codebase before contributing:
 
 ```
-morpheus/
+morpheus_crypt/
 ├── core/
 │   ├── ciphers.py      # Cipher implementations (AES-GCM, ChaCha20)
 │   ├── kdf.py          # Key derivation (Argon2id, Scrypt)

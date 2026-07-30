@@ -27,8 +27,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from morpheus.ui.app import MorpheusWizard  # noqa: E402
-from morpheus.ui.state import STEP_OUTPUT, TOTAL_STEPS, Mode  # noqa: E402
+from morpheus_crypt.ui.app import MorpheusWizard  # noqa: E402
+from morpheus_crypt.ui.state import STEP_OUTPUT, TOTAL_STEPS, Mode  # noqa: E402
 
 # Plausible stand-in for ciphertext so the output step has something to render.
 # Not a real secret; this script is run by hand and writes only to build/.

@@ -546,8 +546,8 @@ against the `cryptography` library's validated implementations.
 ## Project Structure
 
 ```
-morpheus/
-├── morpheus/
+Morpheus/
+├── morpheus_crypt/
 │   ├── __init__.py            # Package version
 │   ├── __main__.py            # Entry point (auto-detects GUI vs CLI)
 │   ├── gui.py                 # Thin shim → ui/app.py

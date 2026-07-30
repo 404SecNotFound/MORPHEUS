@@ -12,12 +12,12 @@ import pytest
 from textual.widgets import Button, RadioButton, Static, TextArea
 from textual.widgets._footer import FooterKey
 
-from morpheus import __version__
-from morpheus.core.validation import check_password_strength
-from morpheus.ui import theme
-from morpheus.ui.app import MIN_HEIGHT, MIN_WIDTH, MorpheusWizard
-from morpheus.ui.clipboard import clipboard_copy, clipboard_paste
-from morpheus.ui.state import (
+from morpheus_crypt import __version__
+from morpheus_crypt.core.validation import check_password_strength
+from morpheus_crypt.ui import theme
+from morpheus_crypt.ui.app import MIN_HEIGHT, MIN_WIDTH, MorpheusWizard
+from morpheus_crypt.ui.clipboard import clipboard_copy, clipboard_paste
+from morpheus_crypt.ui.state import (
     STEP_INPUT,
     STEP_MODE,
     STEP_OUTPUT,
@@ -26,7 +26,7 @@ from morpheus.ui.state import (
     STEP_SETTINGS,
     Mode,
 )
-from morpheus.ui.steps.password import StrengthBar
+from morpheus_crypt.ui.steps.password import StrengthBar
 from tests.support import settle, settle_on, settle_on_sidebar
 
 # ── StrengthBar unit tests ──────────────────────────────────────
@@ -670,38 +670,38 @@ class TestClipboardPaste:
     """Test the clipboard fallback chain."""
 
     def test_pyperclip_used_first(self):
-        with patch("morpheus.ui.clipboard._pyperclip") as mock_pp:
+        with patch("morpheus_crypt.ui.clipboard._pyperclip") as mock_pp:
             mock_pp.paste.return_value = "from-pyperclip"
             assert clipboard_paste() == "from-pyperclip"
 
     def test_subprocess_fallback_on_pyperclip_failure(self):
-        with patch("morpheus.ui.clipboard._pyperclip", None), \
-             patch("morpheus.ui.clipboard.subprocess.run") as mock_run:
+        with patch("morpheus_crypt.ui.clipboard._pyperclip", None), \
+             patch("morpheus_crypt.ui.clipboard.subprocess.run") as mock_run:
             mock_run.return_value = type("R", (), {"returncode": 0, "stdout": "from-xclip"})()
             result = clipboard_paste()
             assert result == "from-xclip"
 
     def test_returns_none_when_all_fail(self):
-        with patch("morpheus.ui.clipboard._pyperclip", None), \
-             patch("morpheus.ui.clipboard.subprocess.run") as mock_run:
+        with patch("morpheus_crypt.ui.clipboard._pyperclip", None), \
+             patch("morpheus_crypt.ui.clipboard.subprocess.run") as mock_run:
             mock_run.side_effect = FileNotFoundError
             assert clipboard_paste() is None
 
     def test_tkinter_fallback(self):
         # Patch the module object, not tk.Tk: tkinter is optional, so on a
         # Python built without Tk `clipboard.tk` is None and has no attributes.
-        with patch("morpheus.ui.clipboard._pyperclip", None), \
-             patch("morpheus.ui.clipboard.subprocess.run", side_effect=FileNotFoundError), \
-             patch("morpheus.ui.clipboard.tk") as mock_tk:
+        with patch("morpheus_crypt.ui.clipboard._pyperclip", None), \
+             patch("morpheus_crypt.ui.clipboard.subprocess.run", side_effect=FileNotFoundError), \
+             patch("morpheus_crypt.ui.clipboard.tk") as mock_tk:
             tk_root = mock_tk.Tk.return_value
             tk_root.clipboard_get.return_value = "from-tkinter"
             assert clipboard_paste() == "from-tkinter"
 
     def test_returns_none_when_tkinter_unavailable(self):
         """Python without Tk must degrade gracefully, not raise."""
-        with patch("morpheus.ui.clipboard._pyperclip", None), \
-             patch("morpheus.ui.clipboard.subprocess.run", side_effect=FileNotFoundError), \
-             patch("morpheus.ui.clipboard.tk", None):
+        with patch("morpheus_crypt.ui.clipboard._pyperclip", None), \
+             patch("morpheus_crypt.ui.clipboard.subprocess.run", side_effect=FileNotFoundError), \
+             patch("morpheus_crypt.ui.clipboard.tk", None):
             assert clipboard_paste() is None
 
 
@@ -709,7 +709,7 @@ class TestClipboardCopy:
     """Test the clipboard copy fallback chain."""
 
     def test_pyperclip_copy(self):
-        with patch("morpheus.ui.clipboard._pyperclip") as mock_pp:
+        with patch("morpheus_crypt.ui.clipboard._pyperclip") as mock_pp:
             ok, method = clipboard_copy("test")
             mock_pp.copy.assert_called_once_with("test")
             assert ok is True
@@ -725,9 +725,9 @@ class TestClipboardCopy:
         fallback genuinely succeeded — the function was right and the test was
         wrong. The paste-side equivalent already patched all three.
         """
-        with patch("morpheus.ui.clipboard._pyperclip", None), \
-             patch("morpheus.ui.clipboard.subprocess.Popen") as mock_popen, \
-             patch("morpheus.ui.clipboard.tk", None):
+        with patch("morpheus_crypt.ui.clipboard._pyperclip", None), \
+             patch("morpheus_crypt.ui.clipboard.subprocess.Popen") as mock_popen, \
+             patch("morpheus_crypt.ui.clipboard.tk", None):
             mock_popen.side_effect = FileNotFoundError
             ok, method = clipboard_copy("test")
             assert ok is False
@@ -735,9 +735,9 @@ class TestClipboardCopy:
 
     def test_tkinter_fallback(self):
         # Patch the module object, not tk.Tk: see the note in TestClipboardPaste.
-        with patch("morpheus.ui.clipboard._pyperclip", None), \
-             patch("morpheus.ui.clipboard.subprocess.Popen", side_effect=FileNotFoundError), \
-             patch("morpheus.ui.clipboard.tk") as mock_tk:
+        with patch("morpheus_crypt.ui.clipboard._pyperclip", None), \
+             patch("morpheus_crypt.ui.clipboard.subprocess.Popen", side_effect=FileNotFoundError), \
+             patch("morpheus_crypt.ui.clipboard.tk") as mock_tk:
             ok, method = clipboard_copy("test")
             assert ok is True
             assert method == "tkinter"
@@ -746,9 +746,9 @@ class TestClipboardCopy:
 
     def test_returns_false_when_tkinter_unavailable(self):
         """Python without Tk must degrade gracefully, not raise."""
-        with patch("morpheus.ui.clipboard._pyperclip", None), \
-             patch("morpheus.ui.clipboard.subprocess.Popen", side_effect=FileNotFoundError), \
-             patch("morpheus.ui.clipboard.tk", None):
+        with patch("morpheus_crypt.ui.clipboard._pyperclip", None), \
+             patch("morpheus_crypt.ui.clipboard.subprocess.Popen", side_effect=FileNotFoundError), \
+             patch("morpheus_crypt.ui.clipboard.tk", None):
             ok, method = clipboard_copy("test")
             assert ok is False
             assert method == ""

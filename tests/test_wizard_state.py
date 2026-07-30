@@ -1,6 +1,6 @@
 """Tests for the wizard state model and validation logic."""
 
-from morpheus.ui.state import (
+from morpheus_crypt.ui.state import (
     STEP_MODE,
     STEP_OUTPUT,
     STEP_REVIEW,
@@ -26,9 +26,9 @@ class TestNoReachableSettingsCombinationIsInvalid:
     def test_every_reachable_combination_the_wizard_accepts_actually_builds(self):
         import itertools
 
-        from morpheus.core.ciphers import CIPHER_CHOICES
-        from morpheus.core.kdf import Argon2idKDF, ScryptKDF
-        from morpheus.core.pipeline import EncryptionPipeline
+        from morpheus_crypt.core.ciphers import CIPHER_CHOICES
+        from morpheus_crypt.core.kdf import Argon2idKDF, ScryptKDF
+        from morpheus_crypt.core.pipeline import EncryptionPipeline
 
         # Cheap KDF params: validity here is decided by the cipher/chain/PQ
         # combination, not by the cost parameters.

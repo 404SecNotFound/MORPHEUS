@@ -1,5 +1,9 @@
 """
-Entry point for `python -m morpheus`.
+Entry point for `python -m morpheus_crypt`, and for the `morpheus` command.
+
+The module path and the command name differ on purpose: the import package is
+`morpheus_crypt` because the `morpheus` name on PyPI belongs to someone else,
+while the command users type is unchanged.
 
 Launches the GUI (TUI) by default, or CLI mode when any flags are given.
 """

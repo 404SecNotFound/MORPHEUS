@@ -5,7 +5,7 @@ import struct
 
 import pytest
 
-from morpheus.core.formats import (
+from morpheus_crypt.core.formats import (
     FLAG_CHAINED,
     FLAG_HYBRID_PQ,
     FLAG_PADDED,

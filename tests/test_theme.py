@@ -8,9 +8,9 @@ from typing import NamedTuple
 import pytest
 from textual.widgets import Checkbox
 
-from morpheus.ui import theme
-from morpheus.ui.app import MorpheusWizard
-from morpheus.ui.state import STEP_OUTPUT, STEP_PASSWORD, TOTAL_STEPS, Mode
+from morpheus_crypt.ui import theme
+from morpheus_crypt.ui.app import MorpheusWizard
+from morpheus_crypt.ui.state import STEP_OUTPUT, STEP_PASSWORD, TOTAL_STEPS, Mode
 from tests.support import settle
 
 # The spec pins an exact value for each token, and the CSS variable each token

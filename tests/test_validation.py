@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from morpheus.core.validation import (
+from morpheus_crypt.core.validation import (
     check_passphrase_strength,
     check_password_leaked,
     check_password_strength,
@@ -199,7 +199,7 @@ class TestPasswordLeakCheck:
             "1E4C9B93F3F0682250B6CF8331B7EE68FD8:3861493\r\n"
             "1F2B668E8AABEF1C59E7B6D4A0F0E3B2C1D:5\r\n"
         )
-        with patch("morpheus.core.validation.urllib.request.urlopen",
+        with patch("morpheus_crypt.core.validation.urllib.request.urlopen",
                    return_value=self._mock_urlopen(fake_response)):
             is_leaked, count = check_password_leaked("password")
         assert is_leaked
@@ -211,7 +211,7 @@ class TestPasswordLeakCheck:
             "0000000000000000000000000000000000A:1\r\n"
             "0000000000000000000000000000000000B:2\r\n"
         )
-        with patch("morpheus.core.validation.urllib.request.urlopen",
+        with patch("morpheus_crypt.core.validation.urllib.request.urlopen",
                    return_value=self._mock_urlopen(fake_response)):
             is_leaked, count = check_password_leaked("xK9!mZ2@qY3#nW$vB8")
         assert not is_leaked
@@ -229,7 +229,7 @@ class TestPasswordLeakCheck:
             "1E4C9B93F3F0682250B6CF8331B7EE68FD8:0\r\n"
             "1D2DA4053E34E76F6576ED1DA63134B5E2A:0\r\n"
         )
-        with patch("morpheus.core.validation.urllib.request.urlopen",
+        with patch("morpheus_crypt.core.validation.urllib.request.urlopen",
                    return_value=self._mock_urlopen(fake_response)):
             is_leaked, count = check_password_leaked("password")
         assert not is_leaked
@@ -239,7 +239,7 @@ class TestPasswordLeakCheck:
         """Network errors should propagate so the caller can handle them."""
         import urllib.error
         with patch(
-            "morpheus.core.validation.urllib.request.urlopen",
+            "morpheus_crypt.core.validation.urllib.request.urlopen",
             side_effect=urllib.error.URLError("no network"),
         ):
             try:

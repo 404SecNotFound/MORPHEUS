@@ -6,7 +6,16 @@ requires = ["setuptools>=83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "morpheus"
+# The distribution is `morpheus-crypt` and the import package is
+# `morpheus_crypt`; the *command* stays `morpheus` (see [project.scripts]).
+#
+# Both had to move, not just the distribution. `morpheus` on PyPI is an
+# unrelated abandoned package, and it also ships a top-level `morpheus` import
+# package -- so keeping this directory as `morpheus/` left a silent
+# site-packages overwrite path, whichever installed second winning, inside a
+# cryptography tool's trust boundary. Renaming only the distribution was
+# considered and rejected for exactly that reason.
+name = "morpheus-crypt"
 version = "2.1.0"
 description = "Quantum-resistant multi-cipher encryption tool with a terminal GUI"
 readme = "README.md"
@@ -32,15 +41,20 @@ dev = [
 ]
 
 [project.scripts]
-morpheus = "morpheus.__main__:main"
+# The command the user types is unchanged by the rename.
+morpheus = "morpheus_crypt.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["morpheus*"]
+# `morpheus_crypt*`, not `morpheus*`. The wider glob would also match a
+# top-level `morpheus.py` in the project root -- which exists as the
+# `python morpheus.py` launcher -- and ship it as a module that shadows nothing
+# but confuses `import morpheus` for anyone who also has the PyPI package.
+include = ["morpheus_crypt*"]
 
 [tool.setuptools.package-data]
 # Without this the PEP 561 marker is dropped by older setuptools, so consumers
 # silently lose type information.
-morpheus = ["py.typed"]
+morpheus_crypt = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -48,10 +62,10 @@ asyncio_mode = "auto"
 markers = ["slow: marks tests as slow (production KDF params)"]
 
 [tool.coverage.run]
-source = ["morpheus"]
+source = ["morpheus_crypt"]
 omit = [
-    "morpheus/gui.py",
-    "morpheus/__main__.py",
+    "morpheus_crypt/gui.py",
+    "morpheus_crypt/__main__.py",
 ]
 
 [tool.coverage.report]

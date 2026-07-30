@@ -29,10 +29,10 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Lint with ruff
-        run: ruff check morpheus/ tests/
+        run: ruff check morpheus_crypt/ tests/
 
       - name: Security scan with bandit
-        run: bandit -r morpheus/ -ll -q
+        run: bandit -r morpheus_crypt/ -ll -q
 
   test:
     runs-on: ${{ matrix.os }}
@@ -222,10 +222,10 @@ jobs:
           whl = glob.glob("dist/*.whl")[0]
           names = zipfile.ZipFile(whl).namelist()
           required = [
-              "morpheus/py.typed",
-              "morpheus/ui/app.py",
-              "morpheus/ui/steps/input.py",
-              "morpheus/core/pipeline.py",
+              "morpheus_crypt/py.typed",
+              "morpheus_crypt/ui/app.py",
+              "morpheus_crypt/ui/steps/input.py",
+              "morpheus_crypt/core/pipeline.py",
           ]
           missing = [r for r in required if not any(r in n for n in names)]
           if missing:

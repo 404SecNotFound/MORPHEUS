@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from morpheus.core.kdf import (
+from morpheus_crypt.core.kdf import (
     KDF_CHOICES,
     KDF_REGISTRY,
     Argon2idKDF,
