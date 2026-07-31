@@ -263,10 +263,24 @@ class TestRestrictedTokenUsage:
         "#output-area > .text-area--selection",
     }
 
-    # Two sanctioned TEXT_4 sites, for different reasons:
+    # Sanctioned TEXT_4 sites, for three reasons:
     #   .section-divider    decoration, a rule glyph rather than a string
     #   #btn-next:disabled  non-focusable disabled control, WCAG 1.4.3 exempt
-    TEXT_4_SELECTORS = {".section-divider", "#btn-next:disabled"}
+    #   the three scroll panes  scrollbar chrome, not text
+    #
+    # The scroll panes arrived with the fix for content that could not be
+    # scrolled to at 100x30. A scrollbar is a position indicator and carries no
+    # string, so 1.4.3 does not reach it; TEXT_4 is the hover and active lift
+    # over a BORDER_STRONG thumb, which is the smallest step that still reads as
+    # a response to the pointer. It is deliberately not SIGNAL: the accent means
+    # exposed secret material, and a scrollbar is never that.
+    TEXT_4_SELECTORS = {
+        ".section-divider",
+        "#btn-next:disabled",
+        "#step-container",
+        "#output-area",
+        "#input-editor",
+    }
 
     def test_the_restricted_tokens_are_used_on_exactly_the_sanctioned_selectors(self):
         """Both directions at once, which also makes the parser non-vacuous.

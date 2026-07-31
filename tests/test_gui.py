@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, RadioButton, Static, TextArea
+from textual.widgets import Button, Checkbox, Collapsible, RadioButton, Static, TextArea
 from textual.widgets._footer import FooterKey
 
 from morpheus_crypt import __version__
@@ -952,3 +952,117 @@ class TestMinimumTerminalSize:
             assert app._state.output == "CIPHERTEXT-THAT-MUST-SURVIVE", (
                 "resizing the terminal destroyed a finished result"
             )
+
+
+# ── Every control must be reachable at the declared minimum ──────
+
+class TestControlsAreReachableAtTheMinimum:
+    """A control you can focus is a control you must be able to see and click.
+
+    Found by the 2026-07-31 UAT run. `f3afa81` declared 100x30 and gates
+    anything smaller, which makes 100x30 a supported size and therefore a test
+    case. At exactly that size the Settings step laid its Advanced options out
+    at rows 35-49 with `#step-container.max_scroll_y == 0`, so Pad, Fixed
+    64 KiB and Omit filename could not be scrolled to at all -- and the
+    "Advanced options" header that expands them was off-screen too. At 110x38
+    a click on Pad landed on `btn-back` and navigated the wizard backwards
+    instead, because the nav bar composites over the overflowing panel.
+
+    The container was never at fault: it already sets `overflow-y: auto`. The
+    step panels are plain `Vertical` subclasses with no height rule, so they
+    defaulted to `1fr` -- exactly the container's height. The container saw a
+    child that fitted, reported nothing to scroll, and the child's own children
+    laid out past its bottom edge.
+
+    Tab still reached those controls, which is why this survived: the wizard
+    was keyboard-navigable to widgets that were not on screen.
+    """
+
+    STEPS = [STEP_MODE, STEP_SETTINGS, STEP_INPUT, STEP_PASSWORD,
+             STEP_REVIEW, STEP_OUTPUT]
+
+    @staticmethod
+    async def _prepared(app, pilot, step):
+        """Land on `step` with every collapsible open and state fully populated."""
+        s = app._state
+        s.mode = Mode.ENCRYPT
+        s.input_text = "alpha canary one"
+        s.password = s.password_confirm = "T3st!Passw0rd#Str0ng"
+        s.record_output("BASE64" * 40)
+        for i in range(6):
+            s.completed_steps.add(i)
+        app._show_step(step)
+        await settle(app, pilot)
+        for collapsible in app._step_panel.query(Collapsible):
+            collapsible.collapsed = False
+        for _ in range(3):
+            await pilot.pause()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("step", STEPS)
+    async def test_every_focusable_control_can_be_scrolled_into_view(self, step):
+        app = MorpheusWizard()
+        async with app.run_test(size=(MIN_WIDTH, MIN_HEIGHT)) as pilot:
+            await self._prepared(app, pilot, step)
+            screen_h = app.screen.size.height
+            unreachable = []
+
+            for widget in list(app._step_panel.query("*")):
+                if not widget.focusable or widget.region.height == 0:
+                    continue
+                widget.scroll_visible(animate=False)
+                for _ in range(3):
+                    await pilot.pause()
+                region = widget.region
+                if region.y < 0 or region.bottom > screen_h:
+                    unreachable.append(
+                        f"{widget.id or type(widget).__name__} at rows "
+                        f"{region.y}-{region.bottom} of {screen_h}"
+                    )
+
+            assert not unreachable, (
+                f"step {step}: focusable controls that cannot be brought on "
+                f"screen at {MIN_WIDTH}x{MIN_HEIGHT}: {unreachable}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_advanced_options_click_hits_the_checkbox_not_the_nav_bar(self):
+        """The specific failure: a click on Pad used to press Back.
+
+        Hit-testing rather than `region` alone, because the control was on
+        screen by its own coordinates and still unclickable -- the nav bar was
+        composited over it, so the click did not miss, it navigated.
+        """
+        app = MorpheusWizard()
+        async with app.run_test(size=(MIN_WIDTH, MIN_HEIGHT)) as pilot:
+            await self._prepared(app, pilot, STEP_SETTINGS)
+
+            for box_id in ("pad-check", "fixed-check", "nofn-check"):
+                box = app.query_one(f"#{box_id}", Checkbox)
+                box.scroll_visible(animate=False)
+                for _ in range(3):
+                    await pilot.pause()
+                region = box.region
+                try:
+                    hit, _ = app.screen.get_widget_at(
+                        region.x + region.width // 2,
+                        region.y + region.height // 2,
+                    )
+                except Exception:
+                    hit = None
+                assert hit is not None, (
+                    f"#{box_id} sits at rows {region.y}-{region.bottom}, off a "
+                    f"{MIN_HEIGHT}-row screen, and cannot be scrolled into view"
+                )
+                assert hit is box or box in hit.ancestors, (
+                    f"a click on #{box_id} lands on "
+                    f"{hit.id or type(hit).__name__!r}, not the checkbox"
+                )
+
+                before = box.value
+                await pilot.click(f"#{box_id}")
+                await pilot.pause()
+                assert box.value != before, f"#{box_id} did not toggle when clicked"
+                assert app._current_step == STEP_SETTINGS, (
+                    f"clicking #{box_id} navigated away from Settings"
+                )

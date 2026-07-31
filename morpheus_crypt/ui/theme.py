@@ -250,6 +250,39 @@ FooterLabel {
     overflow-y: auto;
 }
 
+/* The step panel must size to its content, not to the container.
+
+   `overflow-y: auto` above was doing nothing. The panels are plain `Vertical`
+   subclasses with no height rule, so they took the default `1fr` -- exactly
+   the container's height. The container therefore saw a child that fitted and
+   reported `max_scroll_y == 0`, while that child's own children laid out past
+   its bottom edge and composited over the nav bar.
+
+   At the 100x30 minimum this put Settings' Advanced options at rows 35-49 with
+   no way to scroll to them, and a click where Pad rendered landed on `btn-back`
+   and navigated backwards. Tab still reached them, so the wizard was keyboard
+   navigable to controls that were not on screen. `TestControlsAreReachableAtTheMinimum`
+   fails if any focusable control stops being scrollable into view. */
+#step-container > * {
+    height: auto;
+}
+
+/* Now that the panes genuinely scroll, a scrollbar renders for the first time,
+   and Textual's default one is blue -- the same way the blue selection band got
+   in. It is chrome, not content, so it takes the quietest tokens that still
+   read: the trough disappears into the pane and the thumb sits at the border
+   tier, lifting one step to TEXT_4 only under the pointer. No accent: a
+   scrollbar is a position indicator, not a signal, and the accent is reserved. */
+#step-container, #output-area, #input-editor {
+    scrollbar-background: $m-bg;
+    scrollbar-background-hover: $m-bg;
+    scrollbar-background-active: $m-bg;
+    scrollbar-color: $m-border-strong;
+    scrollbar-color-hover: $m-text-4;
+    scrollbar-color-active: $m-text-4;
+    scrollbar-corner-color: $m-bg;
+}
+
 .step-title {
     color: $m-text;
     text-style: bold underline;
