@@ -1000,29 +1000,50 @@ class TestControlsAreReachableAtTheMinimum:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("step", STEPS)
-    async def test_every_focusable_control_can_be_scrolled_into_view(self, step):
+    async def test_every_focusable_control_lies_within_the_scrollable_extent(
+        self, step
+    ):
+        """Geometry, not scrolling.
+
+        The first version of this scrolled to each control and then measured
+        it. That raced on the Windows runner: `scroll_visible` lands a frame or
+        more later, so a slow turn measured one control against a neighbour's
+        scroll position and reported `cipher-select` at rows -15 to -12. The
+        property being tested never needed a scroll to happen. A control is
+        reachable exactly when it lies inside the container's virtual content,
+        which is a static comparison and cannot race.
+
+        Under the old `1fr` panels the virtual height equalled the viewport, so
+        anything past the fold fell outside the extent and this fails -- which
+        is the bug, stated as arithmetic.
+        """
         app = MorpheusWizard()
         async with app.run_test(size=(MIN_WIDTH, MIN_HEIGHT)) as pilot:
             await self._prepared(app, pilot, step)
-            screen_h = app.screen.size.height
+
+            container = app.query_one("#step-container")
+            content_top = container.content_region.y
+            scroll_y = container.scroll_offset.y
+            extent = container.virtual_size.height
             unreachable = []
 
             for widget in list(app._step_panel.query("*")):
                 if not widget.focusable or widget.region.height == 0:
                     continue
-                widget.scroll_visible(animate=False)
-                for _ in range(3):
-                    await pilot.pause()
-                region = widget.region
-                if region.y < 0 or region.bottom > screen_h:
+                # Position in the container's content space, which is what the
+                # scrollbar traverses.
+                top = widget.region.y - content_top + scroll_y
+                if top < 0 or top + widget.region.height > extent:
                     unreachable.append(
-                        f"{widget.id or type(widget).__name__} at rows "
-                        f"{region.y}-{region.bottom} of {screen_h}"
+                        f"{widget.id or type(widget).__name__} occupies "
+                        f"{top}-{top + widget.region.height} of a {extent}-row "
+                        f"scrollable extent"
                     )
 
             assert not unreachable, (
-                f"step {step}: focusable controls that cannot be brought on "
-                f"screen at {MIN_WIDTH}x{MIN_HEIGHT}: {unreachable}"
+                f"step {step}: focusable controls outside the scrollable extent "
+                f"at {MIN_WIDTH}x{MIN_HEIGHT}, so no amount of scrolling reaches "
+                f"them: {unreachable}"
             )
 
     @pytest.mark.asyncio

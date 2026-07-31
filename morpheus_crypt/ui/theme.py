@@ -708,8 +708,28 @@ CollapsibleTitle:focus {
     color: $m-text-3;
 }
 
-#output-actions {
+/* The same border-box arithmetic as #nav-bar, in the two action rows.
+
+   `height: 3` with a row of top padding leaves 2 for a bordered Button that
+   occupies 3, so Copy / Save / Clear / Stop timer overflowed their own row by a
+   row. It was invisible while the step panel was `1fr` and simply painted over
+   whatever sat below; once the panel became `height: auto` the row's declared
+   height is what the scrollable extent is built from, so the overflow became a
+   button whose bottom border no amount of scrolling reaches. 4 = 1 padding + 3
+   button rows.
+
+   #input-actions had no rule at all, so it took the `1fr` default. Under a
+   fixed-height panel that quietly meant "the rest of the pane"; under an auto
+   one there is no fraction to take and it collapsed to a single row with three
+   rows of buttons inside it. Fractions need a parent that has a height to give
+   them away. */
+#input-actions {
     height: 3;
+    layout: horizontal;
+}
+
+#output-actions {
+    height: 4;
     layout: horizontal;
     padding: 1 0 0 0;
 }
