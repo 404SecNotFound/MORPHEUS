@@ -59,10 +59,24 @@ class PasswordStep(Vertical):
                 "password, your data is permanently lost.",
                 classes="step-subtitle",
             )
+            # The dice route rides on this tip instead of taking a block of
+            # its own. At the 100x30 minimum the step has no spare rows, and a
+            # fourth hint pushed the clipboard paste instructions below the
+            # fold — those are load-bearing when the clipboard is unavailable,
+            # and this is optional advice. The two sentences dropped to make
+            # room narrated the strength meter and the Confirm field, both of
+            # which are on screen; README keeps them for readers who are not.
+            #
+            # It stays a signpost rather than a screen because --dice-entropy
+            # takes a count and never the rolls: a field for the sequence
+            # would ask the user to type their seed into a networked
+            # general-purpose computer, the thing a dice procedure avoids.
             yield Static(
-                f"[{theme.TEXT_3}]Tip: Use a long passphrase (4+ random words) for best security. "
-                "The strength meter updates as you type. "
-                "You must confirm the password below.[/]",
+                f"[{theme.TEXT_3}]Tip: Use a long passphrase (4+ random words) for best "
+                "security. Rolling physical dice? "
+                f"[{theme.TEXT_2}]--dice-entropy N[/]"
+                f"[{theme.TEXT_3}] on the CLI reports what N rolls carry. "
+                "It takes the count only, never the rolls themselves.[/]",
                 classes="step-hint",
             )
         else:

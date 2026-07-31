@@ -330,6 +330,79 @@ class TestSettingsDoesNotOfferHybridPQ:
             )
 
 
+# ── Password step: dice entropy is CLI-only ──────────────────────
+
+class TestPasswordSignpostsDiceEntropy:
+    """The password step must name --dice-entropy without offering a screen.
+
+    Physical dice are the one entropy source that survives a compromised
+    generator, and the password step is the only moment in the wizard where
+    the user is choosing entropy. Leaving the trail off it means the feature
+    is reachable only by reading --help, which almost nobody does.
+
+    A dice *screen* is deliberately not the answer. --dice-entropy takes a
+    count and never the rolls, because a sequence typed into a networked
+    computer is spent (see cli._run_dice_entropy). A wizard field would invite
+    exactly that keystroke, so the step signposts the CLI instead — the same
+    shape as the hybrid-PQ signpost above.
+    """
+
+    @pytest.mark.asyncio
+    async def test_encrypt_names_the_dice_flag(self):
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app._state.mode = Mode.ENCRYPT
+            app._show_step(STEP_PASSWORD)
+            await settle(app, pilot)
+            rendered = " ".join(
+                str(w.render()) for w in app.query(Static)
+            )
+            assert "--dice-entropy" in rendered, (
+                "The password step no longer tells the user that dice "
+                "entropy can be checked from the CLI"
+            )
+
+    @pytest.mark.asyncio
+    async def test_decrypt_omits_the_dice_flag(self):
+        """Decrypt takes an existing password, so the advice does not apply.
+
+        Rolling dice cannot help someone re-enter a password they already
+        have, and the decrypt step is where a user is most likely to be
+        stuck. Advice that cannot act on their problem is noise there.
+        """
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app._state.mode = Mode.DECRYPT
+            app._show_step(STEP_PASSWORD)
+            await settle(app, pilot)
+            rendered = " ".join(
+                str(w.render()) for w in app.query(Static)
+            )
+            assert "--dice-entropy" not in rendered, (
+                "Dice advice is showing on the decrypt path, where the "
+                "password already exists"
+            )
+
+    @pytest.mark.asyncio
+    async def test_wizard_never_accepts_the_rolls_themselves(self):
+        """A count is safe to type here; the sequence is key material.
+
+        This is the assertion that matters if someone later decides the
+        signpost should become a field. --dice-entropy is a calculator, and
+        the moment the wizard grows an input for the rolls, the tool is
+        asking for the seed it exists to keep off the machine.
+        """
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app._state.mode = Mode.ENCRYPT
+            app._show_step(STEP_PASSWORD)
+            await settle(app, pilot)
+            assert not app.query("#dice-input"), (
+                "The wizard grew a dice input; --dice-entropy takes a count, "
+                "never the rolls"
+            )
+
+
 # ── Output step rendering ────────────────────────────────────────
 
 class TestOutputAreaWrapsDeterministically:
