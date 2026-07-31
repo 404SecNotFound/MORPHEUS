@@ -385,6 +385,20 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 
 Passing any flag runs the CLI. Running `python morpheus.py` with no arguments launches the GUI.
 
+> **On 99 vs 100 dice rolls.** A fair d6 carries log₂(6) ≈ 2.585 bits, so 99
+> rolls give **255.9 bits** — not the 256 that guidance elsewhere rounds it to.
+> `--dice-entropy` reports the measured figure and names the 0.1-bit gap rather
+> than rounding into agreement. The difference has no practical consequence, but
+> if you are following a procedure that says "at least 99 rolls", one more roll
+> costs seconds and lands you cleanly above 256 instead of a hair under it.
+>
+> | Rolls (d6) | Entropy | |
+> |---|---|---|
+> | 49 | 126.7 bits | below the floor |
+> | **50** | **129.2 bits** | clears 128 |
+> | 99 | 255.9 bits | just short of 256 |
+> | **100** | **258.5 bits** | clears 256 |
+
 </details>
 
 ---
