@@ -284,6 +284,69 @@ python morpheus.py -o decrypt --data "AgECAADE3f7a..."
 | `--pq-secret-key` | Base64-encoded ML-KEM-768 secret key (for hybrid decrypt). Discouraged: argv is readable by other local users via `ps` and shell history |
 | `--pq-secret-key-file` | Path to a file holding the base64 secret key. Preferred over `--pq-secret-key` |
 | `--generate-keypair` | Generate an ML-KEM-768 keypair: public key to stdout, secret key to a 0600 file (path from `--output`). POSIX only; on Windows the mode is not applied — see SECURITY.md |
+| `--dice-entropy` | Report how much entropy a number of fair dice rolls carries. Takes a **count**, not the rolls. Exits 1 below 128 bits |
+| `--dice-sides` | Faces on the die used with `--dice-entropy` (default 6) |
+
+---
+
+## Counting Dice Entropy
+
+If you generate wallet seeds or other long-lived keys with physical dice, this
+tells you when you have rolled enough:
+
+```bash
+morpheus --dice-entropy 50           # 50 rolls of a six-sided die
+morpheus --dice-entropy 99
+morpheus --dice-entropy 128 --dice-sides 2   # coin flips
+```
+
+It reports bits, gives a verdict against a 128-bit floor and a 256-bit target,
+and exits 1 when you are short — so a script can gate on it.
+
+**It takes a count, never the rolls themselves.** The sequence is key material.
+Typing it into a networked computer defeats the entire reason for using dice.
+MORPHEUS generates nothing here, derives nothing and stores nothing; the command
+does arithmetic and prints it.
+
+The rule of thumb for a fair six-sided die, since each roll carries
+log₂(6) ≈ 2.585 bits:
+
+| Rolls | Entropy | |
+|---|---|---|
+| 49 | 126.7 bits | short of the floor |
+| **50** | **129.2 bits** | clears 128 bits |
+| 99 | 255.9 bits | just short of 256 |
+| **100** | **258.5 bits** | clears 256 bits |
+
+### What the number cannot tell you
+
+The figure is an upper bound, and it holds only if the rolls were fair,
+independent, ordered and private. Software counting rolls cannot check any of
+those. A weighted or shaved die carries less per roll. Re-rolling a result you
+disliked throws away the entropy you kept. Reading a handful of dice thrown
+together in sorted order loses most of it, because order is most of the
+information. A sequence anyone saw, filmed, or typed into a networked machine is
+spent.
+
+Hashing does not add entropy. SHA-256 over 50 rolls returns 256 bits of output
+carrying 129 bits of entropy.
+
+### Why this exists
+
+On 30 July 2026 roughly 594 BTC moved out of about 500 addresses in 25 minutes.
+A COLDCARD firmware bug had routed seed generation through a software PRNG
+instead of the device's hardware RNG: Mk3 seeds ended up with roughly 40 bits of
+effective search space against an intended 128, and Mk4, Q and Mk5 with roughly
+72.
+
+Users who had added at least 50 private dice rolls were not considered at risk,
+because the firmware hashed those rolls in alongside the device's own output.
+Physical dice survived a total failure of the vendor's generator — which is the
+argument for counting them, and for counting them correctly.
+
+**This tool does not generate seeds, and should not.** Seed generation belongs on
+an air-gapped device with a screen you trust. Doing it on a general-purpose
+machine beside a browser trades a known weakness for a worse one.
 
 ---
 

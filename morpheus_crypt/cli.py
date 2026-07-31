@@ -251,6 +251,23 @@ def _build_parser() -> argparse.ArgumentParser:
              "Shows format version, cipher, KDF, flags, and size info. "
              "No password required. Use with --data or --file.",
     )
+    parser.add_argument(
+        "--dice-entropy",
+        type=int,
+        metavar="ROLLS",
+        help="Report how much entropy a given number of fair dice rolls "
+             "carries, and how many more are needed to reach 128 or 256 bits. "
+             "Takes a count only: never type the rolls themselves into a "
+             "computer. Generates nothing and stores nothing.",
+    )
+    parser.add_argument(
+        "--dice-sides",
+        type=int,
+        default=6,
+        metavar="N",
+        help="Faces on the die used with --dice-entropy (default: 6). "
+             "Use 2 for coin flips, 20 for a d20.",
+    )
     return parser
 
 
@@ -389,6 +406,58 @@ def _suggest_fix(exc: Exception, ciphertext: str = "") -> str:
     if not suggestions:
         return ""
     return "\n  Suggestions:\n" + "\n".join(f"    - {s}" for s in suggestions)
+
+
+def _run_dice_entropy(rolls: int, sides: int) -> None:
+    """Report the entropy of a dice session, and what is still owed.
+
+    Takes a *count*, never the rolls. The sequence itself is key material, and
+    a tool that accepted it would be asking the user to type their seed into a
+    networked general-purpose computer -- the precise thing every dice procedure
+    exists to avoid. Nothing here is generated, derived or stored.
+    """
+    from .core.entropy import FLOOR_BITS, TARGET_BITS, assess_dice
+
+    try:
+        a = assess_dice(rolls, sides)
+    except ConfigurationError as exc:
+        _print_status(f"Error: {exc}", error=True)
+        sys.exit(1)
+
+    print("MORPHEUS Dice Entropy")
+    print("=" * 44)
+    print(f"  Rolls:      {a.rolls} x d{a.sides}")
+    print(f"  Per roll:   {a.bits_per_roll:.3f} bits")
+    print(f"  Total:      {a.total_bits:.1f} bits")
+    print()
+
+    if a.meets_target:
+        print(f"  Verdict:    Strong. Clears {TARGET_BITS} bits.")
+    elif a.meets_floor:
+        short = TARGET_BITS - a.total_bits
+        print(f"  Verdict:    OK. Clears the {FLOOR_BITS}-bit floor.")
+        print(f"              {short:.1f} bits short of {TARGET_BITS}; "
+              f"{a.rolls_for_target} rolls reaches it.")
+    else:
+        print(f"  Verdict:    NOT ENOUGH. Below the {FLOOR_BITS}-bit floor.")
+        print(f"              Roll {a.shortfall_to_floor} more "
+              f"({a.rolls_for_floor} total) to clear it.")
+
+    print()
+    print(f"  For d{a.sides}:   {a.rolls_for_floor} rolls -> "
+          f"{FLOOR_BITS} bits, {a.rolls_for_target} rolls -> {TARGET_BITS} bits")
+    print()
+    print("  This counts rolls. It cannot see whether they were fair,")
+    print("  independent, ordered and private, and all four are required:")
+    print("    - a weighted or shaved die carries less than the figure above")
+    print("    - re-rolling a result you disliked discards the entropy you kept")
+    print("    - reading dice thrown together in sorted order loses most of it")
+    print("    - a sequence that was seen, filmed or typed anywhere is spent")
+    print("  Hashing does not add any. SHA-256 over 50 d6 rolls returns 256")
+    print("  bits carrying 129.")
+
+    if not a.meets_floor:
+        sys.exit(1)
 
 
 def _run_inspect(b64_data: str) -> None:
@@ -728,6 +797,15 @@ def run_cli(argv: list[str] | None = None) -> None:
                 settings[flag] = True
         path = save_config(settings)
         _print_status(f"Preferences saved to {path}")
+        return
+
+    # --- Dice entropy ---
+    #
+    # Ahead of the password prompt on purpose. This reads nothing, writes
+    # nothing and needs no key, so asking for a password first would be theatre
+    # -- the same reason --version and --inspect resolve up here.
+    if args.dice_entropy is not None:
+        _run_dice_entropy(args.dice_entropy, args.dice_sides)
         return
 
     # --- Inspect ---

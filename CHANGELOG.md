@@ -60,6 +60,37 @@ programme's register.
   as "the warning only appears if you resize twice": inside `on_resize`,
   `self.size` still reports the *previous* dimensions. The handler now takes the
   size off the event.
+- **`--dice-entropy`**, which reports how much entropy a number of fair dice
+  rolls carries, against a 128-bit floor and a 256-bit target, and exits 1 when
+  short so a script can gate on it. `--dice-sides` covers coins and other dice.
+
+  Prompted by the COLDCARD disclosure of 2026-07-30: a firmware bug routed seed
+  generation through MicroPython's software PRNG rather than the device's
+  hardware RNG, leaving Mk3 seeds at roughly 40 bits of effective search space
+  against an intended 128, and Mk4/Q/Mk5 at roughly 72. Around 594 BTC moved in
+  a 25-minute sweep. Users who had added at least 50 private dice rolls were not
+  considered at risk, because the firmware hashed those rolls in alongside the
+  device's output. Physical dice survived a total failure of the vendor's
+  generator, which is the argument for counting them properly.
+
+  **It takes a count, never the rolls**, generates nothing and stores nothing. A
+  test asserts the output contains no hex blob, no base64 payload and no mention
+  of seeds or mnemonics, because a tool that accepted the sequence would be
+  asking the user to type key material into a networked computer — the exact
+  thing a dice procedure exists to avoid. Seed generation belongs on an
+  air-gapped device and deliberately does not live here.
+
+  Two details worth recording. `math.ceil(target / bits_per_roll)` is the obvious
+  implementation of "how many rolls do I need" and it is wrong: the product and
+  the quotient do not round-trip in binary floating point, so asking for exactly
+  the bits that *n* rolls produce returns n+1. Measured across d2 to d64 over the
+  first 400 roll counts, plain ceil errs on 1205 of them, including d6 at 50 and
+  100 rolls — the two figures from the advisory. Every error demands a roll
+  nobody needs, in a procedure tedious enough that a spurious instruction is one
+  a person ignores. And the output reports 99 d6 rolls as 255.9 bits rather than
+  the advisory's "approximately 256", because this prints measured figures and a
+  reader holding both documents should find the 0.09-bit gap explained rather
+  than rounded into agreement.
 - **A release workflow**, tag-driven, publishing to PyPI over **Trusted
   Publishing (OIDC)**. No API token exists in this repository, in an environment
   variable, or on a laptop: GitHub mints a short-lived identity token per run and

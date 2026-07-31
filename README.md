@@ -379,6 +379,8 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--save-config` | Save current cipher/KDF/flag preferences to `~/.morpheus/config.toml` for future sessions |
 | `--inspect` | Inspect a ciphertext header without decrypting (no password needed). Shows format, cipher, KDF, flags, sizes |
 | `--benchmark` | Benchmark cipher and KDF performance, recommend optimal config |
+| `--dice-entropy N` | Report how much entropy N fair dice rolls carry, and how many more reach 128 or 256 bits. Takes a **count**, never the rolls. Exits 1 below 128 bits |
+| `--dice-sides N` | Faces on the die used with `--dice-entropy` (default 6; use 2 for coin flips) |
 | `--version` | Print the version and exit. Quote this when reporting an issue |
 
 Passing any flag runs the CLI. Running `python morpheus.py` with no arguments launches the GUI.
