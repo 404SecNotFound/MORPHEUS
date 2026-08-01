@@ -1087,3 +1087,94 @@ class TestControlsAreReachableAtTheMinimum:
                 assert app._current_step == STEP_SETTINGS, (
                     f"clicking #{box_id} navigated away from Settings"
                 )
+
+
+# ── The input stats line holds the foot of the pane ──────────────
+
+class TestInputStatsStaysAtTheFootOfThePane:
+    """The character count belongs at the bottom, at every terminal size.
+
+    It used to sit there by accident: `#input-actions` carried no height rule,
+    so `1fr` absorbed every spare row and pushed the stats line down. That made
+    its position track the terminal rather than the design -- row 43 at 120x50,
+    row 31 at 110x38 -- and when the step panels became `height: auto` the
+    fraction had nothing to divide, so the buttons collapsed and the stats line
+    came up to sit directly under them.
+
+    It is now docked, which states the intent instead of relying on leftover
+    space, and the panel's `min-height: 100%` is what guarantees a pane-bottom
+    to dock against when the content is shorter than the pane. Docking also
+    survives scrolling: Textual reserves the row, so a long input scrolls
+    behind the count rather than colliding with it.
+    """
+
+    SIZES = [(MIN_WIDTH, MIN_HEIGHT), (110, 38), (120, 50)]
+
+    @staticmethod
+    async def _on_input_step(app, pilot):
+        state = app._state
+        state.mode = Mode.ENCRYPT
+        state.input_text = "alpha canary one"
+        for i in range(6):
+            state.completed_steps.add(i)
+        app._show_step(STEP_INPUT)
+        await settle(app, pilot)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("size", SIZES)
+    async def test_stats_line_sits_on_the_last_row_of_the_pane(self, size):
+        app = MorpheusWizard()
+        async with app.run_test(size=size) as pilot:
+            await self._on_input_step(app, pilot)
+            pane = app.query_one("#step-container").content_region
+            stats = app.query_one("#input-stats").region
+            assert stats.bottom == pane.bottom, (
+                f"at {size[0]}x{size[1]} the input stats line ends at row "
+                f"{stats.bottom}, not on the pane's last row {pane.bottom}"
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("size", SIZES)
+    async def test_the_action_buttons_are_not_clipped(self, size):
+        """The other half of the same rule: a 1-row row cannot hold a button."""
+        app = MorpheusWizard()
+        async with app.run_test(size=size) as pilot:
+            await self._on_input_step(app, pilot)
+            row = app.query_one("#input-actions")
+            for button in row.children:
+                assert button.region.height == 3, (
+                    f"{button.id} renders {button.region.height} rows; a "
+                    f"bordered Button needs 3"
+                )
+                assert button.region.bottom <= row.region.bottom, (
+                    f"{button.id} overflows #input-actions"
+                )
+
+    @pytest.mark.asyncio
+    async def test_scrolling_does_not_collide_with_the_docked_line(self):
+        """At the minimum the step scrolls, and the count must keep its row."""
+        app = MorpheusWizard()
+        async with app.run_test(size=(MIN_WIDTH, MIN_HEIGHT)) as pilot:
+            await self._on_input_step(app, pilot)
+            container = app.query_one("#step-container")
+            assert container.max_scroll_y > 0, (
+                "the Input step no longer overflows at the minimum, so this "
+                "test is no longer exercising the scrolled case"
+            )
+            container.scroll_end(animate=False)
+            for _ in range(4):
+                await pilot.pause()
+
+            stats = app.query_one("#input-stats")
+            collisions = [
+                widget.id or type(widget).__name__
+                for widget in app._step_panel.children
+                if widget is not stats
+                and widget.region.height
+                and widget.region.y < stats.region.bottom
+                and widget.region.bottom > stats.region.y
+            ]
+            assert not collisions, (
+                f"scrolled to the end, these overlap the docked stats line: "
+                f"{collisions}"
+            )

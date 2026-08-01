@@ -265,6 +265,7 @@ FooterLabel {
    fails if any focusable control stops being scrollable into view. */
 #step-container > * {
     height: auto;
+    min-height: 100%;
 }
 
 /* Now that the panes genuinely scroll, a scrollbar renders for the first time,
@@ -647,7 +648,17 @@ CollapsibleTitle:focus {
     min-height: 8;
 }
 
+/* Pinned to the foot of the pane, not trailing the buttons.
+
+   It used to sit there as a side effect: #input-actions had no height rule, so
+   `1fr` absorbed every spare row and pushed this to the bottom. That made its
+   position track the terminal -- row 43 at 120x50, row 31 at 110x38 -- and it
+   collapsed entirely once the panel became auto-height. Docking states the
+   intent directly, so it holds the same place at every size, and the panel's
+   `min-height: 100%` is what guarantees there is a pane-bottom to dock to when
+   the content is shorter than the pane. */
 #input-stats {
+    dock: bottom;
     color: $m-text-3;
     text-align: right;
     height: 1;
