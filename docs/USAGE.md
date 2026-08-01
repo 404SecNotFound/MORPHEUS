@@ -175,69 +175,34 @@ pip install pqcrypto
 
 ```bash
 python -m pytest tests/ -v
-# You should see: "429 passed"
+# You should see: "671 passed"
 ```
 
 ---
 
 ## Using the GUI
 
-### Launching
-
 ```bash
 python morpheus.py
 ```
 
-This opens the terminal GUI (TUI). It works in any modern terminal — no
-web browser or desktop environment needed.
+Running with no arguments opens the terminal wizard. It works in any modern
+terminal, with no web browser or desktop environment needed, and needs at least
+**100 columns by 30 rows**.
 
-### Encrypting Text
+The wizard walks through six steps: Mode, Settings, Input, Password, Review and
+Output. It is documented step by step, with a screenshot of each, in the
+[README](../README.md#using-the-gui), along with the full keyboard map. That is
+not duplicated here so the two cannot drift apart again.
 
-1. Make sure **Encrypt** is selected (top radio buttons)
-2. Choose your **Cipher** (AES-256-GCM recommended for most users)
-3. Choose your **KDF** (Argon2id recommended)
-4. Optionally check **Chain ciphers** for extra protection
-5. Type or paste your text into the **Input** area
-6. Enter your password in the **Password** field
-7. Enter it again in the **Confirm** field
-8. Click **ENCRYPT** (or press `Ctrl+E`)
-9. The encrypted output appears in the **Output** area
+Two things worth knowing before you start:
 
-Hybrid post-quantum is not offered in the wizard — it needs an ML-KEM keypair.
-Your text is quantum-resistant regardless; see
-[Post-Quantum Encryption Explained](#post-quantum-encryption-explained).
-
-**Important**: The output auto-clears after 60 seconds! Copy it before it
-disappears (use the **Copy** button or `Ctrl+C` to copy from the output area).
-
-### Decrypting Text
-
-1. Switch to **Decrypt** mode
-2. Paste the encrypted string into the **Input** area
-3. Enter the password used during encryption
-4. Click **DECRYPT** (or press `Ctrl+D`)
-5. Your original text appears in the **Output** area
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+E` | Encrypt |
-| `Ctrl+D` | Decrypt |
-| `Ctrl+L` | Clear all fields |
-| `Ctrl+Q` | Quit |
-| `Tab` | Move to next field |
-| `Shift+Tab` | Move to previous field |
-
-### Password Strength Meter
-
-As you type your password, a strength meter shows:
-- **Red (Weak)**: Too short or missing character types
-- **Yellow (Fair)**: Meets some requirements
-- **Cyan (Strong)**: Good password
-- **Green (Excellent)**: Very strong password
-
----
+- **Hybrid post-quantum is not offered in the wizard**, because it needs an
+  ML-KEM keypair the wizard has no way to hold. Your data is quantum-resistant
+  regardless; see
+  [Post-Quantum Encryption Explained](#post-quantum-encryption-explained).
+- **The output auto-clears after 60 seconds.** Copy or save it before then, or
+  press **Stop timer**.
 
 ## Using the CLI
 
@@ -295,13 +260,70 @@ If you generate wallet seeds or other long-lived keys with physical dice, this
 tells you when you have rolled enough:
 
 ```bash
-morpheus --dice-entropy 50           # 50 rolls of a six-sided die
-morpheus --dice-entropy 99
-morpheus --dice-entropy 128 --dice-sides 2   # coin flips
+python morpheus.py --dice-entropy 50            # 50 rolls of a six-sided die
+python morpheus.py --dice-entropy 99
+python morpheus.py --dice-entropy 128 --dice-sides 2   # coin flips
 ```
 
 It reports bits, gives a verdict against a 128-bit floor and a 256-bit target,
 and exits 1 when you are short — so a script can gate on it.
+
+Each verdict also says what it means in ordinary words, because the arithmetic
+alone does not help the reader most at risk: the one who rolls twenty times,
+reads "51.7 bits", cannot tell whether that is good, and stops.
+
+```
+  Verdict:    Strong. Clears 256 bits.
+              Nobody can guess this, at any budget.
+```
+
+```
+  Verdict:    OK. Clears the 128-bit floor.
+              126.8 bits short of 256; 100 rolls reaches it.
+              Safe to use, but not the strongest a seed can hold.
+```
+
+```
+  Verdict:    NOT ENOUGH. Below the 128-bit floor.
+              Roll 30 more (50 total) to clear it.
+              An attacker with money could search this. Keep rolling.
+```
+
+### Rolling more than you need
+
+Past the target, extra rolls are discarded by the format rather than adding
+strength, so the strong verdict says where the useful rolling stopped:
+
+```bash
+python morpheus.py --dice-entropy 300
+```
+
+```
+  Verdict:    Strong. Clears 256 bits.
+              Nobody can guess this, at any budget.
+              100 rolls was enough; the other 200 added nothing,
+              because a 24-word seed holds only 256 bits.
+```
+
+300 rolls really does carry 775.5 bits. A 24-word seed holds 256, and SHA-256
+cannot return more than 256 bits of output, so the remainder goes nowhere. The
+mirror of this is the dangerous case: 50 rolls into a 24-word phrase gives 256
+bits of container carrying 129 bits of entropy. Both are mismatches; only one
+costs you anything.
+
+### How to roll
+
+1. Take **one** die. Casino dice are ideal: sharp edges, flat faces and flush
+   pips make them fair, where cheap rounded dice are slightly biased.
+2. Roll it, write the number down, roll again, write it down.
+3. Stop at 100 numbers, recorded in the order you rolled them.
+4. Enter them into your air-gapped hardware wallet's dice entry, and nowhere
+   else.
+
+Never re-roll a result you dislike, never throw a handful and read them
+together, and never let the sequence be seen, filmed or typed into a networked
+machine. Each of those silently reduces the real figure below what the tool
+reports.
 
 **It takes a count, never the rolls themselves.** The sequence is key material.
 Typing it into a networked computer defeats the entire reason for using dice.
@@ -678,7 +700,7 @@ algorithms were used. This means:
 python -m pytest tests/ -v
 ```
 
-Expected output: **429 passed**
+Expected output: **671 passed**
 
 ### What the Tests Cover
 
@@ -875,8 +897,8 @@ terminals: iTerm2, Windows Terminal, Alacritty, Kitty, GNOME Terminal.
 ### "Unsupported ciphertext version"
 
 You're trying to decrypt data encrypted with a different version of the tool.
-Version 2 (current) can only decrypt version 2 ciphertexts. Version 1
-ciphertexts (from the original tool) are not compatible.
+Formats v2, v3 and v4 all decrypt; v4 is what new encryptions produce. Version
+1 ciphertexts (from the original tool) are not compatible.
 
 ### "Ciphertext was created with KDF X, but pipeline is configured with Y"
 

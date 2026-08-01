@@ -15,6 +15,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#using-the-gui">The Wizard</a> &middot;
+  <a href="#rolling-dice-for-a-seed-phrase">Dice for Seed Phrases</a> &middot;
   <a href="docs/USAGE.md">Full Guide</a> &middot;
   <a href="SECURITY.md">Security Policy</a> &middot;
   <a href="CHANGELOG.md">Changelog</a> &middot;
@@ -87,7 +88,10 @@ python morpheus.py -o encrypt --data "sensitive text"
 python morpheus.py -o encrypt -f secret.pdf
 ```
 
-> Post-quantum support: `pip install pqcrypto`
+> **You do not need this for quantum resistance** — every encryption above
+> already has it. `pip install pqcrypto` is only for `--hybrid-pq`, the mode that
+> encrypts to someone else's public key instead of a shared password. See
+> [Why quantum resistance does not depend on ML-KEM](#why-quantum-resistance-does-not-depend-on-ml-kem).
 
 > **Clipboard on Linux:** the TUI copies via `pyperclip` and falls back to
 > `xclip`/`xsel`/`wl-copy`. If none are installed, copying is unavailable and the
@@ -253,7 +257,8 @@ strength meter updates as you type. You must confirm the password.
 For decryption: enter the exact password used during encryption — case and
 special characters must match.
 
-The **Paste** button reads from the system clipboard (requires `xclip`/`xsel`).
+The **Paste** button reads from the system clipboard. On macOS and Windows this
+works out of the box; on Linux it needs `xclip`, `xsel` or `wl-copy`.
 If clipboard is unavailable, use `Ctrl+Shift+V` to paste directly into the
 focused field.
 
@@ -332,7 +337,7 @@ python morpheus.py -o encrypt --data "text" \
   --hybrid-pq --pq-public-key <base64-pk>
 
 # Hybrid PQ decrypt
-python morpheus.py -o decrypt --data "AgEB..." \
+python morpheus.py -o decrypt --data "BAECAg..." \
   --hybrid-pq --pq-secret-key-file my_pq_secret.key
 
 # Use passphrase mode (no digits/specials required)
@@ -345,12 +350,14 @@ python morpheus.py -o encrypt --data "text" --check-leaks
 python morpheus.py --save-config --cipher ChaCha20-Poly1305 --chain --pad
 
 # Inspect a ciphertext without decrypting (no password needed)
-python morpheus.py --inspect --data "AwEB..."
+python morpheus.py --inspect --data "BAECAA..."
 python morpheus.py --inspect -f secret.enc
 ```
 
-Passwords are always entered interactively — never passed as arguments —
-to prevent leaking via `ps`, shell history, or `/proc`.
+Passwords should always be entered interactively, so they cannot leak via
+`ps`, shell history, or `/proc`. A deprecated `-p/--password` flag still accepts
+one from argv for backward compatibility. It is hidden from `--help`, warns when
+used, and will be removed. Do not use it.
 
 <details>
 <summary><strong>All CLI flags</strong></summary>
@@ -370,7 +377,8 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--no-strength-check` | Skip password strength validation |
 | `--no-filename` | Omit original filename from encrypted envelope |
 | `--hybrid-pq` | Enable hybrid post-quantum |
-| `--pq-public-key` | Base64 ML-KEM-768 public key |
+| `--pq-public-key` | Base64 ML-KEM-768 public key. ~1,580 chars, so prefer the file form below |
+| `--pq-public-key-file` | Path to a file holding the base64 public key. Preferred over `--pq-public-key`. `--generate-keypair` writes one as `<secret-key-path>.pub` |
 | `--pq-secret-key` | Base64 ML-KEM-768 secret key. Discouraged: argv is readable by other local users |
 | `--pq-secret-key-file` | Path to a file holding the base64 secret key. Preferred over `--pq-secret-key` |
 | `--generate-keypair` | Generate an ML-KEM-768 keypair: public key to stdout, secret key to a 0600 file (POSIX only; on Windows the mode is not applied — see SECURITY.md) |
@@ -379,27 +387,151 @@ to prevent leaking via `ps`, shell history, or `/proc`.
 | `--save-config` | Save current cipher/KDF/flag preferences to `~/.morpheus/config.toml` for future sessions |
 | `--inspect` | Inspect a ciphertext header without decrypting (no password needed). Shows format, cipher, KDF, flags, sizes |
 | `--benchmark` | Benchmark cipher and KDF performance, recommend optimal config |
-| `--dice-entropy N` | Report how much entropy N fair dice rolls carry, and how many more reach 128 or 256 bits. Takes a **count**, never the rolls. Exits 1 below 128 bits |
+| `--dice-entropy N` | Report how much entropy N fair dice rolls carry, and how many more reach 128 or 256 bits. Takes a **count**, never the rolls. Exit code 0 at or above the 128-bit floor, 1 below it, so a script can gate on it |
 | `--dice-sides N` | Faces on the die used with `--dice-entropy` (default 6; use 2 for coin flips) |
 | `--version` | Print the version and exit. Quote this when reporting an issue |
 
 Passing any flag runs the CLI. Running `python morpheus.py` with no arguments launches the GUI.
 
-> **On 99 vs 100 dice rolls.** A fair d6 carries log₂(6) ≈ 2.585 bits, so 99
-> rolls give **255.9 bits** — not the 256 that guidance elsewhere rounds it to.
-> `--dice-entropy` reports the measured figure and names the 0.1-bit gap rather
-> than rounding into agreement. The difference has no practical consequence, but
-> if you are following a procedure that says "at least 99 rolls", one more roll
-> costs seconds and lands you cleanly above 256 instead of a hair under it.
->
-> | Rolls (d6) | Entropy | |
-> |---|---|---|
-> | 49 | 126.7 bits | below the floor |
-> | **50** | **129.2 bits** | clears 128 |
-> | 99 | 255.9 bits | just short of 256 |
-> | **100** | **258.5 bits** | clears 256 |
+See [Rolling Dice for a Seed Phrase](#rolling-dice-for-a-seed-phrase) for what
+`--dice-entropy` is actually for.
 
 </details>
+
+---
+
+## Rolling Dice for a Seed Phrase
+
+If you are generating a wallet seed with physical dice, this tells you when to
+stop rolling. That is its whole job.
+
+### The 25 minutes that made this necessary
+
+On 30 July 2026 roughly 594 BTC moved out of about 500 addresses in 25 minutes.
+A COLDCARD firmware bug had routed seed generation through a software random
+number generator instead of the device's hardware one. Mk3 seeds ended up with
+roughly 40 bits of real search space against an intended 128, and Mk4, Q and Mk5
+with roughly 72.
+
+Users who had added at least 50 of their own dice rolls **were not considered at
+risk**, because the firmware mixed those rolls in with the device's own output.
+Physical dice survived a total failure of the vendor's generator.
+
+A die is not software. Nobody can push a bad update to it, it has no supply
+chain, and you can watch it with your own eyes. That is the entire argument for
+rolling, and for counting the rolls correctly.
+
+### The short version
+
+**Roll one die 100 times. Write down each number in order. Stop.**
+
+Hand those 100 numbers to your hardware wallet and it builds the strongest
+24-word seed a phrase of that length can hold. The dice are the raw
+unpredictability; the wallet does the conversion. Before you start typing, check
+you rolled enough:
+
+```bash
+python morpheus.py --dice-entropy 100
+```
+
+```
+  Verdict:    Strong. Clears 256 bits.
+              Nobody can guess this, at any budget.
+```
+
+You type the **number 100**, not your rolls. MORPHEUS never sees them.
+
+### If your wallet asks for 99 rolls
+
+Some procedures and devices ask for 99, not 100. Roll 100 anyway. The extra roll
+costs seconds and there is no downside to being over.
+
+99 rolls give **255.9 bits**, not the 256 that guidance elsewhere rounds it to.
+`--dice-entropy` reports the measured figure and names the 0.1-bit gap rather
+than rounding into agreement. The difference has no practical consequence, but
+100 lands you cleanly above 256 instead of a hair under it.
+
+| Rolls (d6) | Entropy | |
+|---|---|---|
+| 49 | 126.7 bits | below the floor |
+| **50** | **129.2 bits** | clears 128 |
+| 99 | 255.9 bits | just short of 256 |
+| **100** | **258.5 bits** | clears 256 |
+
+### Doing it properly
+
+1. Take **one** die. Casino dice are ideal: sharp edges, flat faces and flush
+   pips make them fair, where cheap rounded dice are slightly biased.
+2. Roll it. Write the number down. Roll again. Write it down.
+3. Keep going until you have **100 numbers** on paper, in the order you rolled
+   them.
+4. Type those numbers into your air-gapped hardware wallet's dice entry, and
+   nowhere else. Not every wallet offers this. It usually appears during
+   new-wallet setup, under a name like "dice rolls" or "add entropy". If yours
+   does not have it, stop here: converting the rolls yourself on a
+   general-purpose computer is worse than not using dice at all.
+5. **Destroy the paper** once the wallet has shown you the seed phrase and you
+   have written that down. Until then those 100 numbers *are* your seed, and
+   anyone who reads them can rebuild your wallet. Shred or burn it. Do not
+   photograph it, and do not keep it as a backup: the seed phrase is the backup.
+
+**Five rules while you roll:**
+
+- **One die at a time.** Do not throw a handful and read them together. Order is
+  half the secret, and a batch read in sorted order throws most of it away.
+- **Write every result down, in order.**
+- **Never re-roll.** If you get six 6s in a row, write six 6s. Re-rolling a
+  result because it "looks wrong" destroys the randomness you just made.
+- **Nobody watching. No camera. No phone on the table.**
+- **Never type the rolls into a computer.** Not into MORPHEUS, not into a
+  dice-to-seed web page, not even an offline one.
+
+### How many rolls you need
+
+**What "bits" means here.** A bit is one coin flip's worth of unpredictability.
+Two bits is four possible outcomes, ten bits is 1,024, and each bit you add
+doubles the number of guesses an attacker must work through. 128 bits is the
+floor below which a well-funded attacker can search. 256 bits is the most a
+24-word seed phrase can hold, and nothing on Earth searches it.
+
+| You want | Entropy | Six-sided dice | Coin flips |
+|---|---|---|---|
+| 12-word seed | 128 bits | 50 rolls | 128 flips |
+| **24-word seed** | **256 bits** | **100 rolls** | **256 flips** |
+
+Each roll of a fair six-sided die is worth log₂(6) ≈ 2.585 bits. A coin is worth
+exactly 1, which is why coins take two and a half times as long.
+
+**Rolling only 50 and asking for 24 words is the trap that matters.** You get a
+valid 24-word phrase carrying 129 bits, not 256. It looks like a 24-word seed
+and has the strength of a 12-word one. Hashing does not rescue it: SHA-256 over
+50 rolls returns 256 bits of output carrying 129 bits of entropy.
+
+**Rolling more than 100 does not help either.** 300 rolls carries 775.5 bits, but
+a 24-word seed holds 256 and the format discards the rest. The tool says so:
+
+```
+  Verdict:    Strong. Clears 256 bits.
+              Nobody can guess this, at any budget.
+              100 rolls was enough; the other 200 added nothing,
+              because a 24-word seed holds only 256 bits.
+```
+
+### What MORPHEUS will not do
+
+**It does not generate seeds, and it should not.** It generates nothing, derives
+nothing and stores nothing.
+
+Seed generation belongs on an air-gapped device with a screen you trust. Solving
+a bad-generator problem by typing your seed into a laptop sitting next to a
+browser trades a known weakness for a worse one.
+
+### What the number cannot tell you
+
+The figure is an upper bound. It holds only if the rolls were **fair,
+independent, ordered and private**, and software counting rolls cannot check any
+of those. The tool prints all four every run rather than just a number, because
+the number is worthless without them.
 
 ---
 
@@ -537,11 +669,11 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**429 tests** across 13 test files:
+**671 tests** across 14 test files:
 
 | File | Scope |
 |------|-------|
-| `test_ciphers.py` | AES-GCM + ChaCha20 roundtrips, NIST SP 800-38D TC14 vector, RFC 8439 vector, indistinguishability, wrong key/AAD/tampered data |
+| `test_ciphers.py` | AES-GCM + ChaCha20 roundtrips, NIST SP 800-38D AES-256-GCM vector, RFC 8439 vector, indistinguishability, wrong key/AAD/tampered data |
 | `test_kdf.py` | Argon2id + Scrypt derivation, determinism, bytearray returns, salt generation |
 | `test_formats.py` | Serialize/deserialize, flag combinations, version/reserved byte validation, AAD collision resistance |
 | `test_pipeline.py` | All mode roundtrips (single/chained/hybrid/both), wrong password (`InvalidTag`), cross-compatibility, payload truncation, KEM length=0 bypass, header tampering |
@@ -552,6 +684,8 @@ python -m pytest tests/ -v
 | `test_cli.py` | File encrypt/decrypt roundtrip (text + binary), path traversal prevention |
 | `test_gui.py` | Wizard mount, step transitions, shortcuts, encrypt/decrypt roundtrip, clipboard fallbacks |
 | `test_wizard_state.py` | State validation per step, step unlocking rules, edge cases |
+| `test_entropy.py` | Bits per roll for d2/d6/d20, the 128-bit floor and 256-bit target, rolls-needed arithmetic, verdict wording, CLI exit codes |
+| `test_vectors.py` | Pinned v2/v3/v4 ciphertexts still decrypt to their recorded plaintext; tampered vectors rejected |
 | `test_theme.py` | Palette contrast against the background, accent and low-contrast token restrictions parsed out of the stylesheet, and the rendered colour set pinned against an exported screenshot |
 
 Tests include **NIST SP 800-38D** and **RFC 8439** reference vectors verified
@@ -573,6 +707,7 @@ Morpheus/
 │   │   ├── theme.py           # Colour tokens + CSS
 │   │   ├── state.py           # WizardState dataclass + per-step validation
 │   │   ├── sidebar.py         # Left pane step list (✓/▸/dim)
+│   │   ├── clipboard.py       # Clipboard backends + temp-file fallback
 │   │   └── steps/
 │   │       ├── mode.py        # Step 1 — Encrypt / Decrypt
 │   │       ├── settings.py    # Step 2 — Cipher, KDF, options
@@ -587,8 +722,10 @@ Morpheus/
 │       ├── formats.py         # Versioned binary format with AAD
 │       ├── config.py          # Persistent user preferences (~/.morpheus/config.toml)
 │       ├── memory.py          # ctypes.memset zeroing of key buffers
-│       └── validation.py      # Password scoring, passphrase mode, breach detection
-├── tests/                     # 429 tests (NIST/RFC vectors included)
+│       ├── validation.py      # Password scoring, passphrase mode, breach detection
+│       ├── entropy.py         # Dice-roll entropy arithmetic (--dice-entropy)
+│       └── errors.py          # MorpheusError hierarchy
+├── tests/                     # 671 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history
@@ -657,7 +794,7 @@ jurisdictions. You are responsible for compliance with all applicable laws.
 - **Plaintext length**: Without `--pad`, ciphertext length reveals approximate
   plaintext length. Use `--pad` for length-hiding (pads to buckets: 256B, 1K,
   4K, 16K, 64K). Bucket membership is still visible.
-- **Ciphertext is identifiable**: The versioned header (0x02/0x03) makes
+- **Ciphertext is identifiable**: The versioned header (0x02/0x03/0x04) makes
   MORPHEUS ciphertexts recognizable. This tool does not provide plausible
   deniability or steganography — it is designed for **confidentiality**, not
   **undetectability**.
