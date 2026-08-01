@@ -882,17 +882,38 @@ def run_cli(argv: list[str] | None = None) -> None:
         # The secret key never goes to stdout: terminal scrollback, tmux
         # buffers and shell logging all outlive the command. It goes to a
         # 0600 file instead, which is also what --pq-secret-key-file wants.
-        sk_path = args.output or "morpheus_pq_secret.key"
-        with _open_secure_output(sk_path, args.force) as fh:
-            fh.write(base64.b64encode(sk).decode() + "\n")
-
         # The public key also goes to a file. It is 1,580 base64 characters, so
         # expecting anyone to select it out of a terminal and shell-substitute
         # it was the single worst step in the post-quantum flow. A path is
         # something a person can actually pass around.
+        #
+        # It goes through the same guarded open as the secret key. It used to
+        # use a plain `open(pk_path, "w")`, which follows a symlink and
+        # truncates its target regardless of --force. Since the path is derived
+        # predictably from --output, anyone able to create a file in that
+        # directory first could turn keypair generation into an arbitrary-file
+        # overwrite that exited successfully (2026-08-02 review, F-06).
+        #
+        # Both handles are opened before either is written, and the secret key
+        # is removed if the public key is refused. Otherwise a blocked .pub
+        # leaves a secret key on disk whose public half was never saved, and
+        # ML-KEM gives no way to recover one from the other.
+        import contextlib
+        import os as _os
+
+        sk_path = args.output or "morpheus_pq_secret.key"
         pk_path = f"{sk_path}.pub"
-        with open(pk_path, "w", encoding="utf-8") as fh:
-            fh.write(base64.b64encode(pk).decode() + "\n")
+        sk_fh = _open_secure_output(sk_path, args.force)
+        try:
+            pk_fh = _open_secure_output(pk_path, args.force)
+        except SystemExit:
+            sk_fh.close()
+            with contextlib.suppress(OSError):
+                _os.unlink(sk_path)
+            raise
+        with sk_fh, pk_fh:
+            sk_fh.write(base64.b64encode(sk).decode() + "\n")
+            pk_fh.write(base64.b64encode(pk).decode() + "\n")
 
         # Still printed too: stdout is pipeable and some callers want it.
         print(base64.b64encode(pk).decode())

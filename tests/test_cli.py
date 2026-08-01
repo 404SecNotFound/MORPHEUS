@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
 from pathlib import Path
@@ -1809,3 +1810,59 @@ class TestFileSizeLimitsAreNotSymmetric:
                 "-p", "T3st!Passw0rd#Str0ng",
             ])
         assert exc.value.code == 1
+
+
+class TestKeypairOutputsAreLinkSafe:
+    """Both halves of a keypair must be written as carefully as each other.
+
+    Security review 2026-08-02, F-06. The secret key went through
+    `_open_secure_output`, which sets O_NOFOLLOW and O_EXCL. The public key,
+    written immediately afterwards to the predictable `<secret>.pub`, used a
+    plain `open(pk_path, "w")`. That follows a symlink and truncates whatever
+    it points at, whether or not `--force` was given.
+
+    Exploitable wherever another user can create that path first: generate a
+    keypair in a shared directory and an attacker-planted link turns the
+    command into an arbitrary-file overwrite, exiting successfully.
+    """
+
+    PW = "T3st!Passw0rd#Str0ng"
+
+    def _generate(self, tmp_path, extra=None):
+        return run_cli([
+            "--generate-keypair", "--output", str(tmp_path / "recipient.key"),
+            *(extra or []),
+        ])
+
+    @pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"),
+                        reason="O_NOFOLLOW is required for this guarantee")
+    def test_a_planted_symlink_at_the_pub_path_is_refused(self, tmp_path):
+        pytest.importorskip("pqcrypto")
+        victim = tmp_path / "important.txt"
+        victim.write_text("do not overwrite me", encoding="utf-8")
+        (tmp_path / "recipient.key.pub").symlink_to(victim)
+
+        with pytest.raises(SystemExit) as exc:
+            self._generate(tmp_path)
+        assert exc.value.code == 1
+
+        assert victim.read_text(encoding="utf-8") == "do not overwrite me", (
+            "keypair generation followed a symlink and overwrote an "
+            "unrelated file"
+        )
+
+    def test_an_existing_pub_file_is_not_clobbered_without_force(self, tmp_path):
+        pytest.importorskip("pqcrypto")
+        existing = tmp_path / "recipient.key.pub"
+        existing.write_text("previous key", encoding="utf-8")
+
+        with pytest.raises(SystemExit):
+            self._generate(tmp_path)
+        assert existing.read_text(encoding="utf-8") == "previous key"
+
+    def test_both_files_are_owner_only(self, tmp_path):
+        pytest.importorskip("pqcrypto")
+        self._generate(tmp_path)
+        for name in ("recipient.key", "recipient.key.pub"):
+            mode = stat.S_IMODE((tmp_path / name).stat().st_mode)
+            assert mode == 0o600, f"{name} is {oct(mode)}, expected 0o600"
