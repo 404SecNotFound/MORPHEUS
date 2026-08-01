@@ -318,7 +318,14 @@ costs you anything.
 2. Roll it, write the number down, roll again, write it down.
 3. Stop at 100 numbers, recorded in the order you rolled them.
 4. Enter them into your air-gapped hardware wallet's dice entry, and nowhere
-   else.
+   else. Not every wallet offers this. It usually appears during new-wallet
+   setup, under a name like "dice rolls" or "add entropy". If yours does not
+   have it, stop here: converting the rolls yourself on a general-purpose
+   computer is worse than not using dice at all.
+5. **Destroy the paper** once the wallet has shown you the seed phrase and you
+   have written that down. Until then those 100 numbers *are* your seed, and
+   anyone who reads them can rebuild your wallet. Shred or burn it. Do not
+   photograph it, and do not keep it as a backup: the seed phrase is the backup.
 
 Never re-roll a result you dislike, never throw a handful and read them
 together, and never let the sequence be seen, filmed or typed into a networked
