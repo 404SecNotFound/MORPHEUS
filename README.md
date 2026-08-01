@@ -35,9 +35,11 @@ serious. MORPHEUS does both.
 
 **Every encryption it produces is already quantum-resistant** — with no optional
 package, no key ceremony, and nothing to configure. That is a property of the
-defaults, not of an add-on: Argon2id has no known quantum shortcut, and AES-256
-and ChaCha20 keep roughly 128-bit security against Grover's algorithm. The
-whole point is that you do not have to do anything to get it.
+defaults, not of an add-on. The short reason: the algorithms a quantum computer
+actually breaks are the ones MORPHEUS never uses, and the ones it does use lose
+at most half their strength, which still leaves them out of reach. The full
+reason is [below](#why-quantum-resistance-does-not-depend-on-ml-kem). The whole
+point is that you do not have to do anything to get it.
 
 It wraps that in a terminal GUI anyone can operate — no cryptography degree
 required.
@@ -46,9 +48,15 @@ required.
 
 1. **Quantum-resistant by default** — not a mode you have to find and enable
 2. **Cipher chaining** — AES-256-GCM *then* ChaCha20-Poly1305 with independent keys
-3. **Self-describing authenticated format** — the header, including the KDF
-   parameters, is covered by the AEAD tag, so cipher, KDF and parameters cannot
-   be tampered with or downgraded
+3. **Self-describing authenticated format** — the settings block at the front
+   of every ciphertext (which cipher, which password-stretching function, and
+   its settings) is sealed by the same tamper tag as the data itself, so an
+   attacker cannot edit it to force a weaker setting
+
+> **Two terms used throughout.** A **KDF** is the deliberately slow, expensive
+> function that turns your password into a key. An **AEAD** cipher encrypts and
+> tamper-proofs in one step, producing a short **tag** that fails loudly if a
+> single bit changed.
 4. **Optional ML-KEM-768** (FIPS 203) for a second, asymmetric factor: encrypt
    to someone's public key so that guessing the password is not enough
 
