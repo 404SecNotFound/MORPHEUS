@@ -431,17 +431,35 @@ def _run_dice_entropy(rolls: int, sides: int) -> None:
     print(f"  Total:      {a.total_bits:.1f} bits")
     print()
 
+    # Each verdict carries one line in ordinary words. The arithmetic above is
+    # aimed at a reader who already accepts that entropy is the thing to worry
+    # about, and that reader is not the one at risk. The person who needs this
+    # most rolls twenty times, reads "51.7 bits", cannot tell whether that is
+    # good, and stops.
     if a.meets_target:
         print(f"  Verdict:    Strong. Clears {TARGET_BITS} bits.")
+        print("              Nobody can guess this, at any budget.")
+        # Rolling past the target cannot improve a seed: 24 words hold 256 bits
+        # and the format discards the rest. Saying only "Strong" leaves someone
+        # who rolled 300 times assuming the extra 200 bought something.
+        if a.rolls > a.rolls_for_target:
+            spare = a.rolls - a.rolls_for_target
+            print(f"              {a.rolls_for_target} rolls was enough; the "
+                  f"other {spare} added nothing,")
+            print(f"              because a 24-word seed holds only "
+                  f"{TARGET_BITS} bits.")
     elif a.meets_floor:
         short = TARGET_BITS - a.total_bits
         print(f"  Verdict:    OK. Clears the {FLOOR_BITS}-bit floor.")
         print(f"              {short:.1f} bits short of {TARGET_BITS}; "
               f"{a.rolls_for_target} rolls reaches it.")
+        print("              Safe to use, but not the strongest a seed can hold.")
     else:
         print(f"  Verdict:    NOT ENOUGH. Below the {FLOOR_BITS}-bit floor.")
         print(f"              Roll {a.shortfall_to_floor} more "
               f"({a.rolls_for_floor} total) to clear it.")
+        print("              An attacker with money could search this. "
+              "Keep rolling.")
 
     print()
     print(f"  For d{a.sides}:   {a.rolls_for_floor} rolls -> "

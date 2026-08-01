@@ -278,3 +278,66 @@ class TestDiceEntropyCLI:
         _, out, _ = self._run(["--dice-entropy", "100"])
         for caveat in ("weighted", "re-rolling", "sorted order", "Hashing"):
             assert caveat in out
+
+
+class TestTheVerdictExplainsItselfInPlainLanguage:
+    """The verdict has to mean something to a reader who does not know bits.
+
+    Everything else in this output is arithmetic aimed at someone who already
+    accepts that entropy is the thing to worry about. That reader is not the
+    one at risk. The person who needs this most rolls a die twenty times,
+    reads "51.7 bits", has no idea whether that is good, and stops.
+
+    So each verdict carries one line saying what it means in ordinary words,
+    and the strong verdict additionally says when to stop. A count that has
+    already cleared 256 bits cannot be improved by rolling further: a 24-word
+    seed holds 256 bits and the rest is discarded by the format. Someone
+    diligent enough to roll 300 times was previously told "Strong" and left to
+    assume the extra 200 rolls bought them something.
+    """
+
+    _run = staticmethod(TestDiceEntropyCLI._run)
+
+    def test_strong_says_what_strong_means(self):
+        code, out, _ = self._run(["--dice-entropy", "100"])
+        assert code == 0
+        assert "Nobody can guess this" in out
+
+    def test_overshooting_names_the_rolls_that_did_nothing(self):
+        """300 rolls is 775 bits into a container that holds 256."""
+        code, out, _ = self._run(["--dice-entropy", "300"])
+        assert code == 0
+        assert "100 rolls was enough" in out
+        assert "other 200 added nothing" in out
+
+    def test_hitting_the_target_exactly_is_not_called_wasteful(self):
+        """The boundary: 100 rolls is the answer, not an overshoot."""
+        _, out, _ = self._run(["--dice-entropy", "100"])
+        assert "added nothing" not in out
+
+    def test_the_waste_notice_counts_in_rolls_of_the_die_actually_used(self):
+        """A coin needs 256 flips, so 300 wastes 44, not 200."""
+        _, out, _ = self._run(["--dice-entropy", "300", "--dice-sides", "2"])
+        assert "256 rolls was enough" in out
+        assert "other 44 added nothing" in out
+
+    def test_clearing_only_the_floor_says_it_is_usable_but_not_full(self):
+        code, out, _ = self._run(["--dice-entropy", "50"])
+        assert code == 0
+        assert "Safe to use" in out
+
+    def test_falling_short_says_what_that_costs(self):
+        code, out, _ = self._run(["--dice-entropy", "20"])
+        assert code == 1
+        assert "Keep rolling" in out
+
+    def test_the_plain_line_never_replaces_the_number(self):
+        """Plain language is added alongside the arithmetic, not instead of it.
+
+        Someone who does read bits must lose nothing, or this trade has made
+        the tool worse for the audience it already served.
+        """
+        _, out, _ = self._run(["--dice-entropy", "300"])
+        assert "775.5 bits" in out
+        assert "2.585 bits" in out
+        assert "300 x d6" in out
