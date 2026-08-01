@@ -1828,7 +1828,7 @@ class TestKeypairOutputsAreLinkSafe:
 
     PW = "T3st!Passw0rd#Str0ng"
 
-    def _generate(self, tmp_path, extra=None):
+    def _generate(self, tmp_path, extra=None):  # noqa: D401
         return run_cli([
             "--generate-keypair", "--output", str(tmp_path / "recipient.key"),
             *(extra or []),
@@ -1860,7 +1860,21 @@ class TestKeypairOutputsAreLinkSafe:
             self._generate(tmp_path)
         assert existing.read_text(encoding="utf-8") == "previous key"
 
-    def test_both_files_are_owner_only(self, tmp_path):
+    def test_both_files_are_written(self, tmp_path):
+        """Everywhere: the pair lands, and the public half is not empty."""
+        pytest.importorskip("pqcrypto")
+        self._generate(tmp_path)
+        for name in ("recipient.key", "recipient.key.pub"):
+            assert (tmp_path / name).read_text(encoding="utf-8").strip(), (
+                f"{name} is missing or empty"
+            )
+
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX file modes; on Windows fchmod does not apply them and "
+               "SECURITY.md documents that limitation rather than hiding it",
+    )
+    def test_both_files_are_owner_only_on_posix(self, tmp_path):
         pytest.importorskip("pqcrypto")
         self._generate(tmp_path)
         for name in ("recipient.key", "recipient.key.pub"):
