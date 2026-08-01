@@ -233,6 +233,16 @@ programme's register.
   sweeps the same space and fails if any accepted combination cannot be built.
 
 ### Documentation
+- **Corrected the AES-256-GCM test vector's case number.** `test_ciphers.py`
+  disagreed with itself: the class docstring said Test Case 16, the method name
+  and its comment said 14. The vector is neither. It is Test Case 15, pinned by
+  four features that each rule out a neighbour: a 256-bit key (so cases 13-18),
+  a non-zero key (rules out 13 and 14), a 64-byte plaintext with no AAD (rules
+  out 16, which truncates to 60 bytes and adds AAD), and a 96-bit IV (rules out
+  17 and 18). The name was already provably wrong on the file's own evidence,
+  since its comment described a 512-bit plaintext while Test Case 14 encrypts
+  128 bits of zeroes. The vector, and therefore what is verified, is unchanged;
+  the 2.0.0 entry below is relabelled for the same reason.
 - Corrected the test count in `README.md` and `CONTRIBUTING.md`, which still
   said 308.
 - Removed "No data touches the disk" from the **GitHub repository
@@ -467,7 +477,7 @@ programme's register.
 - File encryption via `-f/--file` flag (any file type, up to 100 MiB)
 - `--output` flag for explicit output file paths
 - JSON envelope format preserving original filenames during file encryption
-- NIST SP 800-38D TC14 test vector for AES-256-GCM
+- NIST SP 800-38D Test Case 15 test vector for AES-256-GCM
 - RFC 8439 Section 2.8.2 test vector for ChaCha20-Poly1305
 - Ciphertext indistinguishability tests
 - Edge case tests: KEM length=0 bypass, unknown cipher ID, header tampering,

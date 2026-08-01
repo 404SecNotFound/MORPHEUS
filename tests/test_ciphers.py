@@ -111,10 +111,31 @@ class TestChaCha20Poly1305:
 
 
 class TestAES256GCMTestVector:
-    """Verify AES-256-GCM against a known test vector (NIST SP 800-38D, Test Case 16)."""
+    """Verify AES-256-GCM against the GCM specification's Test Case 15.
 
-    def test_nist_sp800_38d_tc14(self):
-        # NIST SP 800-38D Test Case 14: AES-256-GCM, 96-bit IV, 512-bit plaintext
+    This class previously disagreed with itself: the docstring said Test Case
+    16, the method name said 14, and the comment inside said 14. The vector
+    below is neither. Four features pin it down, and each one rules out a
+    different neighbour:
+
+      * 256-bit key, so it sits in the AES-256 group (cases 13-18)
+      * the key is `feffe992...`, not all-zero, which rules out 13 and 14
+      * 64-byte plaintext and **no AAD**, which rules out 16: that case
+        truncates the plaintext to 60 bytes and adds `feedfacedeadbeef...`
+      * 96-bit IV `cafebabefacedbaddecaf888`, which rules out 17 (64-bit IV)
+        and 18 (480-bit IV)
+
+    The name was already provably wrong on the file's own evidence, whatever
+    the right number turned out to be: the comment described a 512-bit
+    plaintext while Test Case 14 encrypts 128 bits of zeroes.
+
+    The vector itself is unchanged and still passes. Only the label moved, so
+    nothing about what is verified has changed.
+    """
+
+    def test_nist_sp800_38d_tc15(self):
+        # GCM spec Test Case 15 (the vector set SP 800-38D is validated
+        # against): AES-256, 96-bit IV, 512-bit plaintext, no AAD.
         key = bytes.fromhex(
             "feffe9928665731c6d6a8f9467308308"
             "feffe9928665731c6d6a8f9467308308"
