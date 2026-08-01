@@ -648,17 +648,7 @@ CollapsibleTitle:focus {
     min-height: 8;
 }
 
-/* Pinned to the foot of the pane, not trailing the buttons.
-
-   It used to sit there as a side effect: #input-actions had no height rule, so
-   `1fr` absorbed every spare row and pushed this to the bottom. That made its
-   position track the terminal -- row 43 at 120x50, row 31 at 110x38 -- and it
-   collapsed entirely once the panel became auto-height. Docking states the
-   intent directly, so it holds the same place at every size, and the panel's
-   `min-height: 100%` is what guarantees there is a pane-bottom to dock to when
-   the content is shorter than the pane. */
 #input-stats {
-    dock: bottom;
     color: $m-text-3;
     text-align: right;
     height: 1;
@@ -733,9 +723,23 @@ CollapsibleTitle:focus {
    fixed-height panel that quietly meant "the rest of the pane"; under an auto
    one there is no fraction to take and it collapsed to a single row with three
    rows of buttons inside it. Fractions need a parent that has a height to give
-   them away. */
+   them away, which is what the panel's `min-height: 100%` restores.
+
+   So the fraction stays -- it is what holds #input-stats on the pane's last
+   row, the position it has always had -- and gains the floor it was missing.
+   `min-height: 3` is the bordered Button again: whatever is left over, this
+   row never shrinks below the buttons inside it. At 120x50 it takes 17 rows,
+   at 110x38 five, at 100x30 exactly its floor of 3, with the step scrolling.
+
+   Docking #input-stats was tried first and rejected. `dock: bottom` binds to
+   the panel, not to the viewport, so once the content outgrew the pane the
+   line sat at the bottom of the *content* -- and which of the two you measured
+   depended on whether the pane happened to be auto-scrolled at the time. It
+   passed locally and failed on all five CI runners. A fraction has no such
+   ambiguity: there is only ever one place the leftover rows can go. */
 #input-actions {
-    height: 3;
+    height: 1fr;
+    min-height: 3;
     layout: horizontal;
 }
 

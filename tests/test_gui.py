@@ -1101,11 +1101,18 @@ class TestInputStatsStaysAtTheFootOfThePane:
     fraction had nothing to divide, so the buttons collapsed and the stats line
     came up to sit directly under them.
 
-    It is now docked, which states the intent instead of relying on leftover
-    space, and the panel's `min-height: 100%` is what guarantees a pane-bottom
-    to dock against when the content is shorter than the pane. Docking also
-    survives scrolling: Textual reserves the row, so a long input scrolls
-    behind the count rather than colliding with it.
+    The fraction is kept, because it is the thing that holds the count down,
+    and given the `min-height: 3` floor it was missing. The panel's
+    `min-height: 100%` is what leaves it any rows to absorb.
+
+    Docking was tried first and rejected. `dock: bottom` binds to the panel
+    rather than the viewport, so once the content outgrew the pane the line sat
+    at the bottom of the content, and which of the two you measured depended on
+    whether the pane happened to be auto-scrolled at that instant. It passed
+    locally and failed on all five CI runners.
+
+    Measured in content space rather than screen rows for the same reason: a
+    scroll position is a moving target and the property does not depend on one.
     """
 
     SIZES = [(MIN_WIDTH, MIN_HEIGHT), (110, 38), (120, 50)]
@@ -1122,15 +1129,47 @@ class TestInputStatsStaysAtTheFootOfThePane:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("size", SIZES)
-    async def test_stats_line_sits_on_the_last_row_of_the_pane(self, size):
+    async def test_stats_line_is_the_last_row_of_the_step(self, size):
+        """Whatever else the step holds, the count is under all of it."""
         app = MorpheusWizard()
         async with app.run_test(size=size) as pilot:
             await self._on_input_step(app, pilot)
-            pane = app.query_one("#step-container").content_region
-            stats = app.query_one("#input-stats").region
-            assert stats.bottom == pane.bottom, (
-                f"at {size[0]}x{size[1]} the input stats line ends at row "
-                f"{stats.bottom}, not on the pane's last row {pane.bottom}"
+            container = app.query_one("#step-container")
+            stats = app.query_one("#input-stats")
+            # Content space: unaffected by where the pane happens to be scrolled.
+            bottom_in_content = (
+                stats.region.bottom
+                - container.content_region.y
+                + container.scroll_offset.y
+            )
+            assert bottom_in_content == app._step_panel.size.height, (
+                f"at {size[0]}x{size[1]} the stats line ends "
+                f"{bottom_in_content} rows into a "
+                f"{app._step_panel.size.height}-row step, so something sits "
+                f"below it"
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("size", SIZES)
+    async def test_the_step_fills_the_pane_so_the_count_reaches_the_bottom(
+        self, size
+    ):
+        """The half that regressed: a short step must still fill the pane.
+
+        Without `min-height: 100%` the panel shrinks to its content and the
+        count follows the buttons up, which is exactly what e6fa1a8 did. With
+        it, a step whose content fits is exactly the pane's height, so the last
+        row of the step is the last row of the pane.
+        """
+        app = MorpheusWizard()
+        async with app.run_test(size=size) as pilot:
+            await self._on_input_step(app, pilot)
+            container = app.query_one("#step-container")
+            assert app._step_panel.size.height >= container.content_region.height, (
+                f"at {size[0]}x{size[1]} the step is "
+                f"{app._step_panel.size.height} rows in a "
+                f"{container.content_region.height}-row pane, so the stats "
+                f"line stops short of the bottom"
             )
 
     @pytest.mark.asyncio
@@ -1151,8 +1190,14 @@ class TestInputStatsStaysAtTheFootOfThePane:
                 )
 
     @pytest.mark.asyncio
-    async def test_scrolling_does_not_collide_with_the_docked_line(self):
-        """At the minimum the step scrolls, and the count must keep its row."""
+    async def test_the_count_stays_reachable_when_the_step_overflows(self):
+        """At the minimum the step scrolls, and the count must scroll with it.
+
+        The count is the last row of a step that is taller than the pane, so it
+        is only reachable if it lies inside the scrollable extent. That is the
+        same property `TestControlsAreReachableAtTheMinimum` asserts for
+        controls, applied to the one row that is not a control.
+        """
         app = MorpheusWizard()
         async with app.run_test(size=(MIN_WIDTH, MIN_HEIGHT)) as pilot:
             await self._on_input_step(app, pilot)
@@ -1161,20 +1206,14 @@ class TestInputStatsStaysAtTheFootOfThePane:
                 "the Input step no longer overflows at the minimum, so this "
                 "test is no longer exercising the scrolled case"
             )
-            container.scroll_end(animate=False)
-            for _ in range(4):
-                await pilot.pause()
-
             stats = app.query_one("#input-stats")
-            collisions = [
-                widget.id or type(widget).__name__
-                for widget in app._step_panel.children
-                if widget is not stats
-                and widget.region.height
-                and widget.region.y < stats.region.bottom
-                and widget.region.bottom > stats.region.y
-            ]
-            assert not collisions, (
-                f"scrolled to the end, these overlap the docked stats line: "
-                f"{collisions}"
+            bottom_in_content = (
+                stats.region.bottom
+                - container.content_region.y
+                + container.scroll_offset.y
+            )
+            assert bottom_in_content <= container.virtual_size.height, (
+                f"the stats line ends {bottom_in_content} rows into a "
+                f"{container.virtual_size.height}-row scrollable extent, so "
+                f"nothing can scroll to it"
             )
