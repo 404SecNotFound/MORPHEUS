@@ -1268,6 +1268,7 @@ class TestRunResultsCannotBindToLaterEdits:
         release, produced = threading.Event(), []
         app = MorpheusWizard()
         async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
             self._ready(app)
             with patch.object(
                 EncryptionPipeline, "encrypt",
@@ -1296,6 +1297,7 @@ class TestRunResultsCannotBindToLaterEdits:
         release, produced = threading.Event(), []
         app = MorpheusWizard()
         async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
             self._ready(app, password="OldP4ss!word#Aa")
             with patch.object(
                 EncryptionPipeline, "encrypt",
@@ -1325,6 +1327,7 @@ class TestRunResultsCannotBindToLaterEdits:
         release.set()
         app = MorpheusWizard()
         async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
             self._ready(app)
             with patch.object(
                 EncryptionPipeline, "encrypt",
@@ -1332,7 +1335,8 @@ class TestRunResultsCannotBindToLaterEdits:
             ):
                 app._run_operation()
                 await app.workers.wait_for_complete()
-                await pilot.pause()
+                for _ in range(6):
+                    await pilot.pause()
 
             assert app._state.output == "CIPHERTEXT-FOR-INPUT-A"
             assert app._state.output_fingerprint == app._state.input_fingerprint()
