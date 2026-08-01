@@ -17,6 +17,8 @@ import pytest
 from morpheus_crypt import __version__
 from morpheus_crypt.__main__ import main
 from morpheus_crypt.cli import (
+    _MAX_CIPHERTEXT_BYTES,
+    _MAX_PLAINTEXT_BYTES,
     _diagnose_ciphertext,
     _padding_hint,
     _suggest_fix,
@@ -1711,3 +1713,61 @@ def _mode_is_binary(node: ast.Call, name: str) -> bool:
     if isinstance(mode, ast.Constant) and isinstance(mode.value, str):
         return "b" in mode.value
     return False
+
+
+class TestFileSizeLimitsAreNotSymmetric:
+    """A file the tool agrees to encrypt must be one it will decrypt.
+
+    Security review 2026-08-02, F-04. One `max_size = 100 MiB` check ran before
+    the encrypt/decrypt branch, so the same ceiling was applied to plaintext
+    going in and to base64 ciphertext coming back. Those are not the same size.
+
+    File contents are base64-encoded into a JSON envelope, encrypted, and the
+    whole ciphertext base64-encoded again, so the output is roughly 1.78x the
+    input. A 60 MiB file encrypted fine and the resulting .enc was then refused
+    before decryption began -- the tool rejecting its own output, with the only
+    copy of the data inside it.
+
+    Rather than hard-code the expansion, this measures it through the real
+    path and checks the constants against what was measured.
+    """
+
+    @staticmethod
+    def _expansion_ratio(tmp_path) -> float:
+        source = tmp_path / "sample.bin"
+        source.write_bytes(os.urandom(64 * 1024))
+        out = tmp_path / "sample.enc"
+        run_cli([
+            "-o", "encrypt", "-f", str(source), "--output", str(out),
+            "-p", "T3st!Passw0rd#Str0ng",
+        ])
+        return out.stat().st_size / source.stat().st_size
+
+    def test_the_two_limits_are_distinct(self):
+        assert _MAX_PLAINTEXT_BYTES != _MAX_CIPHERTEXT_BYTES, (
+            "one limit for both directions is the bug: plaintext and its "
+            "ciphertext are not the same size"
+        )
+
+    def test_the_decrypt_limit_covers_the_largest_encryptable_file(self, tmp_path):
+        ratio = self._expansion_ratio(tmp_path)
+        needed = _MAX_PLAINTEXT_BYTES * ratio
+        assert _MAX_CIPHERTEXT_BYTES >= needed, (
+            f"a {_MAX_PLAINTEXT_BYTES / 1024 / 1024:.0f} MiB file expands to "
+            f"~{needed / 1024 / 1024:.0f} MiB, above the "
+            f"{_MAX_CIPHERTEXT_BYTES / 1024 / 1024:.0f} MiB decrypt limit, so "
+            f"the tool would refuse a ciphertext it produced"
+        )
+
+    def test_encrypt_still_refuses_an_oversized_plaintext(self, tmp_path, monkeypatch):
+        """Raising the decrypt ceiling must not raise the encrypt one."""
+        monkeypatch.setattr("morpheus_crypt.cli._MAX_PLAINTEXT_BYTES", 1024)
+        source = tmp_path / "big.bin"
+        source.write_bytes(os.urandom(4096))
+        with pytest.raises(SystemExit) as exc:
+            run_cli([
+                "-o", "encrypt", "-f", str(source),
+                "--output", str(tmp_path / "big.enc"),
+                "-p", "T3st!Passw0rd#Str0ng",
+            ])
+        assert exc.value.code == 1

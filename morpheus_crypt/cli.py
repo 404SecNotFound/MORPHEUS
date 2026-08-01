@@ -408,6 +408,23 @@ def _suggest_fix(exc: Exception, ciphertext: str = "") -> str:
     return "\n  Suggestions:\n" + "\n".join(f"    - {s}" for s in suggestions)
 
 
+# Size ceilings, deliberately different in each direction.
+#
+# One shared 100 MiB limit was applied to plaintext going in and to base64
+# ciphertext coming back, which are not the same size. A file is base64-encoded
+# into a JSON envelope, encrypted, and the whole thing base64-encoded again, so
+# the output runs about 1.78x the input. A 60 MiB file encrypted cleanly and
+# the resulting .enc was then refused before decryption started: the tool
+# rejecting its own output, with the only copy of the data inside it.
+#
+# The decrypt ceiling therefore has to clear the largest output the encrypt
+# path can produce, with room for the envelope, padding and header overhead.
+# `TestFileSizeLimitsAreNotSymmetric` measures the real expansion through the
+# real code path and fails if these two drift back together.
+_MAX_PLAINTEXT_BYTES = 100 * 1024 * 1024   # 100 MiB in
+_MAX_CIPHERTEXT_BYTES = 200 * 1024 * 1024  # 200 MiB back, ~1.78x plus overhead
+
+
 def _run_dice_entropy(rolls: int, sides: int) -> None:
     """Report the entropy of a dice session, and what is still owed.
 
@@ -1252,10 +1269,14 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
         sys.exit(1)
 
     file_size = os.path.getsize(file_path)
-    max_size = 100 * 1024 * 1024  # 100 MiB
-    if file_size > max_size:
+    if operation == "encrypt":
+        limit, what = _MAX_PLAINTEXT_BYTES, "file"
+    else:
+        limit, what = _MAX_CIPHERTEXT_BYTES, "ciphertext file"
+    if file_size > limit:
         _print_status(
-            f"Error: file too large ({file_size / 1024 / 1024:.1f} MiB, max 100 MiB)",
+            f"Error: {what} too large ({file_size / 1024 / 1024:.1f} MiB, "
+            f"max {limit / 1024 / 1024:.0f} MiB)",
             error=True,
         )
         sys.exit(1)
