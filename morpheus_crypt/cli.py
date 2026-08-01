@@ -22,12 +22,15 @@ import sys
 from . import __version__
 from .core.ciphers import CIPHER_CHOICES, CIPHER_REGISTRY
 from .core.config import config_path, load_config, save_config
+from .core.envelope import decode as envelope_decode
+from .core.envelope import encode as envelope_encode
 from .core.errors import (
     ConfigurationError,
     DecryptionError,
     FormatError,
     WrongPasswordError,
 )
+from .core.fileio import open_secure
 from .core.formats import (
     COMMITMENT_SIZE,
     FLAG_CHAINED,
@@ -1194,12 +1197,8 @@ def _open_secure_output(path: str, force: bool, binary: bool = False):
     * ``fchmod`` is applied unconditionally, so the mode depends on neither the
       umask nor whatever permissions an overwritten file happened to carry.
     """
-    import os
-
-    flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    flags |= os.O_TRUNC if force else os.O_EXCL
     try:
-        fd = os.open(path, flags, 0o600)
+        return open_secure(path, force=force, binary=binary)
     except OSError as exc:
         _print_status(
             f"Error: cannot write output file: {path}\n"
@@ -1210,19 +1209,6 @@ def _open_secure_output(path: str, force: bool, binary: bool = False):
             error=True,
         )
         sys.exit(1)
-    try:
-        if hasattr(os, "fchmod"):
-            os.fchmod(fd, 0o600)
-    except OSError:
-        os.close(fd)
-        raise
-    if binary:
-        return os.fdopen(fd, "wb")
-    # Text mode names both its codec and its newlines. The locale codec is UTF-8
-    # on the macOS and Linux legs and cp1252 on the Windows one, and Windows text
-    # mode also rewrites "\n" as "\r\n" -- which silently changed the bytes of a
-    # decrypted file on that platform, through the plain-text fallback below.
-    return os.fdopen(fd, "w", encoding="utf-8", newline="")
 
 
 def _default_output_name(file_path: str) -> str:
@@ -1260,7 +1246,6 @@ def _reject_output_over_input(out_path: str, in_path: str) -> None:
 
 def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
     """Encrypt or decrypt a file."""
-    import base64
     import os
 
     file_path = args.file
@@ -1287,16 +1272,11 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             raw_data = f.read()
 
         # Wrap raw bytes in a versioned transport envelope
-        import json
 
-        ENVELOPE_VERSION = 1
-        envelope_dict = {
-            "envelope_version": ENVELOPE_VERSION,
-            "data": base64.b64encode(raw_data).decode(),
-        }
-        if not getattr(args, "no_filename", False):
-            envelope_dict["filename"] = os.path.basename(file_path)
-        envelope = json.dumps(envelope_dict)
+        envelope = envelope_encode(
+            raw_data,
+            None if getattr(args, "no_filename", False) else file_path,
+        )
 
         _progress(f"Deriving key ({pipeline.kdf.name}) for {file_size} byte file...")
         try:
@@ -1349,39 +1329,30 @@ def _run_file_operation(args, operation: str, password: str, pipeline) -> None:
             _print_status(msg, error=True)
             sys.exit(1)
 
-        # Try to parse as versioned file envelope
-        import json
-
-        ENVELOPE_VERSION = 1
+        # Parsed by the shared strict decoder: it recognises an envelope only
+        # when the whole schema holds, so ordinary JSON plaintext that happens
+        # to carry a "data" key is returned to the user unharmed instead of
+        # being written out as its own base64 payload.
         try:
-            envelope = json.loads(decrypted)
-            env_ver = envelope.get("envelope_version", 0)
-            if env_ver > ENVELOPE_VERSION:
-                _print_status(
-                    f"Error: envelope version {env_ver} is newer than supported "
-                    f"(max {ENVELOPE_VERSION}). Update MORPHEUS to decrypt this file.",
-                    error=True,
-                )
-                sys.exit(1)
-            if "data" in envelope:
-                raw_data = base64.b64decode(envelope["data"])
-                # 'filename' is absent when the sender used --no-filename.
-                # Sanitize it to prevent path traversal attacks
-                # (e.g., "../../.ssh/authorized_keys" -> "authorized_keys")
-                original_name = os.path.basename(envelope.get("filename") or "")
-                if not original_name:
-                    original_name = _default_output_name(file_path)
-                out_path = args.output or original_name
-                _reject_output_over_input(out_path, file_path)
-                _check_overwrite(out_path, args.force)
-                with _open_secure_output(out_path, args.force, binary=True) as f:
-                    f.write(raw_data)
-                _print_status(
-                    f"Decrypted: {file_path} -> {out_path} ({len(raw_data)} bytes)"
-                )
-                return
-        except (json.JSONDecodeError, KeyError):
-            pass
+            envelope = envelope_decode(decrypted)
+        except FormatError as exc:
+            _print_status(f"Error: {exc}", error=True)
+            sys.exit(1)
+        if envelope is not None:
+            raw_data = envelope.data
+            original_name = envelope.filename or _default_output_name(file_path)
+            out_path = args.output or original_name
+            _reject_output_over_input(out_path, file_path)
+            _check_overwrite(out_path, args.force)
+            with _open_secure_output(out_path, args.force, binary=True) as f:
+                f.write(raw_data)
+            # The name came from someone else's ciphertext, so it is escaped
+            # rather than printed raw: an unescaped one can carry terminal
+            # control sequences (2026-08-02 review, F-08).
+            _print_status(
+                f"Decrypted: {file_path} -> {out_path!r} ({len(raw_data)} bytes)"
+            )
+            return
 
         # Fallback: treat as plain text
         out_path = args.output or _default_output_name(file_path)

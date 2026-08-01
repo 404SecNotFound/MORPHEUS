@@ -26,6 +26,7 @@ from morpheus_crypt.ui.state import (
     STEP_PASSWORD,
     STEP_REVIEW,
     STEP_SETTINGS,
+    InputMethod,
     Mode,
 )
 from morpheus_crypt.ui.steps.password import StrengthBar
@@ -1336,3 +1337,76 @@ class TestRunResultsCannotBindToLaterEdits:
             assert app._state.output == "CIPHERTEXT-FOR-INPUT-A"
             assert app._state.output_fingerprint == app._state.input_fingerprint()
             assert app._current_step == STEP_OUTPUT
+
+
+# ── File mode must return the file, not the envelope ─────────────
+
+class TestTuiFileRoundTripRestoresTheFile:
+    """Encrypting a file in the wizard and decrypting it must give it back.
+
+    Security review 2026-08-02, F-05. `_encrypt_file` wrapped the bytes in a
+    JSON envelope with base64 inside, and `_decrypt_file` called
+    `pipeline.decrypt()` and returned the string. Nothing parsed the envelope,
+    decoded the base64, or wrote a file, so a round trip handed the user
+
+        {"envelope_version": 1, "data": "AAFoZWxsb/8=", "filename": "sample.bin"}
+
+    in a text pane with a 60-second auto-clear, instead of their file. The CLI
+    has done this correctly all along; only the wizard was broken.
+
+    The payload here is deliberately hostile to the failure mode: a NUL byte
+    and a 0xFF byte, so anything that round-trips through str at any point
+    either raises or corrupts rather than passing.
+    """
+
+    PAYLOAD = b"\x00\x01hello\xff\xfe binary \x00 payload"
+    PASSWORD = "T3st!Passw0rd#Str0ng"
+
+    @pytest.mark.asyncio
+    async def test_binary_file_survives_a_wizard_round_trip(self, tmp_path):
+        source = tmp_path / "sample.bin"
+        source.write_bytes(self.PAYLOAD)
+        cipher_path = tmp_path / "sample.enc"
+
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            state = app._state
+            state.mode = Mode.ENCRYPT
+            state.input_method = InputMethod.FILE
+            state.input_file = str(source)
+            state.password = state.password_confirm = self.PASSWORD
+            for step in range(STEP_REVIEW):
+                state.completed_steps.add(step)
+            app._run_operation()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert state.output, "encryption produced nothing"
+            cipher_path.write_text(state.output, encoding="utf-8")
+
+        app2 = MorpheusWizard()
+        async with app2.run_test(size=(120, 50)) as pilot:
+            state = app2._state
+            state.mode = Mode.DECRYPT
+            state.input_method = InputMethod.FILE
+            state.input_file = str(cipher_path)
+            state.password = self.PASSWORD
+            for step in range(STEP_REVIEW):
+                state.completed_steps.add(step)
+            app2._run_operation()
+            await app2.workers.wait_for_complete()
+            await pilot.pause()
+
+            restored = tmp_path / "sample.bin.restored"
+            candidates = [
+                p for p in tmp_path.iterdir()
+                if p.read_bytes() == self.PAYLOAD and p != source
+            ]
+            assert candidates, (
+                f"no file on disk holds the original bytes. Output pane says: "
+                f"{state.output[:160]!r}"
+            )
+            assert "envelope_version" not in state.output, (
+                "the raw JSON envelope was shown to the user instead of a "
+                "restored file"
+            )
+            del restored

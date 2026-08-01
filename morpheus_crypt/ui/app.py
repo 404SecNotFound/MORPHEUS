@@ -13,8 +13,6 @@ Keyboard navigation:
 
 from __future__ import annotations
 
-import base64
-import json
 import os
 
 from textual import events, work
@@ -27,6 +25,9 @@ from textual.widgets import Button, Footer, Static
 
 from .. import __version__
 from ..core.ciphers import CIPHER_CHOICES
+from ..core.envelope import decode as envelope_decode
+from ..core.envelope import encode as envelope_encode
+from ..core.fileio import open_secure, unique_path
 from ..core.kdf import KDF_CHOICES
 from ..core.pipeline import EncryptionPipeline
 from ..core.validation import validate_input_text
@@ -64,6 +65,14 @@ from .steps.settings import SettingsStep
 # is not.
 MIN_WIDTH = 100
 MIN_HEIGHT = 30
+
+# The wizard read whole files with no bound at all while the CLI refused
+# anything over 100 MiB (2026-08-02 review, F-16). File mode buffers the raw
+# bytes, their base64, the JSON, the ciphertext and its base64 at once, so an
+# unbounded read costs several times the file's size in memory. Same numbers as
+# the CLI, and asymmetric for the same reason: ciphertext runs ~1.78x plaintext.
+MAX_FILE_BYTES = 100 * 1024 * 1024
+MAX_CIPHERTEXT_BYTES = 200 * 1024 * 1024
 
 
 class MorpheusWizard(App):
@@ -628,17 +637,17 @@ class MorpheusWizard(App):
         path = s.input_file
         if not os.path.isfile(path):
             raise FileNotFoundError(f"File not found: {path}")
+        size = os.path.getsize(path)
+        if size > MAX_FILE_BYTES:
+            raise ValueError(
+                f"file too large ({size / 1024 / 1024:.1f} MiB, max "
+                f"{MAX_FILE_BYTES / 1024 / 1024:.0f} MiB)"
+            )
         with open(path, "rb") as f:
             raw = f.read()
-        envelope = {
-            "envelope_version": 1,
-            "data": base64.b64encode(raw).decode(),
-        }
-        if not s.no_filename:
-            envelope["filename"] = os.path.basename(path)
+        envelope = envelope_encode(raw, None if s.no_filename else path)
         return pipeline.encrypt(
-            json.dumps(envelope), s.password,
-            pad=s.pad, fixed_size=s.fixed_size,
+            envelope, s.password, pad=s.pad, fixed_size=s.fixed_size,
         )
 
     def _decrypt_file(self, pipeline: EncryptionPipeline,
@@ -649,9 +658,35 @@ class MorpheusWizard(App):
             raise FileNotFoundError(f"File not found: {path}")
         # Same codec choice as the CLI decrypt path: utf-8-sig so a ciphertext
         # carrying a Windows editor's BOM is not reported as invalid base64.
+        size = os.path.getsize(path)
+        if size > MAX_CIPHERTEXT_BYTES:
+            raise ValueError(
+                f"ciphertext file too large ({size / 1024 / 1024:.1f} MiB, max "
+                f"{MAX_CIPHERTEXT_BYTES / 1024 / 1024:.0f} MiB)"
+            )
         with open(path, "r", encoding="utf-8-sig") as f:
             data = f.read().strip()
-        return pipeline.decrypt(data, request.password)
+        plaintext = pipeline.decrypt(data, request.password)
+
+        # The wizard used to stop here and hand this string to the output pane.
+        # For a file that string is the transport envelope, so the user saw
+        # JSON with base64 inside instead of getting their file back.
+        envelope = envelope_decode(plaintext)
+        if envelope is None:
+            return plaintext          # genuinely was text; show it as before
+
+        directory = os.path.dirname(os.path.abspath(path)) or "."
+        name = envelope.filename or (
+            os.path.basename(path).removesuffix(".enc") or "decrypted_output"
+        )
+        out_path = unique_path(directory, name)
+        with open_secure(out_path, force=False, binary=True) as fh:
+            fh.write(envelope.data)
+        return (
+            f"Restored {len(envelope.data)} bytes to:\n{out_path}\n\n"
+            "The file is written with owner-only permissions. This pane shows "
+            "the path, not the contents, because the contents are on disk."
+        )
 
 
 def run_gui() -> None:

@@ -122,7 +122,15 @@ class TestFileEncryption:
             # Build a malicious envelope with a path-traversal filename
             malicious_name = "../../etc/evil.txt"
             payload_data = b"harmless content"
+            # A *valid* envelope. The version matters: the strict decoder
+            # recognises an envelope only when the whole schema holds, so a
+            # versionless {"filename": ..., "data": ...} is now correctly
+            # treated as ordinary JSON plaintext rather than as a file to
+            # unpack. `test_versionless_json_is_not_treated_as_an_envelope`
+            # below pins that half; this one keeps testing the traversal
+            # defence, which needs a real envelope to exercise it.
             envelope = json.dumps({
+                "envelope_version": 1,
                 "filename": malicious_name,
                 "data": base64.b64encode(payload_data).decode(),
             })
@@ -157,6 +165,36 @@ class TestFileEncryption:
             # Verify the traversal path was NOT created
             traversal_path = os.path.join(tmpdir, malicious_name)
             assert not os.path.exists(traversal_path)
+
+    def test_versionless_json_is_not_treated_as_an_envelope(self):
+        """Ordinary JSON that happens to have a `data` key must survive.
+
+        Security review 2026-08-02, F-07. The old parser asked `"data" in
+        envelope` with no version check, so encrypting the perfectly ordinary
+        document {"data": "SGVsbG8="} and decrypting it wrote out `Hello` --
+        the user's actual JSON destroyed and replaced by its own base64 field
+        decoded as a file.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            document = json.dumps({"data": base64.b64encode(b"Hello").decode()})
+            password = "T3st!Passw0rd#Str0ng"
+            enc_file = os.path.join(tmpdir, "doc.enc")
+            with open(enc_file, "w") as f:
+                f.write(EncryptionPipeline().encrypt(document, password))
+
+            out_path = os.path.join(tmpdir, "recovered.json")
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO(password + "\n")
+            try:
+                run_cli(["-o", "decrypt", "-f", enc_file, "--output", out_path])
+            finally:
+                sys.stdin = old_stdin
+
+            with open(out_path, encoding="utf-8") as f:
+                assert f.read() == document, (
+                    "the user's JSON was unpacked as a file envelope instead "
+                    "of being returned as the plaintext it is"
+                )
 
     def test_file_too_large_rejected(self):
         """Files exceeding 100 MiB must be rejected."""
