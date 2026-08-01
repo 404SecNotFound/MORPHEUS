@@ -5,6 +5,7 @@ widget interactions without a real terminal.
 """
 
 import math
+import threading
 from contextlib import asynccontextmanager
 from unittest.mock import patch
 
@@ -13,6 +14,7 @@ from textual.widgets import Button, Checkbox, Collapsible, RadioButton, Static, 
 from textual.widgets._footer import FooterKey
 
 from morpheus_crypt import __version__
+from morpheus_crypt.core.pipeline import EncryptionPipeline
 from morpheus_crypt.core.validation import check_password_strength
 from morpheus_crypt.ui import theme
 from morpheus_crypt.ui.app import MIN_HEIGHT, MIN_WIDTH, MorpheusWizard
@@ -193,7 +195,7 @@ class TestWizardApp:
             app._state.password_confirm = password
 
             # Run encryption
-            app._do_encrypt()
+            app._do_encrypt(app._state.snapshot())
             await app.workers.wait_for_complete()
             await pilot.pause()
 
@@ -206,7 +208,7 @@ class TestWizardApp:
             app._state.password = password
             app._state.output = ""
 
-            app._do_decrypt()
+            app._do_decrypt(app._state.snapshot())
             await app.workers.wait_for_complete()
             await pilot.pause()
 
@@ -1217,3 +1219,120 @@ class TestInputStatsStaysAtTheFootOfThePane:
                 f"{container.virtual_size.height}-row scrollable extent, so "
                 f"nothing can scroll to it"
             )
+
+
+# ── A finished run must describe the inputs that produced it ─────
+
+class TestRunResultsCannotBindToLaterEdits:
+    """The worker must not stamp its result against state it never read.
+
+    Found by the 2026-08-02 security review (F-01), and it is the worst defect
+    in this codebase because it destroys data while looking like success.
+
+    `_do_encrypt` read fields off the live `WizardState` and then called
+    `record_output(result)`, which stamps `input_fingerprint()` -- the state as
+    it is *now*, not the state the run actually used. Argon2id takes long
+    enough to retype a password in. Change the password mid-run and the
+    ciphertext is produced under the old one, stamped as matching the new one,
+    and presented as current. The user keeps the password on screen. The data
+    is unrecoverable, and nothing anywhere indicates it happened.
+
+    The staleness machinery in `WizardState.invalidate_output` cannot catch
+    this: it compares the stamp against current inputs, and the stamp is the
+    thing that is wrong.
+
+    The fix is a snapshot taken on the UI thread at Execute, used exclusively
+    by the worker, and re-checked before the result is published.
+    """
+
+    @staticmethod
+    def _ready(app, *, text="INPUT-A", password="T3st!Passw0rd#Str0ng"):
+        state = app._state
+        state.mode = Mode.ENCRYPT
+        state.input_text = text
+        state.password = state.password_confirm = password
+        for step in range(STEP_REVIEW):
+            state.completed_steps.add(step)
+
+    @staticmethod
+    def _blocking_encrypt(release, produced):
+        def encrypt(self, data, password, **kw):
+            produced.append((data, password))
+            release.wait(5)
+            return f"CIPHERTEXT-FOR-{data}"
+        return encrypt
+
+    @pytest.mark.asyncio
+    async def test_editing_the_input_mid_run_discards_the_result(self):
+        release, produced = threading.Event(), []
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            self._ready(app)
+            with patch.object(
+                EncryptionPipeline, "encrypt",
+                self._blocking_encrypt(release, produced),
+            ):
+                app._run_operation()
+                for _ in range(10):
+                    await pilot.pause()
+                    if produced:
+                        break
+                assert produced, "the worker never started"
+                app._state.input_text = "INPUT-B"
+                release.set()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+
+            assert produced[0][0] == "INPUT-A", "worker read the edited value"
+            assert app._state.output == "", (
+                f"published {app._state.output!r}, a result for INPUT-A, while "
+                f"the input now reads INPUT-B"
+            )
+
+    @pytest.mark.asyncio
+    async def test_changing_the_password_mid_run_discards_the_result(self):
+        """The dangerous one: the ciphertext is under a password now lost."""
+        release, produced = threading.Event(), []
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            self._ready(app, password="OldP4ss!word#Aa")
+            with patch.object(
+                EncryptionPipeline, "encrypt",
+                self._blocking_encrypt(release, produced),
+            ):
+                app._run_operation()
+                for _ in range(10):
+                    await pilot.pause()
+                    if produced:
+                        break
+                assert produced, "the worker never started"
+                app._state.password = app._state.password_confirm = "NewP4ss!word#Bb"
+                release.set()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+
+            assert produced[0][1] == "OldP4ss!word#Aa"
+            assert app._state.output == "", (
+                "a ciphertext encrypted under the old password was published "
+                "as current, so the password on screen does not open it"
+            )
+
+    @pytest.mark.asyncio
+    async def test_an_untouched_run_still_publishes_normally(self):
+        """The guard must not throw away good results."""
+        release, produced = threading.Event(), []
+        release.set()
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            self._ready(app)
+            with patch.object(
+                EncryptionPipeline, "encrypt",
+                self._blocking_encrypt(release, produced),
+            ):
+                app._run_operation()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+
+            assert app._state.output == "CIPHERTEXT-FOR-INPUT-A"
+            assert app._state.output_fingerprint == app._state.input_fingerprint()
+            assert app._current_step == STEP_OUTPUT

@@ -43,6 +43,7 @@ from .state import (
     TOTAL_STEPS,
     InputMethod,
     Mode,
+    OperationRequest,
     WizardState,
 )
 from .steps.input import InputStep
@@ -532,49 +533,49 @@ class MorpheusWizard(App):
         # Belt and braces with `exclusive=True` below: the flag cancels a
         # second worker, this stops the second press registering at all.
         self._set_execute_enabled(False)
-        if self._state.mode == Mode.ENCRYPT:
-            self._do_encrypt()
+        # Taken here, on the UI thread, before anything can edit it. The worker
+        # never touches `self._state` again, so a run always describes the
+        # inputs that were on screen when Execute was pressed.
+        request = self._state.snapshot()
+        if request.mode == Mode.ENCRYPT:
+            self._do_encrypt(request)
         else:
-            self._do_decrypt()
+            self._do_decrypt(request)
 
     @work(thread=True, exclusive=True)
-    def _do_encrypt(self) -> None:
-        s = self._state
+    def _do_encrypt(self, request: OperationRequest) -> None:
         try:
-            pipeline = self._build_pipeline()
+            pipeline = self._build_pipeline(request)
 
-            if s.input_method == InputMethod.TEXT:
-                text = s.input_text
-                valid, err = validate_input_text(text)
+            if request.input_method == InputMethod.TEXT:
+                valid, err = validate_input_text(request.input_text)
                 if not valid:
                     self.call_from_thread(self.notify, err, severity="error")
                     return
                 result = pipeline.encrypt(
-                    text, s.password, pad=s.pad, fixed_size=s.fixed_size,
+                    request.input_text, request.password,
+                    pad=request.pad, fixed_size=request.fixed_size,
                 )
             else:
-                result = self._encrypt_file(pipeline)
+                result = self._encrypt_file(pipeline, request)
 
-            s.record_output(result)
-            self.call_from_thread(self._goto_output)
+            self.call_from_thread(self._publish_result, result, request)
         except Exception as exc:
             self.call_from_thread(self.notify, f"Encryption failed: {exc}", severity="error")
         finally:
             self.call_from_thread(self._set_execute_enabled, True)
 
     @work(thread=True, exclusive=True)
-    def _do_decrypt(self) -> None:
-        s = self._state
+    def _do_decrypt(self, request: OperationRequest) -> None:
         try:
-            pipeline = self._build_pipeline()
+            pipeline = self._build_pipeline(request)
 
-            if s.input_method == InputMethod.TEXT:
-                result = pipeline.decrypt(s.input_text.strip(), s.password)
+            if request.input_method == InputMethod.TEXT:
+                result = pipeline.decrypt(request.input_text.strip(), request.password)
             else:
-                result = self._decrypt_file(pipeline)
+                result = self._decrypt_file(pipeline, request)
 
-            s.record_output(result)
-            self.call_from_thread(self._goto_output)
+            self.call_from_thread(self._publish_result, result, request)
         except Exception as exc:
             self.call_from_thread(
                 self.notify,
@@ -584,12 +585,33 @@ class MorpheusWizard(App):
         finally:
             self.call_from_thread(self._set_execute_enabled, True)
 
+    def _publish_result(self, result: str, request: OperationRequest) -> None:
+        """Show a finished result, but only if it still describes the inputs.
+
+        Runs on the UI thread. If anything changed while the worker was busy,
+        the result is for inputs the user can no longer see, so showing it
+        would present a ciphertext under a superseded password as current.
+        Discarding is the only safe option, and it has to say so: silently
+        dropping a result the user waited for reads as the app hanging.
+        """
+        if self._state.input_fingerprint() != request.fingerprint:
+            self.notify(
+                "Inputs changed while this was running, so the result was "
+                "discarded rather than shown against settings that did not "
+                "produce it. Press Execute again.",
+                severity="warning",
+                timeout=10,
+            )
+            return
+        self._state.record_output(result, request.fingerprint)
+        self._goto_output()
+
     def _goto_output(self) -> None:
         self._state.completed_steps.add(STEP_OUTPUT)
         self._show_step(STEP_OUTPUT)
 
-    def _build_pipeline(self) -> EncryptionPipeline:
-        s = self._state
+    def _build_pipeline(self, request: OperationRequest) -> EncryptionPipeline:
+        s = request
         cipher_cls = CIPHER_CHOICES[s.cipher]
         kdf_cls = KDF_CHOICES[s.kdf]
         return EncryptionPipeline(
@@ -599,9 +621,10 @@ class MorpheusWizard(App):
             hybrid_pq=s.hybrid_pq,
         )
 
-    def _encrypt_file(self, pipeline: EncryptionPipeline) -> str:
+    def _encrypt_file(self, pipeline: EncryptionPipeline,
+                      request: OperationRequest) -> str:
         """Read file, wrap in envelope, encrypt."""
-        s = self._state
+        s = request
         path = s.input_file
         if not os.path.isfile(path):
             raise FileNotFoundError(f"File not found: {path}")
@@ -618,16 +641,17 @@ class MorpheusWizard(App):
             pad=s.pad, fixed_size=s.fixed_size,
         )
 
-    def _decrypt_file(self, pipeline: EncryptionPipeline) -> str:
+    def _decrypt_file(self, pipeline: EncryptionPipeline,
+                      request: OperationRequest) -> str:
         """Read encrypted file, decrypt."""
-        path = self._state.input_file
+        path = request.input_file
         if not os.path.isfile(path):
             raise FileNotFoundError(f"File not found: {path}")
         # Same codec choice as the CLI decrypt path: utf-8-sig so a ciphertext
         # carrying a Windows editor's BOM is not reported as invalid base64.
         with open(path, "r", encoding="utf-8-sig") as f:
             data = f.read().strip()
-        return pipeline.decrypt(data, self._state.password)
+        return pipeline.decrypt(data, request.password)
 
 
 def run_gui() -> None:

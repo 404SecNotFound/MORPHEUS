@@ -27,6 +27,40 @@ STEP_LABELS = ["Mode", "Settings", "Input", "Password", "Review", "Output"]
 TOTAL_STEPS = len(STEP_LABELS)
 
 
+@dataclass(frozen=True)
+class OperationRequest:
+    """Everything a run needs, copied once at Execute and then frozen.
+
+    The worker used to read fields off the live `WizardState` while it ran, and
+    then call `record_output(result)`, which stamps the fingerprint of the
+    state as it is *at that moment*. Argon2id takes long enough to retype a
+    password in. Change it mid-run and the ciphertext is produced under the old
+    password, stamped as matching the new one, and presented as current: the
+    password on screen does not open the result, and nothing says so.
+
+    `invalidate_output` cannot catch that, because it compares the stamp
+    against the inputs and the stamp itself is what is wrong.
+
+    So the worker is given a copy instead, with the fingerprint of the inputs
+    that produced it travelling alongside. The result is published only if the
+    live state still matches that fingerprint.
+    """
+
+    mode: Mode
+    cipher: str
+    kdf: str
+    chain: bool
+    hybrid_pq: bool
+    pad: bool
+    fixed_size: bool
+    no_filename: bool
+    input_method: InputMethod
+    input_text: str
+    input_file: str
+    password: str
+    fingerprint: tuple
+
+
 @dataclass
 class WizardState:
     """Mutable bag of all wizard data.  Validation methods return (ok, reason)."""
@@ -83,10 +117,36 @@ class WizardState:
             self.password,
         )
 
-    def record_output(self, result: str) -> None:
-        """Store a run's result together with the inputs that produced it."""
+    def snapshot(self) -> OperationRequest:
+        """Freeze the inputs a run is about to use, with their fingerprint."""
+        return OperationRequest(
+            mode=self.mode,
+            cipher=self.cipher,
+            kdf=self.kdf,
+            chain=self.chain,
+            hybrid_pq=self.hybrid_pq,
+            pad=self.pad,
+            fixed_size=self.fixed_size,
+            no_filename=self.no_filename,
+            input_method=self.input_method,
+            input_text=self.input_text,
+            input_file=self.input_file,
+            password=self.password,
+            fingerprint=self.input_fingerprint(),
+        )
+
+    def record_output(self, result: str, fingerprint: tuple | None = None) -> None:
+        """Store a run's result together with the inputs that produced it.
+
+        `fingerprint` is the one captured when the run started. It must be
+        passed by anything asynchronous: defaulting to the current inputs is
+        exactly the bug this argument exists to prevent, and is safe only for
+        callers that cannot have raced (tests and the screenshot script).
+        """
         self.output = result
-        self.output_fingerprint = self.input_fingerprint()
+        self.output_fingerprint = (
+            self.input_fingerprint() if fingerprint is None else fingerprint
+        )
 
     def invalidate_output(self) -> None:
         """Discard a result that no longer matches the current inputs.
