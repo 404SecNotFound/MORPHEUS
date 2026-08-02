@@ -963,6 +963,41 @@ class TestMinimumTerminalSize:
             )
 
 
+
+async def _scrolled_to_rest(app, pilot, widget, limit: int = 40) -> None:
+    """Scroll *widget* into the pane and wait until it has stopped moving.
+
+    `scroll_visible` schedules the scroll; it does not perform it. A fixed
+    number of pauses afterwards is a bet on how many frames that takes, and the
+    Windows runner keeps winning that bet: the click landed while the pane was
+    still moving and hit whatever was passing under the cursor. That is the
+    third time on this branch a test has been caught sampling mid-flight.
+
+    So this waits for the postcondition instead of a frame count -- the widget
+    is inside the pane, and its position agreed with itself on two consecutive
+    frames -- and raises rather than letting a caller click at a stale
+    coordinate.
+    """
+    container = app.query_one("#step-container")
+    widget.scroll_visible(animate=False)
+    previous = None
+    for _ in range(limit):
+        await pilot.pause()
+        region = widget.region
+        settled = (
+            region.height > 0
+            and region.y >= container.region.y
+            and region.bottom <= container.region.bottom
+        )
+        if settled and region == previous:
+            return
+        previous = region
+    raise AssertionError(
+        f"{widget.id} never came to rest inside the pane; last saw "
+        f"{widget.region} against {container.region}"
+    )
+
+
 # ── Every control must be reachable at the declared minimum ──────
 
 class TestControlsAreReachableAtTheMinimum:
@@ -1069,9 +1104,7 @@ class TestControlsAreReachableAtTheMinimum:
 
             for box_id in ("pad-check", "fixed-check", "nofn-check"):
                 box = app.query_one(f"#{box_id}", Checkbox)
-                box.scroll_visible(animate=False)
-                for _ in range(3):
-                    await pilot.pause()
+                await _scrolled_to_rest(app, pilot, box)
                 region = box.region
                 try:
                     hit, _ = app.screen.get_widget_at(
@@ -1446,9 +1479,9 @@ class TestPasswordPolicyControlsAreReachable:
             ):
                 box = app.query_one(f"#{box_id}", Checkbox)
                 assert getattr(app._state, attr) is False
-                box.scroll_visible(animate=False)
-                for _ in range(3):
-                    await pilot.pause()
+                # Same reason as the reachability guard: clicking before the
+                # pane has stopped moving hits whatever is passing underneath.
+                await _scrolled_to_rest(app, pilot, box)
                 await pilot.click(f"#{box_id}")
                 await pilot.pause()
                 assert getattr(app._state, attr) is True, (
