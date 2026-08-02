@@ -204,6 +204,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,  # Hidden — deprecated, insecure
     )
     parser.add_argument(
+        "--allow-expensive-kdf",
+        action="store_true",
+        help="Permit decrypting a ciphertext whose header asks for unusually "
+             "expensive KDF settings. Off by default: the header is not "
+             "authenticated until after the work is done, so a hostile file "
+             "can otherwise spend minutes of CPU and hundreds of MiB.",
+    )
+    parser.add_argument(
         "--no-strength-check",
         action="store_true",
         help="Skip password strength validation (use with caution).",
@@ -1084,6 +1092,7 @@ def run_cli(argv: list[str] | None = None) -> None:
         hybrid_pq=args.hybrid_pq,
         pq_public_key=pq_pk,
         pq_secret_key=pq_sk,
+        allow_expensive_kdf=getattr(args, "allow_expensive_kdf", False),
     )
 
     # --- File mode ---

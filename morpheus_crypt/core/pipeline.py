@@ -474,7 +474,38 @@ _SCRYPT_LIMITS = {
 }
 
 
-def _build_kdf_from_params(kdf_id: int, params: tuple[int, int, int]) -> KDF:
+# Work a decryption will do before it can check whether the ciphertext is even
+# authentic. The header is not covered by the AEAD tag at the point it is read,
+# so these numbers come from whoever produced the file.
+#
+# The existing limits bounded memory and nothing else, which left Argon2id
+# t=100/m=1 GiB/p=64 and Scrypt n=2^22/r=1/p=64 both acceptable: minutes of CPU
+# and hundreds of MiB, spent on a file that may be entirely fabricated
+# (2026-08-02 review, F-10). A ceiling on the *product* is what bounds that.
+#
+# Both are ~16x what the shipped defaults produce (Argon2id t=3 m=64 MiB,
+# Scrypt n=2^17 r=8 p=1), so every ciphertext any released version has written
+# decrypts well inside them, and deliberate hardening has room. Beyond that the
+# caller has to say so.
+_ARGON2_COST_CEILING = 3 * 65536 * 16      # time_cost * memory_cost (KiB)
+_SCRYPT_COST_CEILING = (2**17) * 8 * 1 * 16  # n * r * p
+
+
+def _reject_excessive_cost(name: str, cost: int, ceiling: int,
+                           allow_expensive: bool) -> None:
+    """Bound CPU as well as memory, unless the caller opted in."""
+    if allow_expensive or cost <= ceiling:
+        return
+    raise KDFParameterError(
+        f"{name} header asks for roughly {cost / ceiling:.1f}x the work this "
+        f"build will do before it can authenticate the ciphertext. If this "
+        f"file is genuinely yours and was made with hardened settings, re-run "
+        f"with --allow-expensive-kdf."
+    )
+
+
+def _build_kdf_from_params(kdf_id: int, params: tuple[int, int, int],
+                           allow_expensive: bool = False) -> KDF:
     """Reconstruct a KDF instance from header params.
 
     Validates parameter bounds to prevent resource exhaustion from
@@ -491,6 +522,8 @@ def _build_kdf_from_params(kdf_id: int, params: tuple[int, int, int]) -> KDF:
         _validate_param("Argon2id parallelism", p3, *_ARGON2_LIMITS["parallelism"])
         # memory_cost is in KiB and parallelism does not multiply it.
         _reject_excessive_working_set("Argon2id", p2 * 1024)
+        _reject_excessive_cost("Argon2id", p1 * p2, _ARGON2_COST_CEILING,
+                               allow_expensive)
         return kdf_cls(time_cost=p1, memory_cost=p2, parallelism=p3)
     if kdf_id == 0x01:  # Scrypt
         _validate_param("Scrypt n", p1, *_SCRYPT_LIMITS["n"])
@@ -499,6 +532,8 @@ def _build_kdf_from_params(kdf_id: int, params: tuple[int, int, int]) -> KDF:
         # Scrypt's large buffer is 128 * n * r, plus 128 * r * p for the
         # parallel blocks. Neither n nor r bounds this on its own.
         _reject_excessive_working_set("Scrypt", 128 * p2 * (p1 + p3))
+        _reject_excessive_cost("Scrypt", p1 * p2 * p3, _SCRYPT_COST_CEILING,
+                               allow_expensive)
         return kdf_cls(n=p1, r=p2, p=p3)
     return kdf_cls()
 
@@ -553,6 +588,7 @@ class EncryptionPipeline:
         hybrid_pq: bool = False,
         pq_public_key: bytes | None = None,
         pq_secret_key: bytes | None = None,
+        allow_expensive_kdf: bool = False,
     ):
         self.cipher = cipher or AES256GCM()
         self.kdf = kdf or Argon2idKDF()
@@ -560,6 +596,9 @@ class EncryptionPipeline:
         self.hybrid_pq = hybrid_pq
         self.pq_public_key = pq_public_key
         self.pq_secret_key = pq_secret_key
+        # Opt-in to KDF settings above the cost ceiling when decrypting. Off by
+        # default because the header is unauthenticated at the point it is read.
+        self.allow_expensive_kdf = allow_expensive_kdf
 
         # Chaining always uses AES-256-GCM (primary) → ChaCha20-Poly1305 (secondary).
         # This fixed order avoids ambiguity in the ciphertext format.
@@ -636,7 +675,8 @@ class EncryptionPipeline:
         # only ever passes safe presets" is not a guarantee that holds for
         # library callers. Failing at encrypt costs one exception; failing at
         # decrypt costs the data.
-        _build_kdf_from_params(self.kdf.kdf_id, kdf_params)
+        _build_kdf_from_params(self.kdf.kdf_id, kdf_params,
+                               allow_expensive=True)
 
         # Encapsulation moved above the AAD, because v4 binds the KEM ciphertext
         # into it. It only needs the public key, so nothing here depends on the
@@ -750,7 +790,9 @@ class EncryptionPipeline:
 
         # Resolve KDF
         if is_v3 and kdf_params is not None:
-            kdf = _build_kdf_from_params(kdf_id, kdf_params)
+            kdf = _build_kdf_from_params(
+                kdf_id, kdf_params, allow_expensive=self.allow_expensive_kdf
+            )
         else:
             if kdf_id != self.kdf.kdf_id:
                 raise DecryptionError(

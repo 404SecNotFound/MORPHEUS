@@ -383,6 +383,7 @@ used, and will be removed. Do not use it.
 | `--pad` | Pad plaintext to hide exact length (bucket mode: 256B/1K/4K/16K/64K) |
 | `--fixed-size` | Pad the **plaintext** to 64 KiB so every ciphertext is the same size. The base64 output is 87,508 characters in default single-cipher mode, not 64 KiB: header, salt, nonce, commitment, tag and the outer base64 all sit on top. Implies `--pad` |
 | `--force` | Overwrite existing output files |
+| `--allow-expensive-kdf` | Permit decrypting a ciphertext whose header asks for unusually expensive KDF settings. Off by default: the header is not authenticated until after the work is done, so a hostile file can otherwise spend minutes of CPU and hundreds of MiB |
 | `--no-strength-check` | Skip password strength validation |
 | `--no-filename` | Omit original filename from encrypted envelope |
 | `--hybrid-pq` | Enable hybrid post-quantum |
@@ -678,7 +679,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**707 tests** across 14 test files:
+**714 tests** across 14 test files:
 
 | File | Scope |
 |------|-------|
@@ -734,7 +735,7 @@ Morpheus/
 │       ├── validation.py      # Password scoring, passphrase mode, breach detection
 │       ├── entropy.py         # Dice-roll entropy arithmetic (--dice-entropy)
 │       └── errors.py          # MorpheusError hierarchy
-├── tests/                     # 707 tests (NIST/RFC vectors included)
+├── tests/                     # 714 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

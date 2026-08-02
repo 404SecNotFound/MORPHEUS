@@ -9,7 +9,7 @@ from cryptography.exceptions import InvalidTag
 
 import morpheus_crypt.core.pipeline as pipeline_module
 from morpheus_crypt.core.ciphers import AES256GCM, ChaCha20Poly1305Cipher
-from morpheus_crypt.core.errors import MorpheusError
+from morpheus_crypt.core.errors import KDFParameterError, MorpheusError
 from morpheus_crypt.core.formats import (
     FLAG_CHAINED,
     FLAG_HYBRID_PQ,
@@ -21,6 +21,7 @@ from morpheus_crypt.core.kdf import Argon2idKDF, ScryptKDF
 from morpheus_crypt.core.pipeline import (
     PQ_AVAILABLE,
     EncryptionPipeline,
+    _build_kdf_from_params,
     pq_generate_keypair,
 )
 
@@ -928,3 +929,53 @@ class TestSensitiveBuffersAreWipedOnEveryErrorPath:
             f"{which}: decryption raised with the password still in a mutable "
             f"buffer and nothing left to wipe it"
         )
+
+
+class TestHostileKdfHeadersAreBounded:
+    """A ciphertext header chooses the work done before it is authenticated.
+
+    Security review 2026-08-02, F-10. The header is read, and its KDF run,
+    before the AEAD tag can say whether any of it is genuine. The existing
+    limits bounded memory only, so both of these were accepted from an
+    arbitrary file: Argon2id t=100 / m=1 GiB / p=64, and Scrypt n=2^22 / r=1 /
+    p=64. That is minutes of CPU and hundreds of megabytes spent on input that
+    may be entirely fabricated, and on a laptop it presents as a freeze.
+
+    The ceilings are ~16x the shipped defaults, so every ciphertext any
+    released version produced still decrypts, and someone who genuinely
+    hardened their settings can pass --allow-expensive-kdf.
+    """
+
+    HOSTILE = [
+        (0x02, (100, 1024 * 1024, 64), "Argon2id t=100 m=1GiB p=64"),
+        (0x01, (2 ** 22, 1, 64), "Scrypt n=2^22 r=1 p=64"),
+    ]
+    SHIPPED_DEFAULTS = [
+        (0x02, (3, 65536, 4), "Argon2id defaults"),
+        (0x01, (2 ** 17, 8, 1), "Scrypt defaults"),
+    ]
+
+    @pytest.mark.parametrize("kdf_id,params,label", HOSTILE)
+    def test_a_hostile_header_is_refused_by_default(self, kdf_id, params, label):
+        with pytest.raises(KDFParameterError) as exc:
+            _build_kdf_from_params(kdf_id, params)
+        assert "--allow-expensive-kdf" in str(exc.value), (
+            f"{label} was refused without telling the user how to proceed "
+            f"if the file is genuinely theirs"
+        )
+
+    @pytest.mark.parametrize("kdf_id,params,label", HOSTILE)
+    def test_the_opt_in_still_permits_it(self, kdf_id, params, label):
+        _build_kdf_from_params(kdf_id, params, allow_expensive=True)
+
+    @pytest.mark.parametrize("kdf_id,params,label", SHIPPED_DEFAULTS)
+    def test_everything_this_tool_has_ever_written_still_decrypts(
+        self, kdf_id, params, label
+    ):
+        _build_kdf_from_params(kdf_id, params)
+
+    def test_a_real_ciphertext_round_trips_under_the_ceiling(self):
+        """The ceiling must not break the actual default path."""
+        pipeline = EncryptionPipeline()
+        password = "T3st!Passw0rd#Str0ng"
+        assert pipeline.decrypt(pipeline.encrypt("canary", password), password) == "canary"
