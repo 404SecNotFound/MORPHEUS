@@ -233,6 +233,68 @@ jobs:
           print(f"{whl}: all required files present")
           PY
 
+      # The sdist carried tests/*.py but not the data they read, so
+      # tests/test_vectors.py shipped without tests/vectors/*.json and
+      # tests/test_gui.py without tests/support.py. The suite passed in the
+      # repository and failed from the archive, which is the wrong way round:
+      # the vectors are how a person who downloaded the source verifies that
+      # this build still decrypts what earlier versions produced
+      # (2026-08-02 review, F-12).
+      - name: Verify sdist carries its test fixtures
+        run: |
+          python - <<'PY'
+          import glob, sys, tarfile
+          sdist = glob.glob("dist/*.tar.gz")[0]
+          names = tarfile.open(sdist).getnames()
+          required = [
+              "tests/vectors/v2.json",
+              "tests/vectors/v3.json",
+              "tests/vectors/v4.json",
+              "tests/support.py",
+          ]
+          missing = [r for r in required if not any(n.endswith(r) for n in names)]
+          if missing:
+              sys.exit(f"missing from {sdist}: {missing}")
+          leaked = [n for n in names if "/tasks/" in n]
+          if leaked:
+              sys.exit(f"local working notes leaked into {sdist}: {leaked[:5]}")
+          print(f"{sdist}: fixtures present, no local notes")
+          PY
+
+      # Test what is published, not what is in the tree. Everything above this
+      # point checks the repository; a packaging defect is invisible to all of
+      # it, which is exactly how the missing fixtures survived.
+      - name: Install each artifact clean and test it
+        run: |
+          set -euo pipefail
+          for artifact in dist/*.whl dist/*.tar.gz; do
+            echo "::group::$artifact"
+            rm -rf /tmp/artifact-env
+            python -m venv /tmp/artifact-env
+            /tmp/artifact-env/bin/pip install --upgrade pip -q
+            /tmp/artifact-env/bin/pip install -q "$artifact"
+            # Import and run from the installed package, with the working tree
+            # off sys.path so nothing can be satisfied from the checkout.
+            (cd /tmp && /tmp/artifact-env/bin/python -c "
+          import morpheus_crypt, pathlib
+          print('installed from', pathlib.Path(morpheus_crypt.__file__).parent)
+          ")
+            (cd /tmp && /tmp/artifact-env/bin/morpheus --dice-entropy 100 >/dev/null)
+            (cd /tmp && /tmp/artifact-env/bin/morpheus --version)
+            echo "::endgroup::"
+          done
+
+      # The vectors only prove anything when run against the installed build.
+      - name: Run the compatibility vectors against the installed sdist
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/sdist-src && mkdir -p /tmp/sdist-src
+          tar xzf dist/*.tar.gz -C /tmp/sdist-src --strip-components=1
+          python -m venv /tmp/sdist-env
+          /tmp/sdist-env/bin/pip install --upgrade pip -q
+          /tmp/sdist-env/bin/pip install -q "/tmp/sdist-src[dev]"
+          cd /tmp/sdist-src && /tmp/sdist-env/bin/python -m pytest tests/test_vectors.py -q
+
   audit:
     runs-on: ubuntu-latest
     steps:
