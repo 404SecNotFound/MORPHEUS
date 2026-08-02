@@ -760,122 +760,134 @@ class EncryptionPipeline:
             kdf = self.kdf
 
         password_bytes = bytearray(password.encode("utf-8"))
-
-        payload_len = len(payload)
-        offset = 0
-
-        min_required = kdf.salt_size + primary.nonce_size
-        if is_chained and secondary:
-            min_required += secondary.nonce_size
-        if payload_len < min_required:
-            raise DecryptionError(
-                f"Truncated ciphertext: need at least {min_required} bytes, got {payload_len}"
-            )
-
-        salt = payload[offset : offset + kdf.salt_size]
-        offset += kdf.salt_size
-
-        nonce1 = payload[offset : offset + primary.nonce_size]
-        offset += primary.nonce_size
-
-        if is_chained and secondary:
-            nonce2 = payload[offset : offset + secondary.nonce_size]
-            offset += secondary.nonce_size
-        else:
-            nonce2 = b""
-
-        # KEM ciphertext if hybrid
+        # Everything after the password copy exists is inside one scope, so
+        # there is no path that creates it and returns without wiping it.
+        # The parsing below raises on truncated payloads, a missing secret
+        # key, a bad KEM length and a missing commitment, and every one of
+        # those used to escape past the inner finally with the password
+        # still in memory (2026-08-02 review, F-11). kem_ss is declared here
+        # for the same reason: it was zeroed only on the success path.
         kem_ss: bytearray | None = None
-        if is_hybrid:
-            if not self.pq_secret_key:
-                raise ConfigurationError("Hybrid PQ ciphertext requires a secret key for decryption")
-            if payload_len < offset + 2:
-                raise DecryptionError("Truncated ciphertext: missing KEM length field")
-            kem_ct_len = struct.unpack("!H", payload[offset : offset + 2])[0]
-            offset += 2
-            if kem_ct_len == 0:
-                raise DecryptionError(
-                    "Invalid hybrid PQ ciphertext: KEM ciphertext length is zero"
-                )
-            if payload_len < offset + kem_ct_len:
-                raise DecryptionError(
-                    f"Truncated ciphertext: KEM ciphertext claims {kem_ct_len} bytes "
-                    f"but only {payload_len - offset} remain"
-                )
-            kem_ct = payload[offset : offset + kem_ct_len]
-            offset += kem_ct_len
-            kem_prefix = struct.pack("!H", kem_ct_len) + kem_ct
-            kem_ss = bytearray(_pq_decapsulate(self.pq_secret_key, kem_ct))
-        else:
-            kem_ct = b""
-            kem_prefix = b""
-
-        # Key-check value (v3), or the wider commitment (v4)
-        check_size = COMMITMENT_SIZE if is_v4 else KEY_CHECK_SIZE
-        stored_key_check: bytes | None = None
-        if is_v3:
-            if payload_len < offset + check_size:
-                raise DecryptionError("Truncated ciphertext: missing key-check value")
-            stored_key_check = payload[offset : offset + check_size]
-            offset += check_size
-
-        ciphertext = payload[offset:]
-        if not ciphertext:
-            raise DecryptionError("Truncated ciphertext: no encrypted data after header fields")
-
-        aad = build_aad(version, cipher_id, kdf_id, flags, kdf_params=kdf_params,
-                        salt=salt, kem_prefix=kem_prefix)
-
-        keys: list[bytearray] = []
         try:
-            num_keys = 2 if is_chained else 1
-            keys = _derive_keys(kdf, password_bytes, salt, num_keys,
-                                version=version)
 
-            if is_hybrid and kem_ss is not None:
-                # The encapsulation key is not transmitted: ML-KEM-768 embeds it
-                # in the decapsulation key, so v4 recovers it locally at zero
-                # wire cost. Verified: dk[1152:2336] == ek.
-                ek = (self.pq_secret_key[_MLKEM_DK_EK_START:_MLKEM_DK_EK_END]
-                      if is_v4 and self.pq_secret_key else b"")
-                old_keys = keys
-                keys = [
-                    _combine_with_kem(
-                        k, kem_ss, salt,
-                        version=version,
-                        kem_ciphertext=kem_ct,
-                        encapsulation_key=ek,
-                        aad=aad,
-                    )
-                    for k in keys
-                ]
-                for k in old_keys:
-                    secure_zero(k)
-                secure_zero(kem_ss)
+            payload_len = len(payload)
+            offset = 0
 
-            # Verify the key-check (v3) or commitment (v4) before the AEAD, so a
-            # wrong password stays distinguishable from tampered data.
-            if stored_key_check is not None:
-                if is_v4:
-                    computed = _compute_commitment(
-                        keys[0], keys[1] if is_chained else b""
-                    )
-                else:
-                    computed = _compute_key_check(keys[0])
-                if not hmac.compare_digest(stored_key_check, computed):
-                    raise WrongPasswordError("Key verification failed: incorrect password")
+            min_required = kdf.salt_size + primary.nonce_size
+            if is_chained and secondary:
+                min_required += secondary.nonce_size
+            if payload_len < min_required:
+                raise DecryptionError(
+                    f"Truncated ciphertext: need at least {min_required} bytes, got {payload_len}"
+                )
+
+            salt = payload[offset : offset + kdf.salt_size]
+            offset += kdf.salt_size
+
+            nonce1 = payload[offset : offset + primary.nonce_size]
+            offset += primary.nonce_size
 
             if is_chained and secondary:
-                ct1 = secondary.decrypt(keys[1], nonce2, ciphertext, aad)
-                plaintext_bytes = primary.decrypt(keys[0], nonce1, ct1, aad)
+                nonce2 = payload[offset : offset + secondary.nonce_size]
+                offset += secondary.nonce_size
             else:
-                plaintext_bytes = primary.decrypt(keys[0], nonce1, ciphertext, aad)
+                nonce2 = b""
+
+            # KEM ciphertext if hybrid
+            if is_hybrid:
+                if not self.pq_secret_key:
+                    raise ConfigurationError("Hybrid PQ ciphertext requires a secret key for decryption")
+                if payload_len < offset + 2:
+                    raise DecryptionError("Truncated ciphertext: missing KEM length field")
+                kem_ct_len = struct.unpack("!H", payload[offset : offset + 2])[0]
+                offset += 2
+                if kem_ct_len == 0:
+                    raise DecryptionError(
+                        "Invalid hybrid PQ ciphertext: KEM ciphertext length is zero"
+                    )
+                if payload_len < offset + kem_ct_len:
+                    raise DecryptionError(
+                        f"Truncated ciphertext: KEM ciphertext claims {kem_ct_len} bytes "
+                        f"but only {payload_len - offset} remain"
+                    )
+                kem_ct = payload[offset : offset + kem_ct_len]
+                offset += kem_ct_len
+                kem_prefix = struct.pack("!H", kem_ct_len) + kem_ct
+                kem_ss = bytearray(_pq_decapsulate(self.pq_secret_key, kem_ct))
+            else:
+                kem_ct = b""
+                kem_prefix = b""
+
+            # Key-check value (v3), or the wider commitment (v4)
+            check_size = COMMITMENT_SIZE if is_v4 else KEY_CHECK_SIZE
+            stored_key_check: bytes | None = None
+            if is_v3:
+                if payload_len < offset + check_size:
+                    raise DecryptionError("Truncated ciphertext: missing key-check value")
+                stored_key_check = payload[offset : offset + check_size]
+                offset += check_size
+
+            ciphertext = payload[offset:]
+            if not ciphertext:
+                raise DecryptionError("Truncated ciphertext: no encrypted data after header fields")
+
+            aad = build_aad(version, cipher_id, kdf_id, flags, kdf_params=kdf_params,
+                            salt=salt, kem_prefix=kem_prefix)
+
+            keys: list[bytearray] = []
+            try:
+                num_keys = 2 if is_chained else 1
+                keys = _derive_keys(kdf, password_bytes, salt, num_keys,
+                                    version=version)
+
+                if is_hybrid and kem_ss is not None:
+                    # The encapsulation key is not transmitted: ML-KEM-768 embeds it
+                    # in the decapsulation key, so v4 recovers it locally at zero
+                    # wire cost. Verified: dk[1152:2336] == ek.
+                    ek = (self.pq_secret_key[_MLKEM_DK_EK_START:_MLKEM_DK_EK_END]
+                          if is_v4 and self.pq_secret_key else b"")
+                    old_keys = keys
+                    keys = [
+                        _combine_with_kem(
+                            k, kem_ss, salt,
+                            version=version,
+                            kem_ciphertext=kem_ct,
+                            encapsulation_key=ek,
+                            aad=aad,
+                        )
+                        for k in keys
+                    ]
+                    for k in old_keys:
+                        secure_zero(k)
+                    secure_zero(kem_ss)
+
+                # Verify the key-check (v3) or commitment (v4) before the AEAD, so a
+                # wrong password stays distinguishable from tampered data.
+                if stored_key_check is not None:
+                    if is_v4:
+                        computed = _compute_commitment(
+                            keys[0], keys[1] if is_chained else b""
+                        )
+                    else:
+                        computed = _compute_key_check(keys[0])
+                    if not hmac.compare_digest(stored_key_check, computed):
+                        raise WrongPasswordError("Key verification failed: incorrect password")
+
+                if is_chained and secondary:
+                    ct1 = secondary.decrypt(keys[1], nonce2, ciphertext, aad)
+                    plaintext_bytes = primary.decrypt(keys[0], nonce1, ct1, aad)
+                else:
+                    plaintext_bytes = primary.decrypt(keys[0], nonce1, ciphertext, aad)
+            finally:
+                for k in keys:
+                    secure_zero(k)
+                secure_zero(password_bytes)
+
+            if is_padded:
+                plaintext_bytes = _unpad_plaintext(plaintext_bytes)
+
+            return plaintext_bytes.decode("utf-8")
         finally:
-            for k in keys:
-                secure_zero(k)
             secure_zero(password_bytes)
-
-        if is_padded:
-            plaintext_bytes = _unpad_plaintext(plaintext_bytes)
-
-        return plaintext_bytes.decode("utf-8")
+            if kem_ss is not None:
+                secure_zero(kem_ss)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import tempfile
@@ -42,6 +43,7 @@ def clipboard_copy(text: str) -> tuple[bool, str]:
         ("wl-copy", ["wl-copy"]),
         ("pbcopy", ["pbcopy"]),
     ):
+        proc = None
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -52,7 +54,18 @@ def clipboard_copy(text: str) -> tuple[bool, str]:
             proc.communicate(text.encode("utf-8"), timeout=3)
             if proc.returncode == 0:
                 return True, name
-        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        except subprocess.TimeoutExpired:
+            # A timeout used to fall straight through to the next backend,
+            # leaving the child alive. It is holding the plaintext -- we just
+            # wrote it to that pipe -- so it has to be killed and reaped, not
+            # abandoned. Without the second communicate() it becomes a zombie,
+            # and a wizard session that copies repeatedly accumulates them
+            # (2026-08-02 review, F-14).
+            with contextlib.suppress(Exception):
+                proc.kill()
+                proc.communicate(timeout=1)
+            continue
+        except (FileNotFoundError, OSError):
             continue
 
     # 3. tkinter fallback (often available with Python installs)

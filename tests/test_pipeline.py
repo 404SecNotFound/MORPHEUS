@@ -2,11 +2,14 @@
 
 import base64
 import struct
+from unittest.mock import patch
 
 import pytest
 from cryptography.exceptions import InvalidTag
 
+import morpheus_crypt.core.pipeline as pipeline_module
 from morpheus_crypt.core.ciphers import AES256GCM, ChaCha20Poly1305Cipher
+from morpheus_crypt.core.errors import MorpheusError
 from morpheus_crypt.core.formats import (
     FLAG_CHAINED,
     FLAG_HYBRID_PQ,
@@ -862,3 +865,66 @@ class TestFailureAttributionIsDistinct:
         p, ct = self._ct()
         with pytest.raises(WrongPasswordError):
             p.decrypt(self._flip(ct, 18), self.PW)
+
+
+class TestSensitiveBuffersAreWipedOnEveryErrorPath:
+    """The password copy must not survive a parse failure.
+
+    Security review 2026-08-02, F-11. `password_bytes` was created before the
+    payload was parsed, but the `finally` that wipes it only opened after
+    parsing and after optional KEM decapsulation. A truncated payload, a
+    missing secret key, a bad KEM length or a missing commitment all raised in
+    between, so the password stayed in a mutable buffer with nothing left to
+    clear it. `kem_ss` had the same shape: zeroed on the success path only.
+
+    Defence in depth rather than a break. Python still leaves immutable copies
+    at API boundaries, which SECURITY.md documents; that is a reason to keep
+    the window short, not a reason to leave it open.
+    """
+
+    PASSWORD = "T3st!Passw0rd#Str0ng"
+
+    # Byte counts that land *after* the password copy exists and *before* the
+    # old inner try began. A shorter cut raises inside deserialize, where no
+    # password buffer has been created yet, so it cannot tell the two versions
+    # apart -- the first version of this test made exactly that mistake and
+    # passed against the unfixed code.
+    TRUNCATIONS = [
+        (26, "payload shorter than salt + nonce"),
+        (46, "missing key-check value"),
+        (66, "missing encrypted body"),
+    ]
+
+    @staticmethod
+    def _cut(n: int) -> str:
+        whole = base64.b64decode(
+            EncryptionPipeline().encrypt(
+                "canary", TestSensitiveBuffersAreWipedOnEveryErrorPath.PASSWORD
+            )
+        )
+        return base64.b64encode(whole[:n]).decode()
+
+    @pytest.mark.parametrize("cut,which", TRUNCATIONS)
+    def test_a_truncated_ciphertext_still_wipes_the_password(self, cut, which):
+        seen: list[bytes] = []
+        real = pipeline_module.secure_zero
+
+        def spy(buffer):
+            seen.append(bytes(buffer))
+            return real(buffer)
+
+        # Built *before* the patch goes on. Encrypt wipes its own copy of the
+        # same password, so constructing the ciphertext inside the patched
+        # scope fills `seen` from the encrypt path and the assertion below
+        # passes whatever decrypt does. The first version of this test did
+        # exactly that and stayed green against the unfixed code.
+        truncated = self._cut(cut)
+
+        with patch.object(pipeline_module, "secure_zero", spy):
+            with pytest.raises(MorpheusError):
+                EncryptionPipeline().decrypt(truncated, self.PASSWORD)
+
+        assert any(entry == self.PASSWORD.encode("utf-8") for entry in seen), (
+            f"{which}: decryption raised with the password still in a mutable "
+            f"buffer and nothing left to wipe it"
+        )

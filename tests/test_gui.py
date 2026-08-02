@@ -5,6 +5,7 @@ widget interactions without a real terminal.
 """
 
 import math
+import subprocess
 import threading
 from contextlib import asynccontextmanager
 from unittest.mock import patch
@@ -1460,3 +1461,37 @@ class TestPasswordPolicyControlsAreReachable:
             await settle(app, pilot)
             assert not app.query("#passphrase-check")
             assert not app.query("#skip-strength-check")
+
+
+class TestClipboardTimeoutDoesNotLeakTheHelper:
+    """A clipboard helper that hangs is holding the plaintext we sent it.
+
+    Security review 2026-08-02, F-14. On `TimeoutExpired` the code continued to
+    the next backend without killing or reaping the child. That process has the
+    secret in its memory and its pipe, it stays alive holding it, and a session
+    that copies repeatedly accumulates zombies.
+    """
+
+    def test_a_hanging_backend_is_killed_and_reaped(self):
+        killed, reaped = [], []
+
+        class HangingProc:
+            returncode = None
+
+            def communicate(self, *a, **kw):
+                if killed:
+                    reaped.append(True)
+                    return (b"", b"")
+                raise subprocess.TimeoutExpired(cmd="xclip", timeout=3)
+
+            def kill(self):
+                killed.append(True)
+
+        with patch("morpheus_crypt.ui.clipboard._pyperclip", None), \
+             patch("morpheus_crypt.ui.clipboard.tk", None), \
+             patch("morpheus_crypt.ui.clipboard.subprocess.Popen",
+                   return_value=HangingProc()):
+            clipboard_copy("secret plaintext")
+
+        assert killed, "the hanging clipboard helper was left running"
+        assert reaped, "the killed helper was never reaped, leaving a zombie"
