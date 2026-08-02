@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from textual.containers import Horizontal, Vertical
-from textual.reactive import reactive
 from textual.widgets import Button, Static, TextArea
 
 from .. import theme
 from ..clipboard import clipboard_copy, save_to_file
 from ..state import Mode, WizardState
-
-AUTO_CLEAR_SECONDS = 60
 
 
 class OutputArea(TextArea):
@@ -44,9 +41,6 @@ class OutputArea(TextArea):
 
 class OutputStep(Vertical):
     """Read-only output area with copy, clear, and countdown."""
-
-    _countdown: reactive[int] = reactive(-1)
-    _timer_handle = None
 
     def __init__(self, state: WizardState, **kw) -> None:
         super().__init__(**kw)
@@ -99,7 +93,10 @@ class OutputStep(Vertical):
             area.load_text(self._state.output)
             status = self.query_one("#output-status", Static)
             status.update(f"{len(self._state.output)} characters")
-            self._start_countdown()
+            # The countdown itself belongs to the app, so that leaving this
+            # step does not take the expiry with it (F-09). Coming back here
+            # just re-renders whatever it is currently showing.
+            self.app._refresh_countdown()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-copy":
@@ -109,7 +106,7 @@ class OutputStep(Vertical):
         elif event.button.id == "btn-clear":
             self._clear_output()
         elif event.button.id == "btn-stop-timer":
-            self._stop_countdown()
+            self.app._stop_auto_clear()
             self.app.notify("Auto-clear timer stopped", severity="information")
 
     # -- Clipboard --
@@ -155,37 +152,6 @@ class OutputStep(Vertical):
         self.app.notify(f"Saved to {path}", severity="information")
 
     def _clear_output(self) -> None:
-        self._stop_countdown()
-        self.query_one("#output-area", TextArea).clear()
+        """Delegate, so Clear wipes the result rather than only this pane."""
+        self.app._clear_output()
         self.query_one("#output-status", Static).update("")
-        self.query_one("#countdown-label", Static).update("")
-        self._state.output = ""
-        # Drop the provenance stamp too, so the wiped result cannot read as
-        # current if the inputs happen to be unchanged.
-        self._state.output_fingerprint = None
-
-    # -- Countdown --
-
-    def _start_countdown(self) -> None:
-        self._stop_countdown()
-        self._countdown = AUTO_CLEAR_SECONDS
-        self._timer_handle = self.set_interval(1.0, self._tick)
-
-    def _tick(self) -> None:
-        if self._countdown > 0:
-            self._countdown -= 1
-            self.query_one("#countdown-label", Static).update(
-                f"Auto-clear in {self._countdown}s"
-            )
-        else:
-            self._clear_output()
-
-    def _stop_countdown(self) -> None:
-        if self._timer_handle:
-            self._timer_handle.stop()
-            self._timer_handle = None
-        self._countdown = -1
-        try:
-            self.query_one("#countdown-label", Static).update("")
-        except Exception:
-            pass

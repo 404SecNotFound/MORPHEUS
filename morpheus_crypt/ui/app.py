@@ -74,6 +74,14 @@ MIN_HEIGHT = 30
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_CIPHERTEXT_BYTES = 200 * 1024 * 1024
 
+# How long a finished result stays in memory. The timer lives here rather than
+# on the Output widget, which is what made the promise conditional: the widget
+# is destroyed when the user navigates to another step, the timer went with it,
+# and the plaintext sat in WizardState indefinitely. The subtitle told the user
+# it would disappear after 60 seconds, and that was true only while they were
+# looking at it (2026-08-02 review, F-09).
+AUTO_CLEAR_SECONDS = 60
+
 
 class MorpheusWizard(App):
     """2-pane wizard: sidebar (left) + active step panel (right).
@@ -121,6 +129,9 @@ class MorpheusWizard(App):
         # The step panel currently on screen, so a deferred focus call can
         # tell whether it has been superseded.
         self._step_panel: Widget | None = None
+        # Auto-clear state, owned by the app so it outlives the Output widget.
+        self._auto_clear_handle = None
+        self._auto_clear_remaining = -1
 
     # ── Compose ──────────────────────────────────────────────────
 
@@ -617,7 +628,57 @@ class MorpheusWizard(App):
 
     def _goto_output(self) -> None:
         self._state.completed_steps.add(STEP_OUTPUT)
+        self._start_auto_clear()
         self._show_step(STEP_OUTPUT)
+
+    # ── Auto-clear, owned by the app ─────────────────────────────
+
+    def _start_auto_clear(self) -> None:
+        self._stop_auto_clear()
+        self._auto_clear_remaining = AUTO_CLEAR_SECONDS
+        self._auto_clear_handle = self.set_interval(1.0, self._auto_clear_tick)
+        self._refresh_countdown()
+
+    def _stop_auto_clear(self) -> None:
+        if self._auto_clear_handle is not None:
+            self._auto_clear_handle.stop()
+            self._auto_clear_handle = None
+        self._auto_clear_remaining = -1
+        self._refresh_countdown()
+
+    def _auto_clear_tick(self) -> None:
+        """Count down wherever the user happens to be standing."""
+        if self._auto_clear_remaining > 0:
+            self._auto_clear_remaining -= 1
+            self._refresh_countdown()
+        if self._auto_clear_remaining <= 0:
+            self._clear_output()
+
+    def _clear_output(self) -> None:
+        """Wipe the result itself, not merely the widget showing it."""
+        self._stop_auto_clear()
+        self._state.output = ""
+        self._state.output_fingerprint = None
+        self._state.completed_steps.discard(STEP_OUTPUT)
+        for selector, value in (("#output-area", ""), ("#output-status", "")):
+            try:
+                widget = self.query_one(selector)
+            except Exception:
+                continue
+            if hasattr(widget, "load_text"):
+                widget.load_text(value)
+            else:
+                widget.update(value)
+
+    def _refresh_countdown(self) -> None:
+        try:
+            label = self.query_one("#countdown-label", Static)
+        except Exception:
+            return  # Output step is not on screen; the timer runs regardless
+        label.update(
+            f"Auto-clear in {self._auto_clear_remaining}s"
+            if self._auto_clear_remaining >= 0 else ""
+        )
 
     def _build_pipeline(self, request: OperationRequest) -> EncryptionPipeline:
         s = request

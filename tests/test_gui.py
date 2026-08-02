@@ -18,7 +18,12 @@ from morpheus_crypt import __version__
 from morpheus_crypt.core.pipeline import EncryptionPipeline
 from morpheus_crypt.core.validation import check_password_strength
 from morpheus_crypt.ui import theme
-from morpheus_crypt.ui.app import MIN_HEIGHT, MIN_WIDTH, MorpheusWizard
+from morpheus_crypt.ui.app import (
+    AUTO_CLEAR_SECONDS,
+    MIN_HEIGHT,
+    MIN_WIDTH,
+    MorpheusWizard,
+)
 from morpheus_crypt.ui.clipboard import clipboard_copy, clipboard_paste
 from morpheus_crypt.ui.state import (
     STEP_INPUT,
@@ -1495,3 +1500,67 @@ class TestClipboardTimeoutDoesNotLeakTheHelper:
 
         assert killed, "the hanging clipboard helper was left running"
         assert reaped, "the killed helper was never reaped, leaving a zombie"
+
+
+class TestAutoClearSurvivesLeavingTheOutputStep:
+    """The 60-second wipe must not depend on which step is on screen.
+
+    Security review 2026-08-02, F-09. The timer belonged to the Output widget.
+    Leaving the step removed the widget, the timer went with it, and the
+    plaintext stayed in `WizardState.output` indefinitely. The promise the
+    subtitle makes -- that the result disappears after 60 seconds -- was true
+    only while the user was looking at it, which is the case where it matters
+    least.
+    """
+
+    PASSWORD = "T3st!Passw0rd#Str0ng"
+
+    async def _run_then_leave(self, app, pilot):
+        state = app._state
+        state.mode = Mode.ENCRYPT
+        state.input_text = "canary plaintext"
+        state.password = state.password_confirm = self.PASSWORD
+        for step in range(STEP_REVIEW):
+            state.completed_steps.add(step)
+        app._show_step(STEP_REVIEW)
+        await settle(app, pilot)
+        app._run_operation()
+        await app.workers.wait_for_complete()
+        for _ in range(6):
+            await pilot.pause()
+        assert state.output, "the run produced nothing to expire"
+        app._show_step(STEP_INPUT)
+        await settle(app, pilot)
+
+    @pytest.mark.asyncio
+    async def test_expiry_still_fires_from_another_step(self):
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
+            await self._run_then_leave(app, pilot)
+
+            assert app._auto_clear_handle is not None, (
+                "no timer is running once the Output widget is gone"
+            )
+            # Drive the clock rather than waiting 60 real seconds.
+            for _ in range(AUTO_CLEAR_SECONDS + 1):
+                app._auto_clear_tick()
+
+            assert app._state.output == "", (
+                "the plaintext outlived its own auto-clear because the user "
+                "navigated away from the Output step"
+            )
+            assert app._current_step == STEP_INPUT, (
+                "expiry should wipe the result, not move the user"
+            )
+
+    @pytest.mark.asyncio
+    async def test_clearing_wipes_the_state_not_just_the_widget(self):
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
+            await self._run_then_leave(app, pilot)
+            app._clear_output()
+            assert app._state.output == ""
+            assert app._state.output_fingerprint is None
+            assert app._auto_clear_handle is None
