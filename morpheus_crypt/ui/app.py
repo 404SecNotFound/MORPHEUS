@@ -27,7 +27,7 @@ from .. import __version__
 from ..core.ciphers import CIPHER_CHOICES
 from ..core.envelope import decode as envelope_decode
 from ..core.envelope import encode as envelope_encode
-from ..core.fileio import open_secure, unique_path
+from ..core.fileio import atomic_secure_output, unique_path
 from ..core.kdf import KDF_CHOICES
 from ..core.pipeline import EncryptionPipeline
 from ..core.validation import validate_input_text
@@ -680,7 +680,7 @@ class MorpheusWizard(App):
             os.path.basename(path).removesuffix(".enc") or "decrypted_output"
         )
         out_path = unique_path(directory, name)
-        with open_secure(out_path, force=False, binary=True) as fh:
+        with atomic_secure_output(out_path, force=False, binary=True) as fh:
             fh.write(envelope.data)
         return (
             f"Restored {len(envelope.data)} bytes to:\n{out_path}\n\n"

@@ -12,7 +12,9 @@ and a CLI can turn it into a message.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import tempfile
 
 
 def open_secure(path: str, force: bool = False, binary: bool = False):
@@ -70,3 +72,82 @@ def unique_path(directory: str, name: str) -> str:
         if not os.path.exists(candidate):
             return candidate
     raise OSError(f"could not find an unused name for {name!r} in {directory!r}")
+
+
+@contextlib.contextmanager
+def atomic_secure_output(path: str, force: bool = False, binary: bool = False):
+    """Write to a temporary file in the same directory, then swap it in.
+
+    `open_secure` writes straight at the destination, so an interrupted run, a
+    full disk or a crash leaves a partial file that looks like output. With
+    `force` it is worse: the existing file is truncated the moment the handle
+    opens, so a failure part-way through destroys the old content without
+    producing the new (2026-08-02 review, F-15).
+
+    Ordering matters and each step is load-bearing:
+
+    * Without `force`, the destination is *reserved* first with
+      O_CREAT|O_EXCL|O_NOFOLLOW. That keeps the atomic no-clobber and the
+      symlink refusal that `open_secure` provides, before any work is done.
+    * With `force`, an `lstat` refuses a symlink explicitly, because
+      `os.replace` would otherwise happily replace the link and the caller
+      asked to overwrite a file, not to follow one.
+    * The temporary file is created in the destination directory, so the final
+      `os.replace` is a rename within one filesystem and therefore atomic.
+      A temp file in /tmp would make it a copy, which is not.
+    * `fsync` on the file, then `os.replace`, then `fsync` on the directory.
+      Renaming a file whose contents are not yet on disk is exactly the
+      crash-consistency mistake the OSDI 2014 study found in real applications:
+      the rename can be durable while the data is not.
+    """
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    reserved = False
+
+    if force:
+        # os.replace would swap the link itself, which is safe, but the caller
+        # meant a regular file. Refusing is the honest answer.
+        try:
+            if os.path.islink(path):
+                raise OSError(f"refusing to overwrite a symbolic link: {path}")
+        except OSError:
+            raise
+    else:
+        # Reserve the name atomically, exactly as open_secure would.
+        os.close(os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        ))
+        reserved = True
+
+    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".morpheus-", suffix=".tmp")
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        handle = (
+            os.fdopen(fd, "wb") if binary
+            else os.fdopen(fd, "w", encoding="utf-8", newline="")
+        )
+        try:
+            yield handle
+            handle.flush()
+            os.fsync(handle.fileno())
+        finally:
+            handle.close()
+        os.replace(tmp_path, path)
+        tmp_path = None
+        # Make the rename itself durable where the platform supports it.
+        with contextlib.suppress(OSError, AttributeError):
+            dir_fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    except BaseException:
+        if tmp_path is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+        if reserved:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+        raise

@@ -16,6 +16,7 @@ stderr, so `morpheus -o encrypt | morpheus -o decrypt --data -` works.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import getpass
 import sys
 
@@ -30,7 +31,7 @@ from .core.errors import (
     FormatError,
     WrongPasswordError,
 )
-from .core.fileio import open_secure
+from .core.fileio import atomic_secure_output
 from .core.formats import (
     COMMITMENT_SIZE,
     FLAG_CHAINED,
@@ -901,20 +902,15 @@ def run_cli(argv: list[str] | None = None) -> None:
         # is removed if the public key is refused. Otherwise a blocked .pub
         # leaves a secret key on disk whose public half was never saved, and
         # ML-KEM gives no way to recover one from the other.
-        import contextlib
-        import os as _os
-
         sk_path = args.output or "morpheus_pq_secret.key"
         pk_path = f"{sk_path}.pub"
-        sk_fh = _open_secure_output(sk_path, args.force)
-        try:
-            pk_fh = _open_secure_output(pk_path, args.force)
-        except SystemExit:
-            sk_fh.close()
-            with contextlib.suppress(OSError):
-                _os.unlink(sk_path)
-            raise
-        with sk_fh, pk_fh:
+        # Both are entered before either is written. If the public key path is
+        # refused, the secret key's writer unwinds and removes what it had
+        # reserved, so a blocked .pub cannot leave a secret key on disk whose
+        # public half was never saved -- ML-KEM gives no way to recover one
+        # from the other. The atomic writer makes that cleanup automatic.
+        with _open_secure_output(sk_path, args.force) as sk_fh, \
+             _open_secure_output(pk_path, args.force) as pk_fh:
             sk_fh.write(base64.b64encode(sk).decode() + "\n")
             pk_fh.write(base64.b64encode(pk).decode() + "\n")
 
@@ -1207,6 +1203,7 @@ def _read_pq_secret_key_file(path: str) -> str:
     return key_b64
 
 
+@contextlib.contextmanager
 def _open_secure_output(path: str, force: bool, binary: bool = False):
     """Open *path* for writing, owner-only, refusing to follow a symlink.
 
@@ -1222,7 +1219,13 @@ def _open_secure_output(path: str, force: bool, binary: bool = False):
       umask nor whatever permissions an overwritten file happened to carry.
     """
     try:
-        return open_secure(path, force=force, binary=binary)
+        # Atomic: the bytes land in a temporary file in the same directory and
+        # are fsynced before os.replace swaps them in, so an interrupted run
+        # cannot leave a half-written output, and --force cannot destroy the
+        # previous file without producing the new one (F-15).
+        with atomic_secure_output(path, force=force, binary=binary) as handle:
+            yield handle
+        return
     except OSError as exc:
         _print_status(
             f"Error: cannot write output file: {path}\n"

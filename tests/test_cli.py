@@ -32,6 +32,7 @@ from morpheus_crypt.core.errors import (
     FormatError,
     WrongPasswordError,
 )
+from morpheus_crypt.core.fileio import atomic_secure_output
 from morpheus_crypt.core.pipeline import (
     PQ_AVAILABLE,
     EncryptionPipeline,
@@ -1989,3 +1990,58 @@ class TestDocumentedTestCountIsCurrent:
             f"{doc} claims {sorted(stated)} tests; the suite collects {actual}. "
             f"Update the documentation rather than this test."
         )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlink and mode semantics")
+class TestOutputWritesAreAtomic:
+    """A failed write must not destroy what was already there.
+
+    Security review 2026-08-02, F-15. Output went straight at the destination,
+    so an interrupted run left a partial file that looks like a result, and
+    `--force` truncated the previous file the moment the handle opened. A
+    failure part-way through therefore destroyed the old content without
+    producing the new.
+    """
+
+    def test_a_failure_mid_write_leaves_the_previous_file_intact(self, tmp_path):
+        target = tmp_path / "important.txt"
+        target.write_text("ORIGINAL CONTENT", encoding="utf-8")
+
+        with pytest.raises(RuntimeError):
+            with atomic_secure_output(str(target), force=True) as fh:
+                fh.write("partial replacement that never finishes")
+                raise RuntimeError("simulated crash mid-write")
+
+        assert target.read_text(encoding="utf-8") == "ORIGINAL CONTENT", (
+            "the destination was truncated before the new content was complete"
+        )
+
+    def test_a_failure_leaves_no_temporary_files_behind(self, tmp_path):
+        target = tmp_path / "out.txt"
+        with pytest.raises(RuntimeError):
+            with atomic_secure_output(str(target), force=False) as fh:
+                fh.write("nope")
+                raise RuntimeError("simulated crash")
+
+        leftovers = [p.name for p in tmp_path.iterdir()]
+        assert leftovers == [], f"litter left behind: {leftovers}"
+
+    def test_a_successful_write_replaces_the_destination(self, tmp_path):
+        target = tmp_path / "out.txt"
+        target.write_text("old", encoding="utf-8")
+        with atomic_secure_output(str(target), force=True) as fh:
+            fh.write("new")
+        assert target.read_text(encoding="utf-8") == "new"
+        assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+    def test_force_still_refuses_a_symlink(self, tmp_path):
+        victim = tmp_path / "victim.txt"
+        victim.write_text("do not touch", encoding="utf-8")
+        link = tmp_path / "link"
+        link.symlink_to(victim)
+
+        with pytest.raises(OSError):
+            with atomic_secure_output(str(link), force=True) as fh:
+                fh.write("overwritten")
+
+        assert victim.read_text(encoding="utf-8") == "do not touch"
