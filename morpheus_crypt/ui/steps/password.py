@@ -6,7 +6,11 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Checkbox, Input, Label, Static
 
-from ...core.validation import check_password_strength, strength_label
+from ...core.validation import (
+    check_passphrase_strength,
+    check_password_strength,
+    strength_label,
+)
 from .. import theme
 from ..clipboard import clipboard_copy, clipboard_paste
 from ..state import Mode, WizardState
@@ -122,6 +126,33 @@ class PasswordStep(Vertical):
 
         yield Checkbox("Show password", id="show-pwd-check", value=False)
 
+        if is_encrypt:
+            # The policy fails closed, so the two ways round it have to be on
+            # screen. The CLI has had both since the beginning as --passphrase
+            # and --no-strength-check; the wizard enforced neither, which is
+            # how it came to accept a one-character password (F-02).
+            yield Checkbox(
+                "Passphrase mode (4+ words, 20+ characters)",
+                id="passphrase-check",
+                value=self._state.passphrase_mode,
+            )
+            yield Static(
+                f"[{theme.TEXT_3}]Judges word count and total length instead of "
+                "demanding a digit and a symbol. Four random words beat a short "
+                "password with punctuation in it.[/]",
+                classes="field-help",
+            )
+            yield Checkbox(
+                "Skip the strength check",
+                id="skip-strength-check",
+                value=self._state.skip_strength_check,
+            )
+            yield Static(
+                f"[{theme.ERROR}]Accepts any password, including a single "
+                "character. There is no recovery if a weak one is guessed.[/]",
+                classes="field-help",
+            )
+
         yield Static(
             f"[{theme.TEXT_3}]Paste button reads from system clipboard (requires xclip/xsel). "
             "If clipboard is unavailable, use Ctrl+Shift+V to paste directly "
@@ -160,6 +191,11 @@ class PasswordStep(Vertical):
         if event.checkbox.id == "show-pwd-check":
             self._set_revealed("#pwd-input", event.value)
             self._set_revealed("#pwd-confirm", event.value)
+        elif event.checkbox.id == "passphrase-check":
+            self._state.passphrase_mode = event.value
+            self._update_strength()
+        elif event.checkbox.id == "skip-strength-check":
+            self._state.skip_strength_check = event.value
 
     def _set_revealed(self, input_id: str, revealed: bool) -> None:
         """Unmask a password field and mark it as showing secret material.
@@ -216,7 +252,10 @@ class PasswordStep(Vertical):
         bar = self.query_one("#strength-bar", StrengthBar)
         fb = self.query_one("#pwd-feedback", Static)
         if pwd:
-            result = check_password_strength(pwd)
+            result = (
+                check_passphrase_strength(pwd) if self._state.passphrase_mode
+                else check_password_strength(pwd)
+            )
             bar.score = result.score
             if result.feedback:
                 fb.update(f"[{theme.TEXT_3}]" + " · ".join(result.feedback[:2]) + "[/]")

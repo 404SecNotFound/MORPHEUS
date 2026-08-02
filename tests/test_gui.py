@@ -1414,3 +1414,49 @@ class TestTuiFileRoundTripRestoresTheFile:
                 "restored file"
             )
             del restored
+
+
+class TestPasswordPolicyControlsAreReachable:
+    """The policy fails closed, so its two overrides must be operable.
+
+    Enforcing the CLI's password rules in the wizard (F-02) is only safe if the
+    CLI's two escape hatches came with it. Otherwise someone with a deliberate
+    reason for a short password, or a four-word passphrase with no symbol in
+    it, is simply stuck with no way forward and no explanation.
+    """
+
+    @pytest.mark.asyncio
+    async def test_encrypt_offers_both_overrides_and_they_reach_state(self):
+        app = MorpheusWizard()
+        async with app.run_test(size=(MIN_WIDTH, MIN_HEIGHT)) as pilot:
+            app._state.mode = Mode.ENCRYPT
+            app._state.completed_steps.update({0, 1, 2})
+            app._show_step(STEP_PASSWORD)
+            await settle(app, pilot)
+
+            for box_id, attr in (
+                ("passphrase-check", "passphrase_mode"),
+                ("skip-strength-check", "skip_strength_check"),
+            ):
+                box = app.query_one(f"#{box_id}", Checkbox)
+                assert getattr(app._state, attr) is False
+                box.scroll_visible(animate=False)
+                for _ in range(3):
+                    await pilot.pause()
+                await pilot.click(f"#{box_id}")
+                await pilot.pause()
+                assert getattr(app._state, attr) is True, (
+                    f"#{box_id} does not reach WizardState.{attr}"
+                )
+
+    @pytest.mark.asyncio
+    async def test_decrypt_does_not_offer_them(self):
+        """They are encryption policy. Decrypt takes what the ciphertext used."""
+        app = MorpheusWizard()
+        async with app.run_test(size=(MIN_WIDTH, MIN_HEIGHT)) as pilot:
+            app._state.mode = Mode.DECRYPT
+            app._state.completed_steps.update({0, 1, 2})
+            app._show_step(STEP_PASSWORD)
+            await settle(app, pilot)
+            assert not app.query("#passphrase-check")
+            assert not app.query("#skip-strength-check")

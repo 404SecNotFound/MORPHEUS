@@ -243,7 +243,8 @@ class TestPasswordValidation:
         assert "match" in reason.lower()
 
     def test_encrypt_match_valid(self):
-        s = WizardState(mode=Mode.ENCRYPT, password="test", password_confirm="test")
+        pw = "T3st!Passw0rd#Str0ng"
+        s = WizardState(mode=Mode.ENCRYPT, password=pw, password_confirm=pw)
         ok, _ = s.validate_password()
         assert ok
 
@@ -260,8 +261,8 @@ class TestReviewValidation:
             cipher="AES-256-GCM",
             kdf="Argon2id",
             input_text="hello",
-            password="test",
-            password_confirm="test",
+            password="T3st!Passw0rd#Str0ng",
+            password_confirm="T3st!Passw0rd#Str0ng",
         )
         ok, _ = s.validate_review()
         assert ok
@@ -290,12 +291,17 @@ class TestStepUnlocked:
         s = WizardState(mode=Mode.ENCRYPT, input_text="hi", password="")
         assert not s.is_step_unlocked(STEP_REVIEW)
 
+    # These two are about step unlocking, not about the password policy, so
+    # they need a password that policy accepts. They used "test", which the
+    # wizard took before F-02 and the CLI never would have.
+    GOOD_PW = "T3st!Passw0rd#Str0ng"
+
     def test_review_unlocked_when_complete(self):
         s = WizardState(
             mode=Mode.ENCRYPT,
             input_text="hi",
-            password="test",
-            password_confirm="test",
+            password=self.GOOD_PW,
+            password_confirm=self.GOOD_PW,
         )
         assert s.is_step_unlocked(STEP_REVIEW)
 
@@ -303,7 +309,93 @@ class TestStepUnlocked:
         s = WizardState(
             mode=Mode.ENCRYPT,
             input_text="hi",
-            password="test",
-            password_confirm="test",
+            password=self.GOOD_PW,
+            password_confirm=self.GOOD_PW,
         )
         assert s.is_step_unlocked(STEP_OUTPUT)
+
+
+class TestEncryptionPasswordPolicyMatchesTheCli:
+    """The wizard must not accept a password the CLI would refuse.
+
+    Security review 2026-08-02, F-02. `validate_password` checked two things:
+    non-empty, and that the confirmation matched. A password of `a` therefore
+    passed step validation *and* full review validation, and Execute stayed
+    live. The Review screen printed a warning, which is not a control.
+
+    The CLI has always refused a weak password at `check_password_strength`,
+    with `--no-strength-check` as the explicit opt-out. So the two interfaces
+    disagreed on the tool's own documented 12-character minimum, and the one
+    aimed at non-experts was the one that failed open.
+
+    Decryption is deliberately unaffected. A password that was acceptable to an
+    older build, or to another tool, still has to open its ciphertext, and
+    refusing it would lock people out of their own data to enforce a policy
+    that can no longer change anything.
+    """
+
+    WEAK = "a"
+    STRONG = "T3st!Passw0rd#Str0ng"
+    PASSPHRASE = "correct horse battery staple"
+
+    def _state(self, **kw):
+        state = WizardState(mode=Mode.ENCRYPT)
+        for key, value in kw.items():
+            setattr(state, key, value)
+        return state
+
+    def test_a_one_character_password_is_refused_for_encryption(self):
+        state = self._state(password=self.WEAK, password_confirm=self.WEAK)
+        ok, reason = state.validate_password()
+        assert not ok, "the wizard accepted a one-character password"
+        assert reason, "a refusal with no reason is not actionable"
+
+    def test_a_weak_password_cannot_reach_execute(self):
+        """Review must fail too, or the button stays live regardless."""
+        state = self._state(
+            password=self.WEAK, password_confirm=self.WEAK,
+            input_text="secret",
+        )
+        ok, _ = state.validate_review()
+        assert not ok, "Execute was reachable with a one-character password"
+
+    def test_a_strong_password_still_passes(self):
+        state = self._state(password=self.STRONG, password_confirm=self.STRONG)
+        ok, reason = state.validate_password()
+        assert ok, f"a strong password was refused: {reason}"
+
+    def test_decryption_accepts_any_non_empty_password(self):
+        """Historical and third-party ciphertexts must stay openable."""
+        state = WizardState(mode=Mode.DECRYPT, password=self.WEAK)
+        ok, _ = state.validate_password()
+        assert ok, "the policy locked the user out of their own ciphertext"
+
+    def test_passphrase_mode_accepts_words_without_symbols(self):
+        state = self._state(
+            passphrase_mode=True,
+            password=self.PASSPHRASE, password_confirm=self.PASSPHRASE,
+        )
+        ok, reason = state.validate_password()
+        assert ok, f"passphrase mode rejected a valid passphrase: {reason}"
+
+    def test_passphrase_mode_still_refuses_something_too_short(self):
+        state = self._state(
+            passphrase_mode=True, password="two words", password_confirm="two words",
+        )
+        ok, _ = state.validate_password()
+        assert not ok
+
+    def test_the_bypass_exists_and_is_explicit(self):
+        """Matching --no-strength-check, so the CLI opt-out has a TUI twin."""
+        state = self._state(
+            skip_strength_check=True,
+            password=self.WEAK, password_confirm=self.WEAK,
+        )
+        ok, _ = state.validate_password()
+        assert ok, "there is no way to override the policy deliberately"
+
+    def test_the_confirmation_check_still_runs_first(self):
+        state = self._state(password=self.STRONG, password_confirm="different")
+        ok, reason = state.validate_password()
+        assert not ok
+        assert "match" in reason.lower()

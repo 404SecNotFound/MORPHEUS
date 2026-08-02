@@ -85,6 +85,13 @@ class WizardState:
     # Step 4 — Password
     password: str = ""
     password_confirm: str = ""
+    # Word-based policy instead of the character-class one, mirroring the CLI's
+    # --passphrase. Four words and 20 characters, no digit or symbol demanded.
+    passphrase_mode: bool = False
+    # The TUI twin of --no-strength-check. Deliberately a separate field rather
+    # than a looser default: the policy fails closed, and overriding it is an
+    # act the user has to take.
+    skip_strength_check: bool = False
 
     # Step 5 — Review (computed, no fields)
 
@@ -231,10 +238,44 @@ class WizardState:
             return True, ""
 
     def validate_password(self) -> tuple[bool, str]:
+        """Gate the Password step, and with it Execute.
+
+        This used to check only that a password was present and confirmed, so
+        `a` passed here and passed `validate_review`, leaving Execute live
+        while the Review screen printed a warning nobody has to act on. The CLI
+        refused the same password outright. The interface aimed at non-experts
+        was the one that failed open (2026-08-02 review, F-02).
+
+        Strength is enforced for encryption only. On decryption the password is
+        a fact about a ciphertext that already exists: applying today's policy
+        to it would lock people out of their own data to enforce a rule that
+        cannot change anything about how it was encrypted.
+        """
         if not self.password:
             return False, "Enter a password"
-        if self.mode == Mode.ENCRYPT and self.password != self.password_confirm:
+        if self.mode != Mode.ENCRYPT:
+            return True, ""
+        if self.password != self.password_confirm:
             return False, "Passwords do not match"
+        if self.skip_strength_check:
+            return True, ""
+
+        # Imported here rather than at module scope: `state` is imported by
+        # every step widget, and validation pulls in the breach-check path.
+        from ..core.validation import (
+            check_passphrase_strength,
+            check_password_strength,
+        )
+
+        check = (
+            check_passphrase_strength if self.passphrase_mode
+            else check_password_strength
+        )
+        strength = check(self.password)
+        if not strength.is_acceptable:
+            what = "Passphrase" if self.passphrase_mode else "Password"
+            detail = "; ".join(strength.feedback[:2])
+            return False, f"{what} too weak ({strength.label}). {detail}".strip()
         return True, ""
 
     def validate_review(self) -> tuple[bool, str]:
