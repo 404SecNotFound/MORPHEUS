@@ -72,14 +72,17 @@ examples:
   would announce what it holds. The real name travels inside the ciphertext
   and comes back on decrypt. Use --output to pick a name yourself.
 
-  Hybrid post-quantum: encrypt to a public key, no shared password
+  Hybrid post-quantum: a second factor on top of the password
     morpheus --generate-keypair --output my.key    # writes my.key + my.key.pub
     morpheus -o encrypt --data "secret" --hybrid-pq --pq-public-key-file my.key.pub
     morpheus -o decrypt --data "BAECAg..." --hybrid-pq --pq-secret-key-file my.key
 
-  Share my.key.pub freely; keep my.key. Anyone with the public key can encrypt
-  to you, and only your secret key opens it. Your data is quantum-resistant
-  without this — see the README on what ML-KEM does and does not add.
+  Both commands also prompt for a password, and it must be the SAME password.
+  --hybrid-pq combines the password key with the ML-KEM shared secret, so the
+  secret key alone does not decrypt: the sender and recipient still have to
+  share the password over some other channel. This is two-factor, not
+  recipient-only encryption. Your data is quantum-resistant without it — see
+  the README on what ML-KEM does and does not add.
 
   Inspect a ciphertext without a password
     morpheus --inspect --data "BAECAA..."

@@ -529,6 +529,12 @@ While AES-256 is quantum-resistant on its own, we add ML-KEM-768 as a
 factor, but a weak password remains the weakest link. ML-KEM protects against
 quantum attacks on the key exchange, not against password brute-forcing.
 
+**This is two-factor, not recipient-only encryption.** The final key is derived
+from the password key *and* the ML-KEM shared secret, so holding the secret key
+is not enough: the recipient also needs the password the sender used, shared
+over some other channel. Encrypting to a public key with no shared password is
+a different mode that MORPHEUS does not currently have.
+
 ### What Is ML-KEM-768?
 
 ML-KEM (Module-Lattice Key Encapsulation Mechanism) is the algorithm NIST

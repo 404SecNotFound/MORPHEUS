@@ -38,6 +38,14 @@ from morpheus_crypt.core.pipeline import (
 )
 
 
+def _capture_stdout(fn):
+    """Run *fn* and return what it wrote to stdout (the payload channel)."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fn()
+    return buf.getvalue()
+
+
 class TestFileEncryption:
     """Test the -f/--file flag for file-based encrypt/decrypt."""
 
@@ -1880,3 +1888,58 @@ class TestKeypairOutputsAreLinkSafe:
         for name in ("recipient.key", "recipient.key.pub"):
             mode = stat.S_IMODE((tmp_path / name).stat().st_mode)
             assert mode == 0o600, f"{name} is {oct(mode)}, expected 0o600"
+
+
+class TestHybridIsTwoFactorNotRecipientOnly:
+    """Hybrid mode needs the ML-KEM secret key *and* the password.
+
+    Security review 2026-08-02, F-03. The README and `--help` both described
+    this as encrypting "to someone else's public key, with no shared password",
+    which is a capability claim, and it was false. `pipeline.py` derives the
+    final key from `password_key + kem_shared_secret` through HKDF, so a
+    recipient holding the secret key and not the sender's password gets
+    WrongPasswordError.
+
+    That matters beyond wording: someone who believed the claim would publish a
+    public key, receive a ciphertext, and be unable to open it, with no
+    indication that the missing piece is a password the sender never mentioned.
+
+    This test exists so the documentation cannot drift back. If a real
+    recipient-only mode is ever added it must be a new mode with its own test,
+    not a change to what this one asserts.
+    """
+
+    PW = "SenderP4ss!word#Aa"
+    OTHER = "Different!P4ssw0rd"
+
+    def test_the_secret_key_alone_does_not_decrypt(self, tmp_path):
+        pytest.importorskip("pqcrypto")
+        key = tmp_path / "recipient.key"
+        run_cli(["--generate-keypair", "--output", str(key)])
+
+        ciphertext = _capture_stdout(lambda: run_cli([
+            "-o", "encrypt", "--data", "recipient secret", "--hybrid-pq",
+            "--pq-public-key-file", f"{key}.pub", "-p", self.PW,
+        ])).strip()
+        assert ciphertext
+
+        with pytest.raises(SystemExit):
+            run_cli([
+                "-o", "decrypt", "--data", ciphertext, "--hybrid-pq",
+                "--pq-secret-key-file", str(key), "-p", self.OTHER,
+            ])
+
+    def test_the_secret_key_plus_the_senders_password_does(self, tmp_path):
+        pytest.importorskip("pqcrypto")
+        key = tmp_path / "recipient.key"
+        run_cli(["--generate-keypair", "--output", str(key)])
+
+        ciphertext = _capture_stdout(lambda: run_cli([
+            "-o", "encrypt", "--data", "recipient secret", "--hybrid-pq",
+            "--pq-public-key-file", f"{key}.pub", "-p", self.PW,
+        ])).strip()
+        recovered = _capture_stdout(lambda: run_cli([
+            "-o", "decrypt", "--data", ciphertext, "--hybrid-pq",
+            "--pq-secret-key-file", str(key), "-p", self.PW,
+        ]))
+        assert "recipient secret" in recovered

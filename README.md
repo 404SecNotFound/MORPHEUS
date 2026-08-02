@@ -57,8 +57,9 @@ required.
 > function that turns your password into a key. An **AEAD** cipher encrypts and
 > tamper-proofs in one step, producing a short **tag** that fails loudly if a
 > single bit changed.
-4. **Optional ML-KEM-768** (FIPS 203) for a second, asymmetric factor: encrypt
-   to someone's public key so that guessing the password is not enough
+4. **Optional ML-KEM-768** (FIPS 203) as a second, asymmetric factor: the
+   holder of the secret key still needs the password too, so guessing the
+   password alone is not enough
 
 > **On the wording.** "Post-quantum" is often used to mean "uses a lattice
 > KEM". It is used here in the sense that matters to you: the ciphertext
@@ -98,7 +99,7 @@ python morpheus.py -o encrypt -f secret.pdf
 
 > **You do not need this for quantum resistance** — every encryption above
 > already has it. `pip install pqcrypto` is only for `--hybrid-pq`, the mode that
-> encrypts to someone else's public key instead of a shared password. See
+> adds a second, independent factor on top of the password. See
 > [Why quantum resistance does not depend on ML-KEM](#why-quantum-resistance-does-not-depend-on-ml-kem).
 
 > **Clipboard on Linux:** the TUI copies via `pyperclip` and falls back to
@@ -129,7 +130,7 @@ Choose your protection level:
 |------|-------------|----------|
 | **Single cipher** | AES-256-GCM *or* ChaCha20-Poly1305 | Everyday encryption |
 | **Cipher chaining** | AES-256-GCM *then* ChaCha20 with independent keys | Defense against single-algorithm compromise |
-| **Hybrid PQ** | Password key + ML-KEM-768 shared secret combined via HKDF | Encrypting **to someone else's public key**, with no shared password |
+| **Hybrid PQ** | Password key + ML-KEM-768 shared secret combined via HKDF | A **second factor**: the recipient needs the ML-KEM secret key **and** the password. Not recipient-only encryption |
 | **Maximum** | Chaining + Hybrid PQ (all layers) | Highest assurance |
 
 All four are quantum-resistant. Hybrid PQ is not the one that makes that true —
