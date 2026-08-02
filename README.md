@@ -237,7 +237,7 @@ Configure the encryption algorithm and key derivation function. Defaults
 - **KDF**: Argon2id (memory-hard, resists GPU/ASIC) or Scrypt (widely deployed)
 - **Chain ciphers**: Double encryption with independent keys — hedges against a
   single-cipher break
-- **Advanced**: Plaintext padding, fixed 64 KiB output, omit filename from
+- **Advanced**: Plaintext padding, constant-size output, omit filename from
   envelope
 
 Hybrid post-quantum is **not** offered here. It needs an ML-KEM keypair and the
@@ -381,7 +381,7 @@ used, and will be removed. Do not use it.
 | `--kdf` | `Argon2id` (default) or `Scrypt` |
 | `--chain` | Enable cipher chaining |
 | `--pad` | Pad plaintext to hide exact length (bucket mode: 256B/1K/4K/16K/64K) |
-| `--fixed-size` | Pad all ciphertexts to 64 KiB (constant-size, max privacy). Implies `--pad` |
+| `--fixed-size` | Pad the **plaintext** to 64 KiB so every ciphertext is the same size. The base64 output is 87,508 characters in default single-cipher mode, not 64 KiB: header, salt, nonce, commitment, tag and the outer base64 all sit on top. Implies `--pad` |
 | `--force` | Overwrite existing output files |
 | `--no-strength-check` | Skip password strength validation |
 | `--no-filename` | Omit original filename from encrypted envelope |
@@ -678,7 +678,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**671 tests** across 14 test files:
+**697 tests** across 14 test files:
 
 | File | Scope |
 |------|-------|
@@ -734,7 +734,7 @@ Morpheus/
 │       ├── validation.py      # Password scoring, passphrase mode, breach detection
 │       ├── entropy.py         # Dice-roll entropy arithmetic (--dice-entropy)
 │       └── errors.py          # MorpheusError hierarchy
-├── tests/                     # 671 tests (NIST/RFC vectors included)
+├── tests/                     # 697 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

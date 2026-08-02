@@ -3,6 +3,7 @@
 import ast
 import base64
 import contextlib
+import functools
 import io
 import json
 import os
@@ -1943,3 +1944,48 @@ class TestHybridIsTwoFactorNotRecipientOnly:
             "--pq-secret-key-file", str(key), "-p", self.PW,
         ]))
         assert "recipient secret" in recovered
+
+
+class TestDocumentedTestCountIsCurrent:
+    """The number in the docs must be the number the suite actually collects.
+
+    Security review 2026-08-02 found README claiming 429 tests across 13 files
+    when there were 671 across 14, with the dice feature's own test file
+    missing from the table. That figure had been wrong for a long time, because
+    nothing checked it and every new test made it staler.
+
+    A count in prose is a claim about the code, so it gets a guard like any
+    other. This is cheap and it removes the whole class of drift: adding a test
+    now fails this until the documented figure is updated with it.
+    """
+
+    CLAIM = re.compile(r"\*\*(\d+) tests\*\*|# (\d+) tests|\"(\d+) passed\"|\*\*(\d+) passed\*\*")
+
+    @staticmethod
+    @functools.lru_cache(maxsize=1)
+    def _collected() -> int:
+        import subprocess
+        out = subprocess.run(
+            [sys.executable, "-m", "pytest", "--collect-only", "-q",
+             str(Path(__file__).parent)],
+            capture_output=True, text=True,
+        ).stdout
+        match = re.search(r"(\d+) tests collected", out)
+        assert match, f"could not read a collected count from pytest:\n{out[-500:]}"
+        return int(match.group(1))
+
+    @pytest.mark.parametrize("doc", ["README.md", "docs/USAGE.md"])
+    def test_every_stated_count_matches_reality(self, doc):
+        root = Path(__file__).resolve().parent.parent
+        text = (root / doc).read_text(encoding="utf-8")
+        stated = {
+            int(next(g for g in m.groups() if g))
+            for m in self.CLAIM.finditer(text)
+        }
+        if not stated:
+            pytest.skip(f"{doc} states no test count")
+        actual = self._collected()
+        assert stated == {actual}, (
+            f"{doc} claims {sorted(stated)} tests; the suite collects {actual}. "
+            f"Update the documentation rather than this test."
+        )
