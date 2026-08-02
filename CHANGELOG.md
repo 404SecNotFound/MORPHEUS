@@ -3,6 +3,77 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.0] - 2026-08-02
+
+### Security
+
+Response to the end-to-end security review of 2026-08-02. Thirteen of sixteen
+findings closed. No ciphertext format change: everything v2.1.0 and earlier
+produced still decrypts.
+
+- **Wizard results can no longer describe inputs they never used.** The worker
+  read live state and stamped the result against the state as it was on
+  completion, so changing the password mid-run produced a ciphertext under the
+  old password, marked as current. Execute now freezes an immutable request and
+  publishes only if the inputs still match it. (F-01)
+- **The wizard enforces the CLI's password policy.** It previously accepted a
+  one-character password for encryption while the CLI refused it. Decryption is
+  unaffected, so existing ciphertexts stay openable, and the CLI's two
+  overrides gained wizard equivalents. (F-02)
+- **Encrypt and decrypt have separate size ceilings.** One 100 MiB limit applied
+  to plaintext going in and to base64 ciphertext coming back, so files above
+  ~56 MiB encrypted and were then refused for decryption. (F-04)
+- **Wizard file decryption restores the file.** It returned the internal
+  transport envelope as text instead of writing the recovered bytes. (F-05)
+- **Keypair generation no longer follows a symlink at the `.pub` path**, which
+  allowed an arbitrary-file overwrite that exited successfully. (F-06)
+- **The envelope parser is strict.** Recognition now requires the whole schema,
+  so ordinary JSON containing a `data` key is returned as plaintext rather than
+  unpacked over the user's document, and base64 is validated. (F-07)
+- **Filenames from third-party ciphertexts are sanitised** of control
+  characters, both separator styles and reserved device names, and are printed
+  escaped. (F-08)
+- **Auto-clear survives leaving the Output step.** The timer belonged to the
+  widget, so navigating away left the plaintext in memory indefinitely. (F-09)
+- **KDF cost from an unauthenticated header is bounded.** Memory was capped but
+  the product was not, so a hostile ciphertext could demand minutes of CPU
+  before authenticity could be checked. `--allow-expensive-kdf` opts back in.
+  (F-10)
+- **Password and KEM buffers are wiped on every decrypt error path**, not only
+  on the paths that reached the inner cleanup scope. (F-11)
+- **A hung clipboard helper is killed and reaped** instead of being left
+  running with the plaintext. (F-14)
+- **Output writes are atomic.** Temporary file in the destination directory,
+  fsync, rename, fsync the directory, so an interrupted run cannot leave a
+  partial result and `--force` cannot destroy the old file without producing
+  the new. (F-15)
+
+### Added
+
+- `--allow-expensive-kdf`, to decrypt ciphertexts whose headers ask for
+  unusually costly KDF settings.
+- Passphrase mode and an explicit strength-check override in the wizard,
+  matching `--passphrase` and `--no-strength-check`.
+
+### Fixed
+
+- `--fixed-size` is documented as what it does: it pads the plaintext to 64 KiB
+  and produces an 87,508-character base64 output in default mode, not a 64 KiB
+  ciphertext. (F-13)
+- Hybrid post-quantum is documented as a second factor rather than
+  recipient-only encryption. The ML-KEM secret key alone does not decrypt; the
+  sender's password is required as well. (F-03)
+- The source distribution ships `tests/vectors/*.json` and `tests/support.py`,
+  so the compatibility vectors can be run from the archive. CI now installs
+  each built artifact into a clean environment and tests that, rather than
+  only testing the checkout. (F-12)
+
+### Known limitations
+
+- File handling still buffers whole files in both interfaces; streaming is
+  planned for the next format version. (F-16, partial)
+- There is no recipient-only post-quantum mode. `--hybrid-pq` is two-factor.
+
 ## [Unreleased]
 
 Findings from the pre-publication UAT programme. Defect IDs refer to that
