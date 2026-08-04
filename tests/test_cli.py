@@ -1975,7 +1975,8 @@ class TestDocumentedTestCountIsCurrent:
         assert match, f"could not read a collected count from pytest:\n{out[-500:]}"
         return int(match.group(1))
 
-    @pytest.mark.parametrize("doc", ["README.md", "docs/USAGE.md"])
+    @pytest.mark.parametrize("doc", ["README.md", "docs/USAGE.md",
+                                     "CONTRIBUTING.md"])
     def test_every_stated_count_matches_reality(self, doc):
         root = Path(__file__).resolve().parent.parent
         text = (root / doc).read_text(encoding="utf-8")

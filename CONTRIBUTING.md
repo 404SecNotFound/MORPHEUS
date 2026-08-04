@@ -27,7 +27,7 @@ pip install pqcrypto             # For post-quantum tests
 
 ```bash
 python -m pytest tests/ -v
-# All 429 tests should pass
+# 734 tests should pass (1 skips off Linux: the sysfs check --check-network reads)
 ```
 
 ## What We Welcome
@@ -109,7 +109,9 @@ morpheus_crypt/
 │   ├── pipeline.py     # Orchestration: chaining, hybrid PQ, key lifecycle
 │   ├── formats.py      # Versioned binary format with AAD
 │   ├── memory.py       # ctypes.memset zeroing of key buffers
-│   └── validation.py   # Password scoring, input validation
+│   ├── validation.py   # Password scoring, input validation
+│   ├── entropy.py      # Dice-roll entropy arithmetic (--dice-entropy)
+│   └── netcheck.py     # Passive link-state reading (--check-network)
 ├── ui/                 # The Textual wizard — this is the TUI
 │   ├── app.py          # MorpheusWizard: layout, step routing, workers
 │   ├── state.py        # WizardState: per-step validation and unlock rules
@@ -124,7 +126,10 @@ morpheus_crypt/
 ```
 
 Most UI work belongs in `ui/`, not in `gui.py`. That file exists only so
-`from morpheus.gui import run_gui` keeps working.
+`from morpheus_crypt.gui import run_gui` keeps working. Note the package is
+`morpheus_crypt`, not `morpheus`, since the 2026-07-30 rename: `morpheus` on
+PyPI is an unrelated abandoned package that also ships a top-level `morpheus`
+import package.
 
 Two things in `ui/` are load-bearing and easy to trip over. `theme.py` holds
 the colour tokens *and* the stylesheet, and `tests/test_theme.py` asserts that

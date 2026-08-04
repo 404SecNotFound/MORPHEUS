@@ -179,7 +179,7 @@ pip install pqcrypto
 
 ```bash
 python -m pytest tests/ -v
-# You should see: "733 passed"
+# You should see: "734 passed"
 ```
 
 ---
@@ -834,7 +834,7 @@ algorithms were used. This means:
 python -m pytest tests/ -v
 ```
 
-Expected output: **733 passed**
+Expected output: **734 passed**
 
 ### What the Tests Cover
 
