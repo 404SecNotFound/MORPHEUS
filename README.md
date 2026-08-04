@@ -399,12 +399,15 @@ used, and will be removed. Do not use it.
 | `--benchmark` | Benchmark cipher and KDF performance, recommend optimal config |
 | `--dice-entropy N` | Report how much entropy N fair dice rolls carry, and how many more reach 128 or 256 bits. Takes a **count**, never the rolls. Exit code 0 at or above the 128-bit floor, 1 below it, so a script can gate on it |
 | `--dice-sides N` | Faces on the die used with `--dice-entropy` (default 6; use 2 for coin flips) |
+| `--check-network` | List which interfaces currently report a live link, for setting up an air-gapped machine. Reads kernel link state only: it sends no packets and opens no sockets. Exit code 0 when nothing could carry traffic, 1 when something could, 2 where link state cannot be read at all. Linux only, and it cannot prove a machine is air-gapped |
 | `--version` | Print the version and exit. Quote this when reporting an issue |
 
 Passing any flag runs the CLI. Running `python morpheus.py` with no arguments launches the GUI.
 
 See [Rolling Dice for a Seed Phrase](#rolling-dice-for-a-seed-phrase) for what
-`--dice-entropy` is actually for.
+`--dice-entropy` is actually for, and
+[Checking What Is Still Connected](#checking-what-is-still-connected) for
+`--check-network`.
 
 </details>
 
@@ -545,6 +548,79 @@ the number is worthless without them.
 
 ---
 
+## Checking What Is Still Connected
+
+The step before rolling dice is unplugging the machine, and the usual way to
+confirm that is to open a browser and see whether a page loads. On a machine you
+are about to generate a seed on, that is exactly the wrong move.
+
+```bash
+python morpheus.py --check-network
+```
+
+```
+MORPHEUS Network Check
+============================================
+  eth0         ethernet  no carrier  down
+  lo           loopback  CARRIER     unknown
+  wlan0        wireless  no carrier  down
+
+  No interface currently reports a carrier.
+
+  This reads link state only. It sends no packets and opens no sockets, which
+  is deliberate: probing the network is the one thing an air-gapped machine
+  must not do.
+
+  It cannot tell you this machine is air-gapped. It does not see a phone about
+  to be tethered, a Bluetooth connection, a virtual machine's host bridge, or
+  a cable plugged back in a minute from now. It cannot see whether the machine
+  was already online earlier, which is what matters most: an air gap stops
+  data leaving over the wire, not something that arrived before the gap.
+```
+
+Loopback shows a carrier and is never counted: it goes nowhere.
+
+### It asks the kernel, it does not ask the network
+
+The obvious way to answer "am I online" is to try reaching something. That sends
+the packet an air-gapped user must not send, and it announces that MORPHEUS is
+running, when, and from which address. So the question is narrowed to one the
+machine can answer by itself: is any interface in a state where traffic could
+leave. That is read from `/sys/class/net`, which the kernel already maintains.
+
+`--check-network` opens no sockets, resolves no names and starts no
+subprocesses. A test parses the module and fails the build if it ever imports
+`socket`, `urllib`, `subprocess` or anything similar, because this is the kind
+of property that erodes quietly during a refactor.
+
+### It will not tell you that you are air-gapped
+
+No absence of carrier proves that. It cannot see a phone about to be tethered, a
+Bluetooth connection, a virtual machine's host bridge, or a cable pushed back in
+a minute from now. Most importantly it cannot see whether the machine was online
+earlier, which is what usually matters: an air gap stops data leaving over the
+wire, it does nothing about something that arrived before the gap.
+
+So the output reports what was observed and names its own blind spots. There is
+no green light meaning "you are safe", because the software cannot back that
+sentence, and a false sense of security is at its most expensive in the minutes
+someone is generating a seed.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | No interface was observed carrying traffic |
+| `1` | At least one interface could carry traffic |
+| `2` | Link state could not be read on this platform |
+
+`2` exists so a setup script cannot read "unsupported" as a clean result. Link
+state comes from `/sys/class/net`, which only Linux provides; on macOS and
+Windows the check declines rather than guessing, and you disconnect the cable
+and turn off Wi-Fi by hand.
+
+---
+
 ## Security Design
 
 ### What We Protect Against
@@ -679,7 +755,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**714 tests** across 14 test files:
+**733 tests** across 15 test files:
 
 | File | Scope |
 |------|-------|
@@ -697,6 +773,7 @@ python -m pytest tests/ -v
 | `test_entropy.py` | Bits per roll for d2/d6/d20, the 128-bit floor and 256-bit target, rolls-needed arithmetic, verdict wording, CLI exit codes |
 | `test_vectors.py` | Pinned v2/v3/v4 ciphertexts still decrypt to their recorded plaintext; tampered vectors rejected |
 | `test_theme.py` | Palette contrast against the background, accent and low-contrast token restrictions parsed out of the stylesheet, and the rendered colour set pinned against an exported screenshot |
+| `test_netcheck.py` | Link-state parsing from a fake sysfs, loopback and virtual interface handling, an AST guard that the module imports no networking, and the refusal to call a quiet machine air-gapped |
 
 Tests include **NIST SP 800-38D** and **RFC 8439** reference vectors verified
 against the `cryptography` library's validated implementations.
@@ -734,8 +811,9 @@ Morpheus/
 │       ├── memory.py          # ctypes.memset zeroing of key buffers
 │       ├── validation.py      # Password scoring, passphrase mode, breach detection
 │       ├── entropy.py         # Dice-roll entropy arithmetic (--dice-entropy)
+│       ├── netcheck.py        # Passive link-state reading (--check-network)
 │       └── errors.py          # MorpheusError hierarchy
-├── tests/                     # 714 tests (NIST/RFC vectors included)
+├── tests/                     # 733 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

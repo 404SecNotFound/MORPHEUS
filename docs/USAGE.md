@@ -175,7 +175,7 @@ pip install pqcrypto
 
 ```bash
 python -m pytest tests/ -v
-# You should see: "714 passed"
+# You should see: "733 passed"
 ```
 
 ---
@@ -251,6 +251,7 @@ python morpheus.py -o decrypt --data "AgECAADE3f7a..."
 | `--generate-keypair` | Generate an ML-KEM-768 keypair: public key to stdout, secret key to a 0600 file (path from `--output`). POSIX only; on Windows the mode is not applied — see SECURITY.md |
 | `--dice-entropy` | Report how much entropy a number of fair dice rolls carries. Takes a **count**, not the rolls. Exits 1 below 128 bits |
 | `--dice-sides` | Faces on the die used with `--dice-entropy` (default 6) |
+| `--check-network` | List which interfaces currently report a live link. Reads kernel link state only: no packets, no sockets. Exits 0 when nothing could carry traffic, 1 when something could, 2 where it cannot be read. Linux only |
 
 ---
 
@@ -376,6 +377,82 @@ argument for counting them, and for counting them correctly.
 **This tool does not generate seeds, and should not.** Seed generation belongs on
 an air-gapped device with a screen you trust. Doing it on a general-purpose
 machine beside a browser trades a known weakness for a worse one.
+
+---
+
+## Checking What Is Still Connected
+
+The step before rolling dice is unplugging the machine. The usual way to confirm
+that is to open a browser and see whether a page loads, which on this particular
+machine is the wrong move.
+
+```bash
+python morpheus.py --check-network
+```
+
+```
+MORPHEUS Network Check
+============================================
+  eth0         ethernet  no carrier  down
+  lo           loopback  CARRIER     unknown
+  wlan0        wireless  no carrier  down
+
+  No interface currently reports a carrier.
+```
+
+The full output continues with the caveat below, printed every run.
+
+### What it reads
+
+`/sys/class/net`, and nothing else. It opens no sockets, resolves no names and
+starts no subprocesses. Probing the network sends the packet an air-gapped user
+must not send, and announces that MORPHEUS is running, when, and from which
+address. The question is narrowed to one the kernel can answer locally: is any
+interface in a state where traffic could leave.
+
+A test parses the module and fails the build if it ever imports `socket`,
+`urllib`, `subprocess` or similar, because this property erodes quietly during
+a refactor.
+
+Loopback reports a carrier and is never counted, since it goes nowhere. Bridges,
+tunnels and taps are labelled `virtual` but **are** counted: `docker0` with a
+carrier is a route off the machine like any other.
+
+### What it cannot tell you
+
+That the machine is air-gapped. Nothing can, from inside. It does not see a
+phone about to be tethered, a Bluetooth connection, a hypervisor's host bridge,
+or a cable pushed back in a minute from now. It cannot see whether the machine
+was online earlier, which is usually the part that matters: an air gap stops
+data leaving over the wire, not something that arrived before the gap.
+
+The output says so in place rather than in a footnote, and there is no green
+light meaning "you are safe". A false sense of security is at its most expensive
+in the minutes someone is generating a seed.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | No interface was observed carrying traffic |
+| `1` | At least one interface could carry traffic |
+| `2` | Link state could not be read on this platform |
+
+`2` is separate from `0` so a setup script cannot read "unsupported" as a clean
+result. Treat it as its own case rather than folding it into failure:
+
+```bash
+python morpheus.py --check-network
+case $? in
+  0) echo "Nothing observed carrying traffic." ;;
+  1) echo "Still connected. Not ready." ;;
+  2) echo "Cannot read link state here. Check by hand." ;;
+esac
+```
+
+Link state comes from `/sys/class/net`, which only Linux provides. On macOS and
+Windows the check declines rather than guessing, and you disconnect the cable
+and turn off Wi-Fi by hand.
 
 ---
 
@@ -713,7 +790,7 @@ algorithms were used. This means:
 python -m pytest tests/ -v
 ```
 
-Expected output: **714 passed**
+Expected output: **733 passed**
 
 ### What the Tests Cover
 

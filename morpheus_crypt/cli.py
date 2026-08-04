@@ -204,6 +204,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,  # Hidden — deprecated, insecure
     )
     parser.add_argument(
+        "--check-network",
+        action="store_true",
+        help="Report which network interfaces currently have a live link, for "
+             "setting up on an air-gapped machine. Reads kernel link state "
+             "only: it sends no packets and opens no sockets. Exits 1 if any "
+             "interface could carry traffic, so a setup script can gate on it. "
+             "Linux only; it cannot prove a machine is air-gapped.",
+    )
+    parser.add_argument(
         "--allow-expensive-kdf",
         action="store_true",
         help="Permit decrypting a ciphertext whose header asks for unusually "
@@ -438,6 +447,25 @@ def _suggest_fix(exc: Exception, ciphertext: str = "") -> str:
 # real code path and fails if these two drift back together.
 _MAX_PLAINTEXT_BYTES = 100 * 1024 * 1024   # 100 MiB in
 _MAX_CIPHERTEXT_BYTES = 200 * 1024 * 1024  # 200 MiB back, ~1.78x plus overhead
+
+
+def _run_check_network() -> None:
+    """Report link state so someone can see what is still connected.
+
+    Exits 1 when any interface could carry traffic and 0 when none can, so a
+    setup script can refuse to continue. The exit code is a gate, not a
+    verdict: 0 means nothing was observed carrying traffic at this instant, and
+    that is a much smaller claim than "air-gapped". `describe` spells out the
+    difference, and 2 is reserved for platforms where nothing can be read at
+    all so a script does not mistake silence for a clean result.
+    """
+    from .core.netcheck import describe, inspect
+
+    status = inspect()
+    print(describe(status))
+    if not status.supported:
+        sys.exit(2)
+    sys.exit(1 if status.live else 0)
 
 
 def _run_dice_entropy(rolls: int, sides: int) -> None:
@@ -854,6 +882,9 @@ def run_cli(argv: list[str] | None = None) -> None:
     # Ahead of the password prompt on purpose. This reads nothing, writes
     # nothing and needs no key, so asking for a password first would be theatre
     # -- the same reason --version and --inspect resolve up here.
+    if getattr(args, "check_network", False):
+        _run_check_network()
+
     if args.dice_entropy is not None:
         _run_dice_entropy(args.dice_entropy, args.dice_sides)
         return

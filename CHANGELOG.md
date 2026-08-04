@@ -3,6 +3,25 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **`--check-network` reports which interfaces currently have a live link**, for
+  setting up on an air-gapped machine. It reads `/sys/class/net` and nothing
+  else: no sockets, no name resolution, no subprocesses. Probing the network is
+  precisely what an air-gapped user must not do, and it would announce that
+  MORPHEUS is running and from where, so the question is narrowed to one the
+  kernel can answer locally. Exit codes gate a setup script: `0` nothing was
+  observed carrying traffic, `1` something was, `2` link state cannot be read on
+  this platform, kept distinct so "unsupported" is not mistaken for a clean
+  result. Linux only.
+
+  It does not claim the machine is air-gapped, and cannot: it names its blind
+  spots (tethering, Bluetooth, VM bridges, a cable pushed back in, a machine
+  that was already online) in the output itself. A green light meaning "you are
+  safe" would be the fifth unbackable claim this repository has had to remove.
+
 ## [2.2.0] - 2026-08-02
 
 ### Security
