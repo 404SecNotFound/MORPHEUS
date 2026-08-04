@@ -10,6 +10,19 @@
 > `docs/superpowers/` was untracked and gitignored earlier today: it held internal agent
 > working notes that should not publish. This is product documentation and is tracked.
 
+> **Reading this after 2026-07-30.** The import package was renamed `morpheus` ->
+> `morpheus_crypt` on that date, after this document was written. Every `morpheus/...`
+> path below is the layout as it stood on 2026-07-28; the file lives at the same place
+> under `morpheus_crypt/` today. The paths are left as written because this is a dated
+> record of a change, not a current map of the tree. The normative parts, the tokens in
+> section 3 and the strength bands in section 4, are still what the code implements and
+> what `tests/test_theme.py` guards. Section 8's "308 tests" is likewise the figure on
+> the day; the current count is in the README.
+>
+> The companion implementation plan was deleted on 2026-08-04. Its work shipped, its
+> checkboxes were never ticked, nothing referenced it, and by its own header it belonged
+> in the gitignored `docs/superpowers/plans/`. It remains in git history.
+
 ---
 
 ## 1. Goal

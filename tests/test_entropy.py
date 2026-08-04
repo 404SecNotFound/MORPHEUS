@@ -186,7 +186,8 @@ class TestAssessDice:
         that is five rolls, and the assessment must refuse it rather than
         describe it as merely weak.
 
-        For scale: the COLDCARD Mk3 bug left about 40 bits and cost 594 BTC.
+        For scale: the COLDCARD Mk2/Mk3 bug left about 40 bits and cost 594 BTC
+        in the first sweep alone.
         This is 16.6.
         """
         a = assess_dice(5, 10)

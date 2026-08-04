@@ -22,6 +22,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   that was already online) in the output itself. A green light meaning "you are
   safe" would be the fifth unbackable claim this repository has had to remove.
 
+### Security
+
+- **`cryptography` 49.0.0 -> 50.0.0** for PYSEC-2026-3552 / CVE-2026-69247:
+  PKCS#7 `EnvelopedData` decryption distinguished failures by error and by
+  timing, giving a Bleichenbacher oracle against the content-encryption key.
+  MORPHEUS is **not affected** (no RSA, no PKCS#7, no PKCS#1 v1.5 anywhere), but
+  a cryptographic tool should not ship a lock file carrying a known advisory.
+  The `>=44.0.0` floor in `pyproject.toml` is unchanged: it states the API this
+  code needs, while the lock states what is shipped and audited.
+
+### Fixed
+
+- **The plain-language guarantee list no longer claims "your text is never saved
+  to a file".** It is not true and the code says so: `Save to file` writes the
+  output, and `Copy` falls back to `tempfile.mkstemp` when no clipboard backend
+  is available. The README documented both fallbacks while USAGE promised the
+  opposite. Rewritten to say what is actually true, which is that nothing is
+  written without you asking. This is the same class as the `mlock`,
+  clipboard-wipe and "no data touches the disk" claims already removed, found in
+  the section aimed at the least technical reader.
+- **`docs/USAGE.md` has a complete flag table.** It was headed "All CLI Flags"
+  while listing 15 of 29 user-facing flags. The 13 missing ones are documented
+  and `--help` is named in prose; `-p, --password` stays out deliberately, with
+  the reason stated.
+- **The stray `[Unreleased]` heading below 2.2.0 is re-headed.** Ciphertext
+  format v4 shipped in the `v2.2.0` tag but was filed under "Unreleased" inside
+  that same tag, so the section describing the current default format read as
+  pending work. Content unchanged.
+- **`SECURITY.md` lists 2.2.x as supported** and records the 2026-08-02
+  end-to-end review in the audit history, which previously stopped at
+  2026-02-08 and so omitted the review that produced 2.2.0.
+
+### Changed
+
+- **The COLDCARD account is brought up to date and sourced.** Fixed firmware now
+  exists for every affected model, and the versions are listed; Mk2 is named
+  alongside Mk3 as carrying the ~40-bit search space; the 594 BTC first sweep is
+  identified as a first sweep, with Galaxy Research's ~1,367 BTC across ~4,585
+  addresses by 2026-08-02; and the root cause is described, a guard testing
+  whether `MICROPY_HW_ENABLE_RNG` was *defined* rather than what it was set to,
+  so setting it to `0` enabled what it was meant to disable. Every figure now
+  carries a link to the vendor advisory, the vendor's technical backgrounder or
+  CoinDesk.
+
+### Removed
+
+- **`docs/design/2026-07-28-terminal-visual-system-plan.md`.** A 729-line
+  implementation plan for work that shipped, carrying 49 unticked checkboxes,
+  agent orchestration instructions and paths from before the package rename.
+  Nothing referenced it, and by its own header it belonged in the gitignored
+  `docs/superpowers/plans/`. The spec it implements is kept, since the code and
+  `tests/test_theme.py` both cite it; it gains a note that its `morpheus/...`
+  paths predate the rename. History retains the plan.
+
 ## [2.2.0] - 2026-08-02
 
 ### Security
@@ -93,7 +147,13 @@ produced still decrypts.
   planned for the next format version. (F-16, partial)
 - There is no recipient-only post-quantum mode. `--hybrid-pq` is two-factor.
 
-## [Unreleased]
+## [2.2.0] - 2026-08-02 (continued)
+
+> These entries shipped in 2.2.0. They were still headed "Unreleased" when that
+> tag was cut, which was already wrong at the moment of tagging: the format v4
+> work below is in the tag and is the default. Re-headed 2026-08-04 with the
+> content untouched, so the section a reader lands on no longer describes
+> released work as pending.
 
 Findings from the pre-publication UAT programme. Defect IDs refer to that
 programme's register.

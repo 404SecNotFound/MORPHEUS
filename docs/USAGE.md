@@ -41,8 +41,12 @@ text or file that you need to protect. This tool lets you:
   someone who has the scrambled version
 - **If anyone changes even one character** of the encrypted output, the tool
   will detect it and refuse to decrypt (tamper protection)
-- **Your text is never saved to a file** — in text mode, data lives only in the
-  application window and the output automatically disappears after 60 seconds
+- **Nothing is written to disk behind your back.** In text mode the data lives
+  in the application window, and the output display clears itself after 60
+  seconds. Two exceptions are things you ask for: **Save to file** writes the
+  output, and **Copy** falls back to a temporary file when the system has no
+  clipboard backend available. The countdown clears the display; it does not
+  clear your clipboard, and it cannot reach a copy that already left
 - **The scrambled output is different every time** — even if you encrypt the
   same text with the same password twice, you get different output (this
   prevents pattern analysis)
@@ -246,12 +250,30 @@ python morpheus.py -o decrypt --data "AgECAADE3f7a..."
 | `--chain` | Enable cipher chaining (AES + ChaCha) |
 | `--hybrid-pq` | Enable hybrid post-quantum (ML-KEM-768) |
 | `--pq-public-key` | Base64-encoded ML-KEM-768 public key (for hybrid encrypt) |
+| `--pq-public-key-file` | Path to a file holding the base64 public key. `--generate-keypair` writes one as `<secret-key-path>.pub` |
 | `--pq-secret-key` | Base64-encoded ML-KEM-768 secret key (for hybrid decrypt). Discouraged: argv is readable by other local users via `ps` and shell history |
 | `--pq-secret-key-file` | Path to a file holding the base64 secret key. Preferred over `--pq-secret-key` |
 | `--generate-keypair` | Generate an ML-KEM-768 keypair: public key to stdout, secret key to a 0600 file (path from `--output`). POSIX only; on Windows the mode is not applied — see SECURITY.md |
 | `--dice-entropy` | Report how much entropy a number of fair dice rolls carries. Takes a **count**, not the rolls. Exits 1 below 128 bits |
 | `--dice-sides` | Faces on the die used with `--dice-entropy` (default 6) |
 | `--check-network` | List which interfaces currently report a live link. Reads kernel link state only: no packets, no sockets. Exits 0 when nothing could carry traffic, 1 when something could, 2 where it cannot be read. Linux only |
+| `--inspect` | Inspect a ciphertext header without decrypting. Shows format version, cipher, KDF, flags and sizes. No password needed. Use with `--data` or `--file` |
+| `--benchmark` | Benchmark KDF and cipher performance on this hardware, then print a recommended configuration |
+| `--force` | Overwrite the output file if it already exists |
+| `--passphrase` | Use passphrase-mode strength checking (word-based, no digit or special-character requirement). Requires 4+ words and 20+ characters |
+| `--no-strength-check` | Skip password strength validation. Use with caution |
+| `--check-leaks` | Check the password against the Have I Been Pwned breach database. k-anonymity: only 5 characters of the SHA-1 hash are sent. **Requires network access**, so not for an air-gapped machine |
+| `--pad` | Pad the plaintext to hide its exact length |
+| `--fixed-size` | Pad every ciphertext to 64 KiB (constant-size mode). Implies `--pad`; input must be under 64 KiB |
+| `--no-filename` | Leave the original filename out of the encrypted envelope |
+| `--allow-expensive-kdf` | Permit decrypting a ciphertext whose header asks for unusually expensive KDF settings. Off by default: the header is not authenticated until the work is already done, so a hostile file can otherwise spend minutes of CPU and hundreds of MiB |
+| `--save-config` | Save the current cipher/KDF/flag preferences to `~/.morpheus/config.toml` for future sessions |
+| `--version` | Print the version and exit |
+
+`-h, --help` prints the same list from the tool itself. One flag is deliberately absent
+above: `-p, --password` accepts a password as an argument and is hidden and deprecated,
+because `argv` is readable by other local users through `ps` and is kept in shell
+history. Let MORPHEUS prompt instead.
 
 ---
 
@@ -365,14 +387,36 @@ carrying 129 bits of entropy.
 
 On 30 July 2026 roughly 594 BTC moved out of about 500 addresses in 25 minutes.
 A COLDCARD firmware bug had routed seed generation through a software PRNG
-instead of the device's hardware RNG: Mk3 seeds ended up with roughly 40 bits of
-effective search space against an intended 128, and Mk4, Q and Mk5 with roughly
-72.
+instead of the device's hardware RNG: Mk2 and Mk3 seeds ended up with roughly 40
+bits of effective search space against an intended 128, and Mk4, Q and Mk5 with
+roughly 72.
 
 Users who had added at least 50 private dice rolls were not considered at risk,
 because the firmware hashed those rolls in alongside the device's own output.
-Physical dice survived a total failure of the vendor's generator — which is the
+The advisory puts 50 to 98 rolls at 128 bits or more from the dice alone, and 99
+or more at about 256, which is the same arithmetic this tool reports. Physical
+dice survived a total failure of the vendor's generator, and that is the
 argument for counting them, and for counting them correctly.
+
+The cause was not a weak algorithm. Coinkite had written their own hardware
+generator and set `MICROPY_HW_ENABLE_RNG = 0` to turn MicroPython's path off,
+but the guard reading it tested whether the name was defined rather than what it
+was set to. Setting it to zero therefore enabled the very thing it was meant to
+disable, and that shipped in firmware 4.0.0 in March 2021 and stood for five
+years. Worth remembering next time a review checks that a good primitive was
+chosen and stops there.
+
+**What has changed since.** Fixed firmware exists for every affected model:
+Mk2/Mk3 4.2.0 or later, Mk4/Mk5 standard 5.6.0 or later, Q standard 1.5.0Q or
+later, Mk4/Mk5 Edge 6.6.0X or later, Q Edge 6.6.0QX or later. Standard and Edge
+are separate release tracks, so a higher Edge number is not automatically a
+fixed one. Updating does not repair a seed already generated, so affected users
+have to migrate. The 594 BTC was the first sweep only: Galaxy Research put the
+confirmed total near 1,367 BTC across roughly 4,585 addresses by 2 August.
+
+Sources: [Coinkite advisory](https://blog.coinkite.com/coldcard-mk3-seed-generation-warning/)
+and [technical backgrounder](https://blog.coinkite.com/entropy-technical-backgrounder/);
+[CoinDesk on the first sweep](https://www.coindesk.com/tech/2026/07/31/major-bitcoin-wallet-flaw-drains-594-btc-in-25-minute-sweep).
 
 **This tool does not generate seeds, and should not.** Seed generation belongs on
 an air-gapped device with a screen you trust. Doing it on a general-purpose

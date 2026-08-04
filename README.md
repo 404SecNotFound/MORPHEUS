@@ -422,13 +422,33 @@ stop rolling. That is its whole job.
 
 On 30 July 2026 roughly 594 BTC moved out of about 500 addresses in 25 minutes.
 A COLDCARD firmware bug had routed seed generation through a software random
-number generator instead of the device's hardware one. Mk3 seeds ended up with
-roughly 40 bits of real search space against an intended 128, and Mk4, Q and Mk5
-with roughly 72.
+number generator instead of the device's hardware one. Mk2 and Mk3 seeds ended
+up with roughly 40 bits of real search space against an intended 128, and Mk4,
+Q and Mk5 with roughly 72.
 
 Users who had added at least 50 of their own dice rolls **were not considered at
 risk**, because the firmware mixed those rolls in with the device's own output.
 Physical dice survived a total failure of the vendor's generator.
+
+The cause is worth knowing, because it was not a weak algorithm. Coinkite wrote
+their own hardware generator and set `MICROPY_HW_ENABLE_RNG = 0` to switch
+MicroPython's path off. The guard that read that setting tested whether the name
+was **defined**, not what it was set to, so setting it to zero enabled exactly
+the thing it was meant to disable. That one-line confusion shipped in firmware
+4.0.0 in March 2021 and stood for five years.
+
+**What has changed since.** Fixed firmware now exists for every affected model:
+Mk2/Mk3 4.2.0 or later, Mk4/Mk5 standard 5.6.0 or later, Q standard 1.5.0Q or
+later, Mk4/Mk5 Edge 6.6.0X or later, Q Edge 6.6.0QX or later. Standard and Edge
+are separate tracks, so a higher Edge number is not automatically a fixed one.
+Updating does not repair a seed already generated: affected users have to
+migrate. The 594 BTC above was only the first sweep, and Galaxy Research put the
+confirmed total near 1,367 BTC across about 4,585 addresses by 2 August.
+
+Sources: [Coinkite advisory](https://blog.coinkite.com/coldcard-mk3-seed-generation-warning/)
+and [technical backgrounder](https://blog.coinkite.com/entropy-technical-backgrounder/);
+[CoinDesk on the first sweep](https://www.coindesk.com/tech/2026/07/31/major-bitcoin-wallet-flaw-drains-594-btc-in-25-minute-sweep).
+Check the vendor's pages rather than this summary before acting on it.
 
 A die is not software. Nobody can push a bad update to it, it has no supply
 chain, and you can watch it with your own eyes. That is the entire argument for

@@ -2,9 +2,10 @@
 
 Written after the 2026-07-30 COLDCARD disclosure. A firmware bug routed seed
 generation through MicroPython's software PRNG instead of the device's hardware
-RNG: Mk3 seeds landed at roughly 40 bits of effective search space against an
-intended 128, and Mk4, Q and Mk5 at roughly 72. Around 594 BTC moved in a
-25-minute sweep.
+RNG: Mk2 and Mk3 seeds landed at roughly 40 bits of effective search space
+against an intended 128, and Mk4, Q and Mk5 at roughly 72. Around 594 BTC moved
+in a 25-minute sweep, and the confirmed total had reached roughly 1,367 BTC by
+2026-08-02.
 
 Users who had added at least 50 private dice rolls were not considered at risk,
 because the firmware hashed those rolls in alongside the device's own output.
