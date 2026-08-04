@@ -1,6 +1,6 @@
 # Pinned dependencies for reproducible installs.
 # Generated from a clean Python 3.12 environment on 2026-07-28 via `pip freeze`.
-# Audited with `pip-audit`: no known vulnerabilities at time of generation.
+# Audited with `pip-audit`: no known vulnerabilities as of 2026-08-04.
 #
 # Update carefully — this is a cryptographic tool. After any change, re-run:
 #   pip-audit
@@ -12,10 +12,17 @@
 # Must stay consistent with the floors declared in pyproject.toml. The previous
 # revision pinned cryptography==41.0.7, which both carried known advisories and
 # violated the project's own `cryptography>=44.0.0` requirement.
+#
+# cryptography 49.0.0 -> 50.0.0 on 2026-08-04 for PYSEC-2026-3552 /
+# CVE-2026-69247: PKCS#7 EnvelopedData decryption leaked a Bleichenbacher
+# oracle through distinguishable errors and timing. MORPHEUS is not affected —
+# it uses no RSA, no PKCS#7 and no PKCS#1 v1.5 anywhere — but a cryptographic
+# tool should not ship a lock file carrying a known advisory, and `pip-audit`
+# in CI gates on exactly that.
 
 # --- Direct dependencies ---
 argon2-cffi==25.1.0
-cryptography==49.0.0
+cryptography==50.0.0
 pyperclip==1.11.0
 textual==8.2.8
 
