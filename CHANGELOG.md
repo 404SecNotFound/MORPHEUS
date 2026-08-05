@@ -76,6 +76,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `tests/test_theme.py` both cite it; it gains a note that its `morpheus/...`
   paths predate the rename. History retains the plan.
 
+- **`.github/workflows/release.yml`, and with it PyPI distribution.** The
+  workflow published to PyPI on a `v*` tag using Trusted Publishing over OIDC.
+  Publishing that way needs a one-time publisher record registered on PyPI, and
+  without it every tag produced a red `invalid-publisher` run. The decision is
+  to not distribute on PyPI for now, so the workflow goes rather than sitting
+  there failing on each release. `pip install morpheus-crypt` was never
+  available and no version number was ever uploaded, so nothing regresses for
+  anyone: install stays `git clone` plus `pip install -r requirements.txt`, as
+  the README and USAGE already document.
+
+  What the file also held, and where it went. CI already builds the sdist and
+  wheel, verifies wheel contents, checks the sdist carries its test fixtures,
+  installs each artifact clean and runs the compatibility vectors against the
+  installed sdist, which is a stricter artifact check than the `twine check`
+  this workflow ran. The one thing lost is its "check the tag matches the
+  packaged version" step, which only a tag-triggered workflow can do. Nothing
+  now catches a `vX.Y.Z` tag placed on a commit whose `pyproject.toml` says
+  something else. Restoring it is a short tag-triggered job if that matters
+  later; it is not in CI, because CI runs on push and pull request and has no
+  tag to compare against.
+
+  The `pypi` and `testpypi` GitHub environments still exist in repository
+  settings. They are inert with no workflow referencing them, and are left in
+  place so the configuration is not lost if publishing is revisited.
+
 ## [2.2.0] - 2026-08-02
 
 ### Security
