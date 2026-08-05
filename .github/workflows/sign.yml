@@ -1,0 +1,122 @@
+name: Sign
+
+# Build the release artifacts in CI and attest what was built.
+#
+# Why this exists rather than a signature made on someone's laptop. The
+# objection recorded against the deleted release workflow was a long-lived
+# credential sitting on a machine, and a signing key is that objection in its
+# purest form: it has to be stored, backed up, rotated and kept off every host
+# that might be compromised. Sigstore's keyless flow removes the key entirely.
+# GitHub mints a short-lived OIDC identity for this run, the signature is bound
+# to it, and there is nothing left afterwards for anyone to steal.
+#
+# What the attestation actually says: "the workflow `sign.yml` in this
+# repository, at this commit, produced these bytes". That is provenance, not a
+# personal endorsement, and it is the honest claim. It is verifiable by anyone:
+#
+#   gh attestation verify morpheus_crypt-<version>-py3-none-any.whl \
+#     --repo 404SecNotFound/Morpheus
+#
+# **The artifacts are rebuilt here rather than downloaded from the release.**
+# Attesting build provenance for a file this workflow did not build would state
+# something untrue, and a rebuild is the only way the claim holds. That means
+# the checksums change relative to any locally built copy: sdists and wheels
+# embed timestamps, so they are not byte-reproducible across machines.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and attest, e.g. v2.3.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # replace the release assets with the attested build
+      id-token: write      # the OIDC token; this is what replaces a signing key
+      attestations: write  # record the attestation against the repository
+    steps:
+      - name: Work out which tag is being signed
+        id: which
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$tag" ]; then
+            echo "::error::no tag to sign"
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Signing ${tag}"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.which.outputs.tag }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Build from the tag
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check dist/*
+          ls -l dist/
+
+      # The tag guard already proved tag == pyproject == __version__, but that
+      # ran on a different workflow. Re-checking here costs nothing and means a
+      # signature can never be attached to a filename that disagrees with the
+      # tag it claims to be.
+      - name: Check the built filenames match the tag
+        run: |
+          set -euo pipefail
+          version="${{ steps.which.outputs.tag }}"
+          version="${version#v}"
+          for f in "dist/morpheus_crypt-${version}.tar.gz" \
+                   "dist/morpheus_crypt-${version}-py3-none-any.whl"; do
+            [ -f "$f" ] || { echo "::error::expected $f, not built"; exit 1; }
+          done
+          echo "Both artifacts carry ${version}."
+
+      - name: Prove the built sdist still decrypts the pinned vectors
+        run: |
+          set -euo pipefail
+          version="${{ steps.which.outputs.tag }}"
+          version="${version#v}"
+          python -m venv /tmp/verify
+          /tmp/verify/bin/pip install --quiet "dist/morpheus_crypt-${version}.tar.gz" pytest
+          # Run from a directory with no morpheus_crypt/ in it, so the import
+          # comes from site-packages and not from the checkout sitting beside it.
+          mkdir -p /tmp/isolated && cp -R tests /tmp/isolated/tests
+          cd /tmp/isolated
+          /tmp/verify/bin/python -c "import morpheus_crypt, sys; print('importing', morpheus_crypt.__file__); sys.exit(0 if 'site-packages' in morpheus_crypt.__file__ else 1)"
+          /tmp/verify/bin/python -m pytest tests/test_vectors.py -q
+
+      - name: Attest what this run built
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: "dist/morpheus_crypt-*"
+
+      - name: Publish the attested build over the release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.which.outputs.tag }}"
+          sha256sum dist/* | tee dist-checksums.txt
+          gh release upload "$tag" dist/morpheus_crypt-* --clobber
+          echo "### Attested build for \`${tag}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat dist-checksums.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Verify with: gh attestation verify <file> --repo ${{ github.repository }}" >> "$GITHUB_STEP_SUMMARY"
