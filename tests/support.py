@@ -75,6 +75,36 @@ async def settle_on(app, pilot, widget_id: str) -> None:
     )
 
 
+async def settle_until(pilot, predicate, description: str, limit: int = 40) -> None:
+    """Pump frames until `predicate()` holds, for postconditions that are not focus.
+
+    `settle` and its siblings all wait on where the keyboard is. A click needs
+    something different: the postcondition is the widget's *own state*, and that
+    lands a frame or more after the click is posted, because the click becomes a
+    message, the widget toggles when it processes it, and the change is only
+    visible afterwards.
+
+    `pilot.click(...)` followed by a single `pause()` samples exactly one frame
+    and therefore passes only when the toggle happens to win that turn. It did
+    on Linux and macOS every time, and failed on the Windows runner as
+    "#pad-check did not toggle when clicked" with `assert False != False`, which
+    reads like a broken checkbox rather than a test sampling too early.
+
+    This is the same fix as `settle`, one layer along: wait for the thing the
+    caller is about to assert on, not for a fixed number of frames. A count is a
+    magic number that stops being enough as soon as a step gains a widget or the
+    runner gets slower, which is precisely how this surfaced.
+    """
+    for _ in range(limit):
+        await pilot.pause()
+        if predicate():
+            return
+    raise AssertionError(
+        f"{description} never became true within {limit} frames, so the frame "
+        f"would be sampled before the change landed"
+    )
+
+
 async def _await_focus(app, pilot, predicate, description: str) -> None:
     """Pump frames until `predicate(app.focused)` holds on two consecutive ones.
 

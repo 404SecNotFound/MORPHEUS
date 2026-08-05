@@ -46,6 +46,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **A change event arriving after the widgets are gone no longer crashes the
+  app.** Textual drains queued messages while shutting down, so a
+  `TextArea.Changed` posted by the Output step's `load_text` could be dispatched
+  against a screen whose widgets had already been removed. `_update_nav` was the
+  only nav-bar lookup in `ui/app.py` that assumed they were present, and it is
+  reachable from five change handlers, so this was never specific to one step.
+  It took the Windows runner down from inside `contextlib.__aexit__`; the same
+  traceback can appear on exit when a user quits with a change still queued.
+  `_show_step`'s `#step-container` lookup is guarded for the same reason, since
+  `_publish_result` reaches it from `call_from_thread`.
+
+- **Clicks in the GUI tests wait for the toggle instead of a single frame.**
+  `pilot.click(...)` followed by one `pause()` samples exactly one frame and
+  passed only when the toggle won that turn, failing on Windows as
+  "#pad-check did not toggle when clicked". `tests/support.py` gains
+  `settle_until()`, the non-focus counterpart to `settle()`: it waits for the
+  postcondition the test is about to assert on, and fails with a clear message
+  rather than hanging if it never arrives.
+
 - **The plain-language guarantee list no longer claims "your text is never saved
   to a file".** It is not true and the code says so: `Save to file` writes the
   output, and `Copy` falls back to `tempfile.mkstemp` when no clipboard backend

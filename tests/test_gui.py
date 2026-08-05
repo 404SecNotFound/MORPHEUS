@@ -36,7 +36,7 @@ from morpheus_crypt.ui.state import (
     Mode,
 )
 from morpheus_crypt.ui.steps.password import StrengthBar
-from tests.support import settle, settle_on, settle_on_sidebar
+from tests.support import settle, settle_on, settle_on_sidebar, settle_until
 
 # ── StrengthBar unit tests ──────────────────────────────────────
 
@@ -1177,7 +1177,11 @@ class TestControlsAreReachableAtTheMinimum:
 
                 before = box.value
                 await pilot.click(f"#{box_id}")
-                await pilot.pause()
+                await settle_until(
+                    pilot,
+                    lambda box=box, before=before: box.value != before,
+                    f"#{box_id} toggling after a click",
+                )
                 assert box.value != before, f"#{box_id} did not toggle when clicked"
                 assert app._current_step == STEP_SETTINGS, (
                     f"clicking #{box_id} navigated away from Settings"
@@ -1536,7 +1540,11 @@ class TestPasswordPolicyControlsAreReachable:
                 # pane has stopped moving hits whatever is passing underneath.
                 await _scrolled_to_rest(app, pilot, box)
                 await pilot.click(f"#{box_id}")
-                await pilot.pause()
+                await settle_until(
+                    pilot,
+                    lambda attr=attr: getattr(app._state, attr) is True,
+                    f"#{box_id} reaching WizardState.{attr}",
+                )
                 assert getattr(app._state, attr) is True, (
                     f"#{box_id} does not reach WizardState.{attr}"
                 )

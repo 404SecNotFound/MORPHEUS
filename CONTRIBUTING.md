@@ -135,10 +135,17 @@ Two things in `ui/` are load-bearing and easy to trip over. `theme.py` holds
 the colour tokens *and* the stylesheet, and `tests/test_theme.py` asserts that
 nothing renders a colour outside that token set — so adding a widget with a
 hard-coded colour, or one whose Textual defaults paint through, fails the
-suite. And `tests/support.py` provides `settle()`, `settle_on_sidebar()` and
-`settle_on()`: any test that changes a wizard step must await the one matching
-what it then asserts, because a bare `pilot.pause()` samples a frame
-mid-transition and fails intermittently, usually only on Windows CI.
+suite. And `tests/support.py` provides `settle()`, `settle_on_sidebar()`,
+`settle_on()` and `settle_until()`: any test that changes a wizard step must
+await the one matching what it then asserts, because a bare `pilot.pause()`
+samples a frame mid-transition and fails intermittently, usually only on
+Windows CI.
+
+The first three wait on **focus**. `settle_until(pilot, predicate, description)`
+waits on anything else, and is what a click needs: `pilot.click(...)` posts a
+message, the widget toggles when it processes it, and the new value is only
+visible a frame or more later. Assert on the postcondition you care about
+rather than on a frame count.
 
 **Key design principle**: The ciphertext format is self-describing. The header
 tells the decryptor which algorithms were used, and Decrypt reads its
