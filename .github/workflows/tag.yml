@@ -1,0 +1,81 @@
+name: Tag
+
+# The one guard that CI structurally cannot provide.
+#
+# CI runs on push and pull request, so it never has a tag to compare anything
+# against. `tests/test_cli.py::test_packaging_version_matches_the_package_version`
+# already ties pyproject.toml to morpheus_crypt.__version__ on every push, so
+# those two cannot drift apart. The edge left uncovered is the third one: a
+# `vX.Y.Z` tag placed on a commit whose version strings say something else.
+#
+# That matters because a tag is what people build from. A v2.3.0 tag on code
+# reporting 2.2.0 sends issue reporters chasing the wrong build, which is the
+# same failure the packaging test exists for (B10a), one level up.
+#
+# This publishes nothing. It restores only the version check from the deleted
+# release.yml, removed in 2f97f2c along with PyPI distribution.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Tag matches the packaged version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # Both values are read as text rather than imported. Importing the package
+      # would pull in cryptography and argon2, so a dependency problem would
+      # surface here as a version failure and cost someone an hour.
+      - name: Compare the tag against pyproject.toml and __init__.py
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+((a|b|rc|post|dev)[0-9]+)?$'; then
+            echo "::error::tag ${tag} is not vX.Y.Z. The convention is enforced so that a tag always names a version."
+            exit 1
+          fi
+          version="${tag#v}"
+
+          pyproject=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+
+          dunder=$(python - <<'PY'
+          import pathlib, re, sys
+
+          text = pathlib.Path("morpheus_crypt/__init__.py").read_text(encoding="utf-8")
+          match = re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.MULTILINE)
+          if not match:
+              sys.exit("no __version__ assignment found in morpheus_crypt/__init__.py")
+          print(match.group(1))
+          PY
+          )
+
+          echo "tag=${version}  pyproject.toml=${pyproject}  __version__=${dunder}"
+
+          status=0
+          if [ "$version" != "$pyproject" ]; then
+            echo "::error::tag ${tag} says ${version}, pyproject.toml says ${pyproject}"
+            status=1
+          fi
+          if [ "$version" != "$dunder" ]; then
+            echo "::error::tag ${tag} says ${version}, morpheus_crypt.__version__ says ${dunder}"
+            status=1
+          fi
+
+          if [ "$status" -ne 0 ]; then
+            echo "::notice::Nothing is published from a tag, so this is recoverable. Delete the tag, correct the version, and tag again."
+            exit 1
+          fi
+
+          echo "Tag, pyproject.toml and __version__ all agree on ${version}."

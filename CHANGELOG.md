@@ -22,6 +22,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   that was already online) in the output itself. A green light meaning "you are
   safe" would be the fifth unbackable claim this repository has had to remove.
 
+- **`.github/workflows/tag.yml` restores the tag-versus-version check**, which
+  was the one guard lost with `release.yml`. On any `v*` tag it asserts the tag
+  matches both `pyproject.toml` and `morpheus_crypt.__version__`, and that the
+  tag is in `vX.Y.Z` form. It publishes nothing and needs no credentials.
+
+  It exists because CI structurally cannot do this: CI runs on push and pull
+  request, so it never has a tag to compare against. The suite already ties
+  `pyproject.toml` to `__version__` on every push
+  (`test_packaging_version_matches_the_package_version`), so the only uncovered
+  edge was a tag disagreeing with both. Both values are read as text rather than
+  imported, so a broken dependency cannot masquerade as a version mismatch.
+
 ### Security
 
 - **`cryptography` 49.0.0 -> 50.0.0** for PYSEC-2026-3552 / CVE-2026-69247:

@@ -839,6 +839,7 @@ Morpheus/
 ├── CHANGELOG.md               # Version history
 ├── CONTRIBUTING.md            # Contributor guide
 ├── .github/workflows/ci.yml   # CI: Python 3.10-3.13 test matrix
+├── .github/workflows/tag.yml  # On a v* tag: version must match pyproject
 ├── pyproject.toml
 ├── requirements.txt
 └── LICENSE                    # MIT
