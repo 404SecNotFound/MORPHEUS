@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 # cryptography tool's trust boundary. Renaming only the distribution was
 # considered and rejected for exactly that reason.
 name = "morpheus-crypt"
-version = "2.2.0"
+version = "2.3.0"
 description = "Quantum-resistant multi-cipher encryption tool with a terminal GUI"
 readme = "README.md"
 license = "MIT"

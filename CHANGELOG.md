@@ -3,7 +3,11 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [2.3.0] - 2026-08-05
+
+One new CLI flag, a dependency advisory closed, a Windows crash on shutdown
+fixed, and a documentation pass that removed a claim the code contradicted. No
+ciphertext format change: everything 2.2.0 and earlier produced still decrypts.
 
 ### Added
 
