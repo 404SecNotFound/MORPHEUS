@@ -19,6 +19,7 @@ from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.geometry import Size
 from textual.widget import Widget
 from textual.widgets import Button, Footer, Static
@@ -244,10 +245,20 @@ class MorpheusWizard(App):
         # interleave, and a later `query_one("#output-area")` then raises
         # NoMatches and takes the app down with the result still unsaved.
         # `_mount_step` does the same work in order.
-        container = self.query_one("#step-container", Vertical)
-        panel = self._build_step(step)
-        self._step_panel = panel
-        self._mount_step(container, panel)
+        # Guarded for the same reason as `_update_nav` below: `_publish_result`
+        # reaches here from `call_from_thread`, so it can arrive once the screen
+        # has been torn down and the pane no longer exists. Nothing to rebuild
+        # into is not an error, and the step number above is still worth
+        # recording so a later mount lands on the right step.
+        try:
+            container = self.query_one("#step-container", Vertical)
+        except NoMatches:
+            container = None
+
+        if container is not None:
+            panel = self._build_step(step)
+            self._step_panel = panel
+            self._mount_step(container, panel)
 
         # Update sidebar indicators
         if self._sidebar:
@@ -357,10 +368,29 @@ class MorpheusWizard(App):
         return Static("Unknown step")
 
     def _update_nav(self) -> None:
-        """Show/hide and enable/disable Back/Next/Run buttons."""
-        btn_back = self.query_one("#btn-back", Button)
-        btn_next = self.query_one("#btn-next", Button)
-        btn_run = self.query_one("#btn-run", Button)
+        """Show/hide and enable/disable Back/Next/Run buttons.
+
+        Returns quietly when the buttons are not on screen. Five change
+        handlers reach this through `_on_earlier_step_changed`, and Textual
+        drains queued messages while the app shuts down, so a `TextArea.Changed`
+        posted by the Output step's `load_text` can be dispatched after the
+        screen's widgets have gone. That took the Windows runner down from
+        inside `contextlib.__aexit__`, well outside any test body.
+
+        Skipping is correct rather than merely quiet. This only mirrors state
+        onto buttons, and every step change, size-gate change and mode action
+        calls it again, so a skipped call is recomputed by the next one and
+        there is nothing to mirror onto buttons that do not exist. That is the
+        same reasoning `_update_size_gate` records for the identical three ids
+        ("called before compose finished; on_mount will call again"); this was
+        the one nav lookup in the file that did not follow it.
+        """
+        try:
+            btn_back = self.query_one("#btn-back", Button)
+            btn_next = self.query_one("#btn-next", Button)
+            btn_run = self.query_one("#btn-run", Button)
+        except NoMatches:
+            return
 
         btn_back.display = self._current_step > STEP_MODE
         btn_run.display = self._current_step == STEP_REVIEW

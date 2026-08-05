@@ -222,6 +222,59 @@ class TestWizardApp:
             assert app._state.output == plaintext
 
 
+# ── Queued messages outliving the widgets they refer to ──────────
+
+class TestAChangeQueuedAtShutdownDoesNotCrash:
+    """Textual drains queued messages while the app is tearing down.
+
+    `test_encrypt_decrypt_roundtrip` failed on the Windows runner with
+
+        NoMatches: No nodes match '#btn-back' on Screen(id='_default')
+
+    raised from `contextlib.__aexit__`, not from the test body: mounting the
+    Output step loads the result into a `TextArea`, that queues a
+    `TextArea.Changed`, and on a slow runner the message was still queued when
+    the app exited. The shutdown drain then dispatched it against a screen
+    whose widgets had already gone.
+
+    Five handlers funnel into `_on_earlier_step_changed`, so any of Input,
+    Select, Checkbox, RadioSet or TextArea reaches this. `_update_nav` was the
+    only nav-bar lookup in `app.py` that assumed the widgets were there;
+    `_update_size_gate` and `_focus_nav_button` both already tolerated their
+    absence, and `_show_step` guards its own `#top-step` lookup two lines
+    before calling into this one.
+
+    Removing `#nav-bar` reproduces the end state deterministically. Waiting for
+    the real race would make this test a coin flip on exactly the platform that
+    found the bug.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_change_arriving_after_the_nav_bar_is_gone_is_survivable(self):
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
+            await app.query_one("#nav-bar").remove()
+
+            # Exactly what on_text_area_changed does with the event ignored.
+            app._on_earlier_step_changed()
+
+    @pytest.mark.asyncio
+    async def test_the_step_pane_lookup_is_survivable_too(self):
+        """`_show_step` is reachable from a worker callback for the same reason.
+
+        `_publish_result` runs on the UI thread from `call_from_thread` and goes
+        straight to `_show_step`, so it can arrive after teardown just as the
+        change events can.
+        """
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
+            await app.query_one("#step-container").remove()
+
+            app._show_step(STEP_SETTINGS)
+
+
 # ── The settle() helper itself ───────────────────────────────────
 
 class TestSettleWaitsForTheRightThing:
