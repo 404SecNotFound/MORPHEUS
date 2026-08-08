@@ -42,8 +42,9 @@ jobs:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
         include:
-          # The tkinter clipboard fallback and the pbcopy/xclip backends are
-          # platform-specific, so smoke-test the other two OSes on one version.
+          # File permissions, atomic replace and the sysfs link-state check all
+          # behave differently per platform, so smoke-test the other two OSes
+          # on one version.
           - os: macos-latest
             python-version: "3.12"
           - os: windows-latest
@@ -223,9 +224,9 @@ jobs:
           names = zipfile.ZipFile(whl).namelist()
           required = [
               "morpheus_crypt/py.typed",
-              "morpheus_crypt/ui/app.py",
-              "morpheus_crypt/ui/steps/input.py",
+              "morpheus_crypt/cli.py",
               "morpheus_crypt/core/pipeline.py",
+              "morpheus_crypt/core/formats.py",
           ]
           missing = [r for r in required if not any(r in n for n in names)]
           if missing:
@@ -234,12 +235,15 @@ jobs:
           PY
 
       # The sdist carried tests/*.py but not the data they read, so
-      # tests/test_vectors.py shipped without tests/vectors/*.json and
-      # tests/test_gui.py without tests/support.py. The suite passed in the
-      # repository and failed from the archive, which is the wrong way round:
-      # the vectors are how a person who downloaded the source verifies that
-      # this build still decrypts what earlier versions produced
+      # tests/test_vectors.py shipped without tests/vectors/*.json. The suite
+      # passed in the repository and failed from the archive, which is the
+      # wrong way round: the vectors are how a person who downloaded the source
+      # verifies that this build still decrypts what earlier versions produced
       # (2026-08-02 review, F-12).
+      #
+      # docs/FORMAT.md ships too. It is the normative specification, the
+      # vectors are its conformance suite, and an archive carrying the vectors
+      # without the document they conform to is half an artifact.
       - name: Verify sdist carries its test fixtures
         run: |
           python - <<'PY'
@@ -250,7 +254,8 @@ jobs:
               "tests/vectors/v2.json",
               "tests/vectors/v3.json",
               "tests/vectors/v4.json",
-              "tests/support.py",
+              "tests/test_spec_conformance.py",
+              "docs/FORMAT.md",
           ]
           missing = [r for r in required if not any(n.endswith(r) for n in names)]
           if missing:

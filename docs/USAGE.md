@@ -11,16 +11,15 @@ Written for both technical and non-technical readers.
 1. [What This Tool Does (Plain English)](#what-this-tool-does-plain-english)
 2. [How Encryption Works — Explained Simply](#how-encryption-works--explained-simply)
 3. [Installation](#installation)
-4. [Using the GUI](#using-the-gui)
-5. [Using the CLI](#using-the-cli)
-6. [File Encryption](#file-encryption)
-7. [Encryption Modes Explained](#encryption-modes-explained)
-8. [Post-Quantum Encryption Explained](#post-quantum-encryption-explained)
-9. [Password Requirements](#password-requirements)
-10. [The Ciphertext Format](#the-ciphertext-format)
-11. [Testing and Verification](#testing-and-verification)
-12. [Security Guarantees and Limitations](#security-guarantees-and-limitations)
-13. [Troubleshooting](#troubleshooting)
+4. [Using the CLI](#using-the-cli)
+5. [File Encryption](#file-encryption)
+6. [Encryption Modes Explained](#encryption-modes-explained)
+7. [Post-Quantum Encryption Explained](#post-quantum-encryption-explained)
+8. [Password Requirements](#password-requirements)
+9. [The Ciphertext Format](#the-ciphertext-format) (specified in full in [FORMAT.md](FORMAT.md))
+10. [Testing and Verification](#testing-and-verification)
+11. [Security Guarantees and Limitations](#security-guarantees-and-limitations)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -41,12 +40,10 @@ text or file that you need to protect. This tool lets you:
   someone who has the scrambled version
 - **If anyone changes even one character** of the encrypted output, the tool
   will detect it and refuse to decrypt (tamper protection)
-- **Nothing is written to disk behind your back.** In text mode the data lives
-  in the application window, and the output display clears itself after 60
-  seconds. Two exceptions are things you ask for: **Save to file** writes the
-  output, and **Copy** falls back to a temporary file when the system has no
-  clipboard backend available. The countdown clears the display; it does not
-  clear your clipboard, and it cannot reach a copy that already left
+- **Nothing is written to disk behind your back.** In text mode the input comes
+  from the command line or standard input and the output goes to standard
+  output, so nothing is stored. File mode writes the file you asked for, and
+  `--save-config` writes your preferences. Nothing else is written
 - **The scrambled output is different every time** — even if you encrypt the
   same text with the same password twice, you get different output (this
   prevents pattern analysis)
@@ -150,11 +147,8 @@ below.
 
 ### Prerequisites
 - Python 3.10 or newer
-- A terminal that supports colors (most modern terminals do)
-- A terminal at least **100 columns by 30 rows** for the GUI. Below that,
-  MORPHEUS shows a "terminal too small" screen naming your current size instead
-  of a clipped wizard; resize and it returns exactly as you left it, including
-  any finished result. The CLI has no size requirement.
+- Two required packages, `cryptography` and `argon2-cffi`, which bring the total
+  installed to six once their own dependencies are counted
 
 ### Steps
 
@@ -179,34 +173,10 @@ pip install pqcrypto
 
 ```bash
 python -m pytest tests/ -v
-# You should see: "757 passed"
+# You should see: "605 passed"
 ```
 
 ---
-
-## Using the GUI
-
-```bash
-python morpheus.py
-```
-
-Running with no arguments opens the terminal wizard. It works in any modern
-terminal, with no web browser or desktop environment needed, and needs at least
-**100 columns by 30 rows**.
-
-The wizard walks through six steps: Mode, Settings, Input, Password, Review and
-Output. It is documented step by step, with a screenshot of each, in the
-[README](../README.md#using-the-gui), along with the full keyboard map. That is
-not duplicated here so the two cannot drift apart again.
-
-Two things worth knowing before you start:
-
-- **Hybrid post-quantum is not offered in the wizard**, because it needs an
-  ML-KEM keypair the wizard has no way to hold. Your data is quantum-resistant
-  regardless; see
-  [Post-Quantum Encryption Explained](#post-quantum-encryption-explained).
-- **The output auto-clears after 60 seconds.** Copy or save it before then, or
-  press **Stop timer**.
 
 ## Using the CLI
 
@@ -718,12 +688,8 @@ python morpheus.py -o decrypt --data "AgEB..." \
   --hybrid-pq --pq-secret-key-file my_pq_secret.key
 ```
 
-Hybrid post-quantum is **command-line only**. The wizard has no key
-management — no keypair generation, no key entry, no key display — so its
-Settings step points at these flags rather than offering a control it cannot
-honour. `--generate-keypair` prints the public key to stdout and writes the
-secret key to a file with `0600` permissions on POSIX (not on Windows — see
-`SECURITY.md`).
+`--generate-keypair` prints the public key to stdout and writes the secret key
+to a file with `0600` permissions on POSIX (not on Windows, see `SECURITY.md`).
 
 ---
 
@@ -762,67 +728,51 @@ characters (aaa), no sequential patterns (123, abc).
 
 ## The Ciphertext Format
 
+**The normative specification is [FORMAT.md](FORMAT.md).** It defines the byte
+layout of every version, the AAD construction, the frozen key-derivation
+labels, the KDF parameters and the padding scheme, in enough detail to write an
+independent implementation. This section is an overview only. Where the two
+disagree, FORMAT.md is correct.
+
 ### What the Encrypted Output Looks Like
 
-When you encrypt data, you get a base64-encoded string like:
+When you encrypt data, you get a single base64 string:
 
 ```
-AgECAACYm3Kx8dE4R2Fk...long string...
+BAECAAAAAAAAAQAABAAAAAAB9h7Im0SaiCMd5WMz...long string...
 ```
 
-This is not random — it has structure. Here's what's inside:
+This is not random, it has structure. After base64 decoding, the first byte is
+the format version, followed by the rest of a fixed-size header and then the
+payload.
 
-### Binary Layout (Version 2)
+### Versions
 
-```
-Byte 0:     Version (0x02)
-Byte 1:     Cipher ID
-              0x01 = AES-256-GCM
-              0x02 = ChaCha20-Poly1305
-              0x03 = Chained (AES → ChaCha)
-Byte 2:     KDF ID
-              0x01 = Scrypt
-              0x02 = Argon2id
-Byte 3:     Flags
-              Bit 0 = Cipher chaining enabled
-              Bit 1 = Hybrid PQ enabled
-Bytes 4-5:  Reserved (0x0000, validated on read)
-Bytes 6+:   Payload (varies by mode)
-```
+| Version | Status |
+|---------|--------|
+| v4 (`0x04`) | Current. The only version this tool writes. |
+| v3 (`0x03`) | Readable. Adds KDF parameters to the header and an 8-byte key-check. |
+| v2 (`0x02`) | Readable. The original 6-byte header, no key-check. |
 
-### Payload Layout — Single Cipher
+v2 and v3 ciphertexts still decrypt and always will. `tests/vectors/` holds
+stored ciphertexts for all three versions, and they are never regenerated, so a
+compatibility break cannot pass quietly.
 
-```
-[16 bytes: salt][12 bytes: nonce][variable: ciphertext + 16-byte auth tag]
-```
+### What the Header Buys You
 
-### Payload Layout — Chained
+The format is **self-describing**: the header records which cipher and KDF were
+used, and from v3 onward the exact KDF parameters too. So:
 
-```
-[16 bytes: salt][12 bytes: nonce_aes][12 bytes: nonce_chacha][ciphertext + tags]
-```
-
-### Payload Layout — Hybrid PQ (Single Cipher)
-
-```
-[16 bytes: salt][12 bytes: nonce][2 bytes: KEM-ct length (big-endian)][KEM ciphertext][ciphertext + tag]
-```
-
-### Payload Layout — Hybrid PQ (Chained)
-
-```
-[16 bytes: salt][12 bytes: nonce_aes][12 bytes: nonce_chacha][2 bytes: KEM-ct length (big-endian)][KEM ciphertext][ciphertext + tags]
-```
-
-### Why This Matters
-
-The format is **self-describing**: the header tells the decryptor exactly which
-algorithms were used. This means:
-- You don't need to remember what settings you used when encrypting
-- Future versions can add new ciphers without breaking old ciphertexts
-- The full 6-byte header is **authenticated as AAD** — modifying any header
-  byte (including reserved bytes) causes decryption to fail, preventing
-  algorithm-downgrade attacks
+- You do not need to remember what settings you used when encrypting.
+- Future versions can add ciphers without breaking old ciphertexts.
+- Every header byte, including the reserved bytes, is authenticated as AAD, so
+  changing any of them makes decryption fail. That is what stops an attacker
+  downgrading you to a weaker cipher, KDF or parameter set. From v4 the AAD also
+  covers the salt and the post-quantum KEM ciphertext, which in v3 sat outside
+  the authentication tag.
+- v4 additionally stores a 32-byte key commitment, so a ciphertext cannot be
+  built that decrypts to two different plausible plaintexts under two different
+  passwords.
 
 ---
 
@@ -834,19 +784,31 @@ algorithms were used. This means:
 python -m pytest tests/ -v
 ```
 
-Expected output: **757 passed**
+Expected output: **605 passed**
 
 ### What the Tests Cover
 
-| Test File | What It Tests | Count |
-|-----------|---------------|-------|
-| `test_ciphers.py` | AES-GCM and ChaCha20 roundtrips, NIST SP 800-38D test vector, RFC 8439 test vector, ciphertext indistinguishability, wrong key/AAD/tampered data, bytearray keys | 26 |
-| `test_kdf.py` | Argon2id and Scrypt key derivation, determinism, bytearray returns, salt generation, length validation | 17 |
-| `test_formats.py` | Binary format serialization, flag combinations, version/reserved byte validation, AAD collision resistance, empty/large payloads | 18 |
-| `test_pipeline.py` | End-to-end roundtrips for all modes (single/chained/hybrid/both), wrong password detection, cross-compatibility, payload truncation, KEM length=0 bypass, header tampering | 35 |
-| `test_memory.py` | Secure zeroing with ctypes.memset, SecureBuffer, secure_key context manager | 7 |
-| `test_validation.py` | Password strength scoring (0-100), minimum requirements, edge cases, input text validation | 17 |
-| `test_cli.py` | File encrypt/decrypt roundtrip (text and binary files), path traversal prevention | 3 |
+Per-file counts are deliberately not listed. They were wrong here for a long
+time (`test_cli.py` was documented as 3 tests when it had over a hundred),
+because nothing checked them. The total above is checked, by
+`TestDocumentedTestCountIsCurrent` in `tests/test_cli.py`, against README,
+CONTRIBUTING and this file.
+
+| Test File | What It Tests |
+|-----------|---------------|
+| `test_ciphers.py` | AES-GCM and ChaCha20 roundtrips, NIST SP 800-38D test vector, RFC 8439 test vector, ciphertext indistinguishability, wrong key/AAD/tampered data, bytearray keys |
+| `test_kdf.py` | Argon2id and Scrypt key derivation, determinism, bytearray returns, salt generation, length validation |
+| `test_formats.py` | Binary format serialization, flag combinations, version/reserved byte validation, AAD collision resistance, empty/large payloads |
+| `test_pipeline.py` | End-to-end roundtrips for all modes (single/chained/hybrid/both), wrong password detection, cross-compatibility, payload truncation, KEM length=0 bypass, header tampering |
+| `test_vectors.py` | Stored v2/v3/v4 ciphertexts still decrypt to their recorded plaintext, and the guards that stop those vectors being regenerated to hide a break |
+| `test_spec_conformance.py` | A second decryptor written from [FORMAT.md](FORMAT.md) alone, importing nothing from `morpheus_crypt`, run against every stored vector |
+| `test_memory.py` | Secure zeroing with ctypes.memset, SecureBuffer, secure_key context manager |
+| `test_validation.py` | Password strength scoring (0-100), minimum requirements, edge cases, input text validation |
+| `test_config.py` | Preference load and save, allow-list validation, file mode |
+| `test_fuzz.py` | Property-based fuzzing of the parser against hostile input |
+| `test_entropy.py` | Dice-roll entropy arithmetic, the 128-bit floor and 256-bit target, verdict wording, CLI exit codes |
+| `test_netcheck.py` | Link-state parsing from a fake sysfs, an AST guard that the module imports no networking, and the refusal to call a quiet machine air-gapped |
+| `test_cli.py` | Every CLI path: file roundtrips, path traversal prevention, atomic writes, argument validation, and the guard that keeps these documented counts honest |
 
 Tests include **NIST SP 800-38D** (AES-256-GCM) and **RFC 8439** (ChaCha20-Poly1305) reference vectors verified against the `cryptography` library's validated implementations.
 
@@ -979,15 +941,15 @@ python morpheus.py -o encrypt --data "same text"
    linger in Python's heap until garbage collection. For absolute memory
    security, a C/Rust implementation would be needed.
 
-2. **Terminal scrollback**: While the GUI auto-clears, some terminals may
-   retain content in their scrollback buffer. We recommend using the GUI
-   in a terminal that supports secure erase or clearing scrollback.
+2. **Terminal scrollback**: output written to standard output stays in your
+   terminal's scrollback buffer, and possibly in a log if you are recording the
+   session. Clear it yourself after decrypting something sensitive, or write to
+   a file with `--output` instead.
 
-3. **Clipboard security**: MORPHEUS does **not** clear or restore your system
-   clipboard. Anything you copy stays there until you or another application
-   overwrites it, and clipboard managers (macOS Paste, Windows clipboard
-   history, KDE Klipper) may retain their own copies. Clear it yourself after
-   pasting a password or a decrypted secret.
+3. **Shell history and the process list**: passing plaintext or a password on
+   the command line records it in your shell history and makes it visible to
+   anyone who can list processes. Pipe from standard input, or let MORPHEUS
+   prompt for the password, when that matters.
 
 4. **No memory locking**: Key buffers are **not** `mlock`ed. On a machine under
    memory pressure they may be paged to swap and persist on disk after the

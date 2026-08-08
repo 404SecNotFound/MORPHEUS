@@ -5,7 +5,8 @@ The module path and the command name differ on purpose: the import package is
 `morpheus_crypt` because the `morpheus` name on PyPI belongs to someone else,
 while the command users type is unchanged.
 
-Launches the GUI (TUI) by default, or CLI mode when any flags are given.
+This is the reference implementation of the format specified in
+docs/FORMAT.md, and the CLI is its only interface.
 """
 
 from __future__ import annotations
@@ -17,20 +18,17 @@ from .core.errors import MorpheusError
 
 
 def main():
-    # Any command-line argument (beyond the program name) implies CLI mode.
-    # The GUI is only launched for bare `python -m morpheus` / `morpheus`.
+    # A bare invocation shows the help rather than doing anything. There is no
+    # sensible default operation for a tool that either encrypts or decrypts,
+    # and this used to launch a terminal GUI, which the project no longer ships.
     #
     # Everything runs under one handler. A raw traceback tells the user
     # nothing they can act on and discloses absolute install paths; several
     # reachable inputs (a binary file passed to --inspect, an empty --data on
     # a closed stdin) used to produce exactly that.
     try:
-        if len(sys.argv) > 1:
-            from .cli import run_cli
-            run_cli()
-        else:
-            from .gui import run_gui
-            run_gui()
+        from .cli import run_cli
+        run_cli(None if len(sys.argv) > 1 else ["--help"])
     except KeyboardInterrupt:
         # Ctrl-C at a password prompt is a normal way to leave.
         print("\nCancelled.", file=sys.stderr)

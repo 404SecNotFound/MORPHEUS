@@ -5,45 +5,87 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-### Fixed
+This release changes what the project *is*. MORPHEUS is now a specified
+ciphertext format plus a reference implementation of it, rather than an
+application with a format inside. **No ciphertext format change:** everything
+2.3.0 and earlier produced still decrypts, and the stored vectors prove it.
 
-- **Step navigation now works from every step.** `Left`/`Right` are declared
-  without priority, so a focused widget that wants arrows took them first:
-  measured, that is four of the six steps (RadioSet on Mode and Input, Input on
-  Password, TextArea on Output), while F1 help advertised arrows regardless.
-  `priority=True` is not the fix, since Left and Right must still move the cursor
-  in the password field, so **`F2`/`F3` are added** and shown in the footer, with
-  `Alt+Left`/`Alt+Right` as aliases. Keys were chosen by measurement:
-  `ctrl+left/right` are taken by Input for word jumps, `shift+left/right` for
-  selection, `pageup/pagedown` by the Output TextArea, and `ctrl+p` globally by
-  Textual. Function keys were preferred over Alt because they survive SSH more
-  reliably, and the report came from a Raspberry Pi over SSH. A regression test
-  now presses the key on all six steps; its absence is why this shipped
-  documented but broken.
+### Added
+
+- **`docs/FORMAT.md`, a normative specification of the ciphertext format.**
+  Versions v2, v3 and v4, byte by byte: header layouts, payload field order,
+  AAD construction per version, the six frozen key-derivation labels, the KDF
+  parameters and their decrypt-side bounds, the padding scheme, and the ML-KEM
+  object sizes. Written to be implementable by someone who never reads this
+  source, because the format was previously defined only by `core/formats.py`
+  and some prose in USAGE.md that still described v2 as current while v4 was
+  what the tool actually wrote.
+
+  A format documented only by its implementation is not verifiable by anyone
+  who has to trust it, and it cannot be ported without reverse-engineering.
+
+- **`tests/test_spec_conformance.py`, a second decryptor built from that
+  document alone.** It imports nothing from `morpheus_crypt` and hand-rolls
+  HKDF from RFC 5869, so what it tests is the specification's wording rather
+  than a library's reading of it. Run against all 18 stored vectors, it is what
+  stops the specification drifting from the code: a format change that never
+  reaches FORMAT.md fails here.
+
+- **`tests/vectors/` is documented as the conformance suite.** The contract is
+  stated: decrypt every vector and you are compatible. The rules that were
+  previously only in a test docstring (v2 and v3 vectors are never regenerated,
+  a format change gets a new version byte and new vectors, old vectors keep
+  decrypting) are now in FORMAT.md section 12 where an outside implementer can
+  find them.
+
+### Removed
+
+- **The terminal GUI.** `morpheus_crypt/ui/` (3,156 lines), `gui.py`, three test
+  modules and their shared harness, the screenshot and contrast scripts, the
+  rendered screens and the two terminal visual-system design documents.
+
+  It was roughly a third of the codebase and served **11 of 17 pinned
+  dependencies**. Dropping it takes a cryptographic tool from 17 installed
+  packages to 6, and removes a Markdown parser and a syntax highlighter from
+  the trust surface of something that encrypts files. It also retires the
+  Windows GUI flakes, the theme guards and the screenshot pipeline.
+
+  Interface work belongs in the native client, which is a separate project
+  built against FORMAT.md. This repository's job is to be normative. The TUI is
+  in the history if it is ever wanted back.
+
+  The unreleased TUI fixes previously listed here (step navigation, sidebar
+  legibility, the contrast guard) went with it. None of them ever shipped.
+
+- **`textual` and `pyperclip`** from the dependencies, and with them nine
+  transitive packages: `rich`, `Pygments`, `markdown-it-py`, `mdit-py-plugins`,
+  `mdurl`, `linkify-it-py`, `uc-micro-py`, `platformdirs` and
+  `typing_extensions`. `pytest-asyncio` goes from the dev extra.
 
 ### Changed
 
-- **The sidebar states are legible without colour.** Reported from a Pi over
-  SSH: "you cannot see the sections". The palette was not broken, every token
-  passed AA. The sidebar expressed its states through three close warm greys, and
-  locked and available were styled identically, so two of four states were
-  indistinguishable. Each state now carries its own marker (`▌` current, `✓`
-  completed, blank available, `·` locked) with the step number always shown, so
-  the hierarchy survives a terminal that flattens colour. New `ACCENT #4bb3d4`
-  tints the current bar and completed ticks; amber stays exclusively exposed
-  secret material. See
-  [docs/design/2026-08-05-terminal-visual-system-v2.md](docs/design/2026-08-05-terminal-visual-system-v2.md).
+- **A bare `morpheus` prints the help** instead of launching a GUI.
 
-- **The contrast guard walks every (token, surface) pair.** It measured against
-  `BG` alone, which stopped answering the real question the moment a second
-  surface existed, without failing. Extending it immediately caught a candidate
-  row fill putting `ERROR` at 4.43:1, below AA.
+- **Coverage gate raised from 74% to 87%.** The old figure was set when the GUI
+  was the least-covered third of the codebase. Without it the suite measures
+  88.76%, and leaving the gate at 74 would have let fourteen points regress
+  unnoticed.
 
-- **A second background was specified and then cut.** Measurement put panel
-  against root at 1.04:1, confirming a note `theme.py` already carried from
-  2026-07-28: terminals render such tiers as one flat colour. The lightest
-  AA-safe row fill is only 1.20:1 against `BG`, against 7.98:1 for the accent
-  glyph, so structure carries the hierarchy and fills merely reinforce it.
+- **README repositioned.** It led with "a terminal GUI anyone can operate",
+  which is no longer true. It now leads with the format and the specification.
+  The duplicated byte-layout tables in README and USAGE.md are reduced to
+  summaries pointing at FORMAT.md, so there is one description of the format
+  rather than three that can disagree.
+
+- **Per-file test counts removed from USAGE.md.** They were unguarded and
+  wrong: `test_cli.py` was documented as 3 tests while it had 108. Only the
+  total is documented now, and that one is checked against three files by
+  `TestDocumentedTestCountIsCurrent`.
+
+- **CI and packaging follow the new shape.** The wheel and sdist checks assert
+  the CLI, the format module, the vectors, the conformance test and FORMAT.md
+  are present, rather than the deleted GUI modules. The specification ships in
+  the source distribution alongside the vectors it describes.
 
 ## [2.3.0] - 2026-08-05
 

@@ -17,7 +17,7 @@ build-backend = "setuptools.build_meta"
 # considered and rejected for exactly that reason.
 name = "morpheus-crypt"
 version = "2.3.0"
-description = "Quantum-resistant multi-cipher encryption tool with a terminal GUI"
+description = "Quantum-resistant multi-cipher encryption: a specified ciphertext format and its reference implementation"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -25,8 +25,6 @@ requires-python = ">=3.10"
 dependencies = [
     "cryptography>=44.0.0",
     "argon2-cffi>=25.1.0",
-    "textual>=1.0.0",
-    "pyperclip>=1.9.0",
 ]
 
 [project.optional-dependencies]
@@ -34,7 +32,6 @@ pq = ["pqcrypto>=0.4.0"]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "pytest-asyncio>=1.4.0",
     "hypothesis>=6.163.0",
     "ruff==0.16.1",
     "bandit==1.9.4",
@@ -58,21 +55,23 @@ morpheus_crypt = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
 markers = ["slow: marks tests as slow (production KDF params)"]
 
 [tool.coverage.run]
 source = ["morpheus_crypt"]
 omit = [
-    "morpheus_crypt/gui.py",
     "morpheus_crypt/__main__.py",
 ]
 
 [tool.coverage.report]
-# Set just below the current measured figure (~75%) so regressions fail the
-# build without the gate tripping on rounding. Ratchet this upward as TUI
-# coverage improves; do not lower it.
-fail_under = 74
+# Set just below the current measured figure so regressions fail the build
+# without the gate tripping on rounding. Ratchet this upward; do not lower it.
+#
+# 74 -> 87 on 2026-08-08. The old figure was set when the terminal GUI was
+# roughly a third of the codebase and the least-covered part of it. With the
+# GUI gone the suite measures 88.76%, and leaving the gate at 74 would have
+# let fourteen points of coverage regress unnoticed.
+fail_under = 87
 
 [tool.ruff]
 # Pinned explicitly so CI results do not drift when ruff changes its defaults.

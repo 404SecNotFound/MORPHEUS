@@ -27,7 +27,7 @@ pip install pqcrypto             # For post-quantum tests
 
 ```bash
 python -m pytest tests/ -v
-# 757 tests should pass (1 skips off Linux: the sysfs check --check-network reads)
+# 605 tests should pass (1 skips off Linux: the sysfs check --check-network reads)
 ```
 
 ## What We Welcome
@@ -112,44 +112,46 @@ morpheus_crypt/
 │   ├── validation.py   # Password scoring, input validation
 │   ├── entropy.py      # Dice-roll entropy arithmetic (--dice-entropy)
 │   └── netcheck.py     # Passive link-state reading (--check-network)
-├── ui/                 # The Textual wizard — this is the TUI
-│   ├── app.py          # MorpheusWizard: layout, step routing, workers
-│   ├── state.py        # WizardState: per-step validation and unlock rules
-│   ├── theme.py        # Colour tokens and the whole stylesheet
-│   ├── sidebar.py      # Step list and progress indicators
-│   ├── clipboard.py    # Copy/paste with per-platform fallbacks
-│   └── steps/          # One module per wizard step
-├── gui.py              # 12-line shim re-exporting run_gui from ui.app
-├── cli.py              # CLI with text + file encryption
+├── cli.py              # The CLI: this project's only interface
 ├── __init__.py         # Package version
-└── __main__.py         # Entry point (auto-detects GUI vs CLI)
+└── __main__.py         # Entry point; a bare invocation prints the help
 ```
 
-Most UI work belongs in `ui/`, not in `gui.py`. That file exists only so
-`from morpheus_crypt.gui import run_gui` keeps working. Note the package is
-`morpheus_crypt`, not `morpheus`, since the 2026-07-30 rename: `morpheus` on
-PyPI is an unrelated abandoned package that also ships a top-level `morpheus`
-import package.
+Note the package is `morpheus_crypt`, not `morpheus`, since the 2026-07-30
+rename: `morpheus` on PyPI is an unrelated abandoned package that also ships a
+top-level `morpheus` import package.
 
-Two things in `ui/` are load-bearing and easy to trip over. `theme.py` holds
-the colour tokens *and* the stylesheet, and `tests/test_theme.py` asserts that
-nothing renders a colour outside that token set — so adding a widget with a
-hard-coded colour, or one whose Textual defaults paint through, fails the
-suite. And `tests/support.py` provides `settle()`, `settle_on_sidebar()`,
-`settle_on()` and `settle_until()`: any test that changes a wizard step must
-await the one matching what it then asserts, because a bare `pilot.pause()`
-samples a frame mid-transition and fails intermittently, usually only on
-Windows CI.
+The terminal GUI was removed on 2026-08-08. It is in the history if you need
+it, but do not reintroduce one here. This repository's job is to be the
+specification and the reference implementation, and the interface work belongs
+in the native client instead.
 
-The first three wait on **focus**. `settle_until(pilot, predicate, description)`
-waits on anything else, and is what a click needs: `pilot.click(...)` posts a
-message, the widget toggles when it processes it, and the new value is only
-visible a frame or more later. Assert on the postcondition you care about
-rather than on a frame count.
+### What this repository is for
 
-**Key design principle**: The ciphertext format is self-describing. The header
+Read [docs/FORMAT.md](docs/FORMAT.md) before changing anything under `core/`.
+It is the normative specification of the ciphertext format, and it is what
+other implementations get built against. The CLI is the reference
+implementation, meaning it is what the specification is checked against, not
+the product.
+
+Three rules follow from that, and they are not negotiable:
+
+1. **The frozen wire constants in FORMAT.md section 2 never change.** Six
+   literal strings determine every key ever derived. Changing one makes every
+   archived ciphertext undecryptable while the entire test suite stays green,
+   because every other crypto test round-trips in-process.
+2. **`tests/vectors/` is never regenerated.** Those files are the only thing
+   that can catch the above. If they go red, compatibility broke; re-recording
+   them destroys the evidence. A format change gets a new version byte and new
+   vectors, and the old vectors keep decrypting untouched.
+3. **A format change updates FORMAT.md in the same commit.**
+   `tests/test_spec_conformance.py` is a second decryptor written from that
+   document alone, importing nothing from `morpheus_crypt`, so a change that
+   never reaches the specification fails there.
+
+**Key design principle**: the ciphertext format is self-describing. The header
 tells the decryptor which algorithms were used, and Decrypt reads its
-configuration from there rather than from the pipeline config. Format v3 stores
+configuration from there rather than from the pipeline config. v3 and v4 store
 the KDF tuning parameters too, so they no longer have to match by convention;
 the legacy v2 format is 6 bytes and does not carry them. The whole header is
 authenticated as AEAD associated data, so none of it can be tampered with.

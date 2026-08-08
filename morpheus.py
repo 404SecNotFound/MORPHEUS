@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-MORPHEUS — entry point.
+MORPHEUS entry point.
 
-Launches the TUI wizard when given no arguments. Passing any flag runs the
-command-line interface instead — there is no separate mode switch.
+The reference implementation of the ciphertext format specified in
+docs/FORMAT.md. A bare invocation prints the help.
 
 Usage:
-    python morpheus.py             # Launch the wizard
     python morpheus.py -o encrypt --data "secret"
     python morpheus.py --help      # Every flag, with worked examples
 """

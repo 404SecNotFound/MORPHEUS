@@ -1,7 +1,8 @@
 <h1 align="center">MORPHEUS</h1>
 
 <p align="center">
-  Quantum-resistant encryption for text and files, in a terminal GUI anyone can operate.<br>
+  Quantum-resistant encryption for text and files.<br>
+  A specified, versioned ciphertext format and its reference implementation.<br>
   <strong>AES-256-GCM &middot; ChaCha20-Poly1305 &middot; ML-KEM-768 &middot; Argon2id</strong>
 </p>
 
@@ -14,16 +15,12 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#using-the-gui">The Wizard</a> &middot;
+  <a href="docs/FORMAT.md">Format Specification</a> &middot;
   <a href="#rolling-dice-for-a-seed-phrase">Dice for Seed Phrases</a> &middot;
   <a href="docs/USAGE.md">Full Guide</a> &middot;
   <a href="SECURITY.md">Security Policy</a> &middot;
   <a href="CHANGELOG.md">Changelog</a> &middot;
   <a href="CONTRIBUTING.md">Contributing</a>
-</p>
-
-<p align="center">
-  <img src="docs/screens/step-1.svg" alt="The MORPHEUS wizard on the Mode step, showing the six-step sidebar and keyboard hints" width="100%">
 </p>
 
 ---
@@ -41,14 +38,18 @@ at most half their strength, which still leaves them out of reach. The full
 reason is [below](#why-quantum-resistance-does-not-depend-on-ml-kem). The whole
 point is that you do not have to do anything to get it.
 
-It wraps that in a terminal GUI anyone can operate — no cryptography degree
-required.
+**The format is written down.** [docs/FORMAT.md](docs/FORMAT.md) specifies every
+byte of it, well enough to build an independent implementation without reading
+this source. `tests/vectors/` holds stored ciphertexts that any implementation
+must decrypt to claim compatibility, and the suite includes a second decryptor
+written from that document alone, so the specification cannot quietly drift away
+from the code.
 
 **What sets it apart:**
 
-1. **Quantum-resistant by default** — not a mode you have to find and enable
-2. **Cipher chaining** — AES-256-GCM *then* ChaCha20-Poly1305 with independent keys
-3. **Self-describing authenticated format** — the settings block at the front
+1. **Quantum-resistant by default**, not a mode you have to find and enable
+2. **Cipher chaining**: AES-256-GCM *then* ChaCha20-Poly1305 with independent keys
+3. **Self-describing authenticated format**: the settings block at the front
    of every ciphertext (which cipher, which password-stretching function, and
    its settings) is sealed by the same tamper tag as the data itself, so an
    attacker cannot edit it to force a weaker setting
@@ -74,11 +75,11 @@ required.
 | Quantum-resistant **password** mode | Yes | Yes | Yes | Yes |
 | Quantum-resistant **recipient** mode | ML-KEM-768 (FIPS 203), optional | No — X25519 | No — RSA/ECC | n/a |
 | Cipher chaining | AES + ChaCha | -- | -- | -- |
-| Terminal GUI | Full TUI with strength meter | -- | -- | -- |
 | File encryption | Up to 100 MiB (any type) | Yes | Yes | Yes |
 | Memory protection | Best-effort `ctypes.memset` zeroing of key buffers | -- | pinentry | -- |
 | Self-describing format | Versioned header, fully AAD-authenticated | Yes | Yes | -- |
-| Auto-clear output | 60 s countdown in the TUI | -- | -- | -- |
+| Written format specification | [FORMAT.md](docs/FORMAT.md) + conformance vectors | Yes | Yes (RFC 4880) | -- |
+| Key commitment | 32-byte, since format v4 | -- | -- | -- |
 | KDF | Argon2id / Scrypt | scrypt | S2K | PBKDF2 |
 
 ## Quick Start
@@ -87,25 +88,20 @@ required.
 git clone https://github.com/404SecNotFound/Morpheus.git
 cd Morpheus && pip install -r requirements.txt
 
-# Launch the GUI
-python morpheus.py
-
-# Or encrypt from the command line
+# Encrypt some text
 python morpheus.py -o encrypt --data "sensitive text"
 
 # Encrypt a file
 python morpheus.py -o encrypt -f secret.pdf
+
+# Every flag, with worked examples
+python morpheus.py --help
 ```
 
 > **You do not need this for quantum resistance** — every encryption above
 > already has it. `pip install pqcrypto` is only for `--hybrid-pq`, the mode that
 > adds a second, independent factor on top of the password. See
 > [Why quantum resistance does not depend on ML-KEM](#why-quantum-resistance-does-not-depend-on-ml-kem).
-
-> **Clipboard on Linux:** the TUI copies via `pyperclip` and falls back to
-> `xclip`/`xsel`/`wl-copy`. If none are installed, copying is unavailable and the
-> TUI offers to write the output to a temporary file instead. See
-> [What touches the disk](#what-touches-the-disk).
 
 ---
 
@@ -204,115 +200,6 @@ Put plainly:
   That is what `--hybrid-pq` is for, and it needs the optional package.
 
 The honest summary: post-quantum is the floor here, not the upsell.
-
----
-
-## Using the GUI
-
-Launch with no arguments:
-
-```bash
-python morpheus.py
-```
-
-The wizard walks you through six steps using **keyboard-only navigation** — no
-mouse required. The left sidebar tracks progress and every step includes
-contextual hints.
-
-### Encryption Steps (Walkthrough)
-
-#### Step 1 — Mode
-Choose an operation: **Encrypt** converts plaintext into protected ciphertext,
-**Decrypt** reverses the process. Use `Up/Down` arrows to select, `Enter` to
-confirm, or `Ctrl+E` / `Ctrl+D` to skip directly.
-
-<img src="docs/screens/step-1.svg" alt="Step 1, Mode: Encrypt and Decrypt options with the step sidebar on the left" width="100%">
-
-#### Step 2 — Settings
-Configure the encryption algorithm and key derivation function. Defaults
-(AES-256-GCM + Argon2id) are secure for most use cases.
-
-- **Cipher**: AES-256-GCM (NIST standard, hardware-accelerated) or
-  ChaCha20-Poly1305 (constant-time, software-optimized)
-- **KDF**: Argon2id (memory-hard, resists GPU/ASIC) or Scrypt (widely deployed)
-- **Chain ciphers**: Double encryption with independent keys — hedges against a
-  single-cipher break
-- **Advanced**: Plaintext padding, constant-size output, omit filename from
-  envelope
-
-Hybrid post-quantum is **not** offered here. It needs an ML-KEM keypair and the
-wizard has no way to hold one, so the step points at the CLI route instead. See
-[Using the CLI](#using-the-cli).
-
-<img src="docs/screens/step-2.svg" alt="Step 2, Settings: cipher and KDF dropdowns, the chaining toggle, and the note that hybrid post-quantum is command-line only" width="100%">
-
-Use `Tab` between fields, `Enter` to open dropdowns, `Space` to toggle checkboxes.
-
-#### Step 3 — Input
-Provide the data to encrypt or decrypt:
-
-- **Text mode**: Type or paste directly into the editor. For pasting, focus the
-  text area and use `Ctrl+Shift+V` (terminal paste)
-- **File mode**: Enter the full path to the file (e.g. `/home/user/secret.txt`)
-
-Use `Up/Down` to switch between Text and File tabs.
-
-<img src="docs/screens/step-3.svg" alt="Step 3, Input: the Text and File tabs with the editor focused" width="100%">
-
-#### Step 4 — Password
-For encryption: choose a strong password (4+ random words recommended). The
-strength meter updates as you type. You must confirm the password.
-
-For decryption: enter the exact password used during encryption — case and
-special characters must match.
-
-The **Paste** button reads from the system clipboard. On macOS and Windows this
-works out of the box; on Linux it needs `xclip`, `xsel` or `wl-copy`.
-If clipboard is unavailable, use `Ctrl+Shift+V` to paste directly into the
-focused field.
-
-<img src="docs/screens/step-4.svg" alt="Step 4, Password: the password and confirmation fields with the live strength meter" width="100%">
-
-#### Step 5 — Review
-Review your configuration summary. If everything looks correct, press
-**Execute** (`Tab` to the button, then `Enter`). Warnings appear if your
-password is weak. Use `Back` or number keys to revisit any step.
-
-<img src="docs/screens/step-5.svg" alt="Step 5, Review: a summary of operation, cipher, KDF, input and masked password, with the Execute button focused" width="100%">
-
-#### Step 6 — Output
-The result appears in a read-only text area:
-
-- **Copy**: Copies to system clipboard (falls back to a temporary file if no
-  clipboard backend is available)
-- **Save to file**: Writes output to a temporary file
-- **Auto-clear**: Clears the output display after 60 seconds (stop with the
-  **Stop timer** button)
-
-> **Scope of auto-clear.** The countdown belongs to the Output step. It clears the
-> displayed text, and it is not a guarantee about data already copied elsewhere.
-> MORPHEUS does not clear your system clipboard, and leaving the Output step
-> cancels the timer. Use `Ctrl+L` to reset all wizard state.
-
-<img src="docs/screens/step-6.svg" alt="Step 6, Output: the base64 ciphertext in amber with Copy, Save to file, Clear and Stop timer actions" width="100%">
-
-### Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `F2` / `F3` | Previous / next step. **Works on every step**, whatever has focus |
-| `1`-`6` | Jump directly to a step (if unlocked) |
-| `←` / `→` | Previous / next step, but only where the focused field does not use them itself. A text box, a radio group or the output pane will take the arrow keys for their own cursor, which is why `F2`/`F3` exist |
-| `Alt+←` / `Alt+→` | Same as `F2`/`F3`, if your terminal passes `Alt` through |
-| `Tab` | Cycle through fields in the current step |
-| `Enter` | Select / confirm focused element |
-| `Space` | Toggle checkboxes |
-| `Esc` | Back to the step list, where `←` / `→` always work |
-| `Ctrl+E` | Quick Encrypt (sets mode + advances) |
-| `Ctrl+D` | Quick Decrypt |
-| `Ctrl+L` | Clear all and restart |
-| `Ctrl+Q` | Quit |
-| `F1` | Show keyboard help overlay |
 
 ---
 
@@ -671,7 +558,7 @@ and turn off Wi-Fi by hand.
 | Python `str` immutability | Password briefly exists as an immutable string before `bytearray` conversion; GC timing is unpredictable |
 | Immutable copies inside crypto bindings | `secure_zero` clears our own `bytearray` buffers, but OpenSSL and the argon2 bindings receive immutable `bytes` copies that cannot be zeroed |
 | Swap to disk | Key buffers are **not** `mlock`ed. On a machine under memory pressure they may be paged to swap. Use full-disk encryption |
-| Clipboard contents | MORPHEUS does **not** clear or restore your system clipboard. Anything you copy stays there until you or another application overwrites it, and history managers (Klipper, macOS Universal Clipboard) may retain copies |
+| Shell history | `--data "secret"` puts the plaintext in your shell history and in the process list. Pipe from stdin instead when that matters |
 
 ### Why These Defaults?
 
@@ -693,7 +580,6 @@ Be precise about this rather than claiming a blanket guarantee.
 |------|-----------------|
 | CLI text mode (`--data`) | No. Input comes from argv or stdin, output goes to stdout |
 | CLI file mode (`--file`) | Yes, by design. Encrypt writes `morpheus_<random>.enc`, so the original filename is not exposed on disk; decrypt restores the real name from inside the ciphertext. `--output` overrides both |
-| TUI text mode | Only if you press **Save to file**, or if **Copy** finds no clipboard backend and falls back to a temporary file |
 | `--save-config` | Yes. Writes `~/.morpheus/config.toml` (mode `0600` on POSIX; not applied on Windows — see SECURITY.md) |
 | Anything else | No temporary plaintext files are created |
 
@@ -704,69 +590,43 @@ decrypting sensitive files.
 
 ## Ciphertext Format
 
-The format is **self-describing** — the header tells the decryptor exactly what
-algorithms were used. No out-of-band configuration needed.
+**[docs/FORMAT.md](docs/FORMAT.md) is the normative specification.** It defines
+every byte of v2, v3 and v4, the AAD construction, the frozen key-derivation
+labels, the KDF parameters and the padding scheme, in enough detail to write an
+independent implementation without reading this source. What follows is a
+summary.
 
-### Format v4 (default for new encryptions)
+The format is **self-describing**: the header records which algorithms were
+used, so no out-of-band configuration is needed to decrypt.
 
-Same 18-byte header as v3, with the version byte set to `0x04`. Three
-differences, all in what is bound and how widely:
+| | v2 | v3 | v4 (current) |
+|---|---|---|---|
+| Header | 6 bytes | 18 bytes | 18 bytes |
+| KDF parameters on the wire | No | Yes | Yes |
+| Key verification | None | 8-byte truncated HMAC | **32-byte commitment** |
+| Commitment covers | n/a | the first key only | **all key material** |
+| AAD covers | the header | the header | header **+ salt + KEM ciphertext** |
+| Hybrid combiner | `hybrid-pq-v1` | `hybrid-pq-v1` | binds the **KEM ciphertext, encapsulation key and AAD**, per NIST SP 800-227 §4.6.3 |
 
-| | v3 | v4 |
-|---|---|---|
-| Key commitment | 8-byte truncated HMAC (~32-bit committing security) | **32-byte** CTX-shaped hash (~128-bit) |
-| Commitment covers | the first key only | **all key material** (both subkeys when chained) |
-| AAD covers | the 18-byte header | header **+ salt + length-prefixed KEM ciphertext** |
-| Hybrid combiner | `HKDF(salt, pw_key ‖ ss, "hybrid-pq-v1")` | binds the **KEM ciphertext, encapsulation key and AAD** per NIST SP 800-227 §4.6.3 |
+**Payload:** `[salt][nonce(s)][KEM prefix if hybrid][key check][ciphertext + tag(s)]`
 
-**v4 payload:** `[salt][nonce(s)][KEM prefix if hybrid][32B commitment][ciphertext + tag(s)]`
+v4 is the only version written. v2 and v3 still decrypt and always will.
 
-The encapsulation key costs no wire bytes — ML-KEM-768 embeds it in the secret
-key, so the decryptor recovers it locally.
+Every header byte is authenticated, so modifying any of them causes decryption
+to fail. That is what prevents an algorithm-downgrade attack.
 
 One limitation v4 does not remove: tampering with the salt or the KEM ciphertext
 is detected but still reports as a wrong password, because changing either
 changes the derived key. See [SECURITY.md](SECURITY.md).
 
-### Format v3 (still supported for decryption)
+### Conformance
 
-```
-Offset  Size  Field
-------  ----  ----------------------------------
-0       1     Version        (0x03)
-1       1     Cipher ID      (0x01=AES-256-GCM, 0x02=ChaCha20, 0x03=Chained)
-2       1     KDF ID         (0x01=Scrypt, 0x02=Argon2id)
-3       1     Flags          (bit 0=chained, bit 1=hybrid PQ, bit 2=padded)
-4-5     2     Reserved       (0x0000, validated on read)
-6-9     4     KDF param 1    (Argon2: time_cost, Scrypt: n)
-10-13   4     KDF param 2    (Argon2: memory_cost, Scrypt: r)
-14-17   4     KDF param 3    (Argon2: parallelism, Scrypt: p)
-18+     var   Payload
-```
-
-v3 stores KDF parameters in the header, enabling decryption without
-matching the original pipeline config. It also includes an 8-byte
-key-check value in the payload for clear "wrong password" diagnostics.
-
-**v3 payload:** `[salt][nonce(s)][KEM prefix if hybrid][8B key-check][ciphertext + tag(s)]`
-
-### Format v2 (legacy, still supported for decryption)
-
-```
-Offset  Size  Field
-------  ----  ----------------------------------
-0       1     Version        (0x02)
-1       1     Cipher ID
-2       1     KDF ID
-3       1     Flags          (bit 0=chained, bit 1=hybrid PQ)
-4-5     2     Reserved       (0x0000)
-6+      var   Payload
-```
-
-**v2 payload:** `[salt][nonce(s)][KEM prefix if hybrid][ciphertext + tag(s)]`
-
-All header bytes are authenticated as AAD — modifying any byte causes
-decryption to fail, preventing algorithm-downgrade attacks.
+`tests/vectors/` holds stored ciphertexts for all three versions with their
+passwords and plaintexts. **Decrypt all of them and you are compatible.** They
+are never regenerated, which is what makes them able to catch a silent format
+break. `tests/test_spec_conformance.py` is a second decryptor written from
+FORMAT.md alone, importing none of this implementation, so a format change that
+does not reach the specification turns the suite red.
 
 ---
 
@@ -777,7 +637,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**757 tests** across 15 test files:
+**605 tests** across 13 test files:
 
 | File | Scope |
 |------|-------|
@@ -790,11 +650,9 @@ python -m pytest tests/ -v
 | `test_config.py` | Preference load/save, allow-list validation, file mode |
 | `test_fuzz.py` | Property-based fuzzing of the parser against hostile input (requires `hypothesis`) |
 | `test_cli.py` | File encrypt/decrypt roundtrip (text + binary), path traversal prevention |
-| `test_gui.py` | Wizard mount, step transitions, shortcuts, encrypt/decrypt roundtrip, clipboard fallbacks |
-| `test_wizard_state.py` | State validation per step, step unlocking rules, edge cases |
 | `test_entropy.py` | Bits per roll for d2/d6/d20, the 128-bit floor and 256-bit target, rolls-needed arithmetic, verdict wording, CLI exit codes |
 | `test_vectors.py` | Pinned v2/v3/v4 ciphertexts still decrypt to their recorded plaintext; tampered vectors rejected |
-| `test_theme.py` | Palette contrast against the background, accent and low-contrast token restrictions parsed out of the stylesheet, and the rendered colour set pinned against an exported screenshot |
+| `test_spec_conformance.py` | A second decryptor written from `docs/FORMAT.md` alone, importing nothing from this package, run against every stored vector. Catches a format change that never reached the specification |
 | `test_netcheck.py` | Link-state parsing from a fake sysfs, loopback and virtual interface handling, an AST guard that the module imports no networking, and the refusal to call a quiet machine air-gapped |
 
 Tests include **NIST SP 800-38D** and **RFC 8439** reference vectors verified
@@ -808,22 +666,8 @@ against the `cryptography` library's validated implementations.
 Morpheus/
 ├── morpheus_crypt/
 │   ├── __init__.py            # Package version
-│   ├── __main__.py            # Entry point (auto-detects GUI vs CLI)
-│   ├── gui.py                 # Thin shim → ui/app.py
-│   ├── cli.py                 # CLI with file encryption support
-│   ├── ui/                    # Wizard GUI (Textual)
-│   │   ├── app.py             # MorpheusWizard — 2-pane shell, navigation, workers
-│   │   ├── theme.py           # Colour tokens + CSS
-│   │   ├── state.py           # WizardState dataclass + per-step validation
-│   │   ├── sidebar.py         # Left pane step list (✓/▸/dim)
-│   │   ├── clipboard.py       # Clipboard backends + temp-file fallback
-│   │   └── steps/
-│   │       ├── mode.py        # Step 1 — Encrypt / Decrypt
-│   │       ├── settings.py    # Step 2 — Cipher, KDF, options
-│   │       ├── input.py       # Step 3 — Text editor / file path
-│   │       ├── password.py    # Step 4 — Password + strength + paste
-│   │       ├── review.py      # Step 5 — Summary + Run
-│   │       └── output.py      # Step 6 — Result + copy + countdown
+│   ├── __main__.py            # Entry point; a bare invocation prints the help
+│   ├── cli.py                 # The CLI: the reference implementation's interface
 │   └── core/
 │       ├── ciphers.py         # AES-256-GCM, ChaCha20-Poly1305
 │       ├── kdf.py             # Argon2id, Scrypt
@@ -835,7 +679,9 @@ Morpheus/
 │       ├── entropy.py         # Dice-roll entropy arithmetic (--dice-entropy)
 │       ├── netcheck.py        # Passive link-state reading (--check-network)
 │       └── errors.py          # MorpheusError hierarchy
-├── tests/                     # 757 tests (NIST/RFC vectors included)
+├── tests/                     # 605 tests (NIST/RFC vectors included)
+│   └── vectors/               # The conformance suite: v2/v3/v4 known answers
+├── docs/FORMAT.md             # Normative wire-format specification
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history
@@ -853,17 +699,14 @@ Morpheus/
 |---------|---------|----------|
 | `cryptography` | AES-GCM, ChaCha20, Scrypt, HKDF | Yes |
 | `argon2-cffi` | Argon2id key derivation | Yes |
-| `textual` | Terminal GUI framework | Yes |
-| `pyperclip` | Clipboard access (Linux: requires `xclip` or `xsel`) | Yes |
 | `pqcrypto` | ML-KEM-768 post-quantum KEM (community wrapper around PQClean, not FIPS-validated, no public audit) | Optional |
 
 Python 3.10+
 
-> **Terminal size**: the GUI needs at least **100x30**. Below that it shows a
-> "terminal too small" screen rather than a clipped wizard, and resizing back up
-> restores your place and any finished result. The CLI has no size requirement.
-
-> **Linux clipboard**: Install `xclip` or `xsel` for clipboard support: `sudo apt install xclip`
+Two required packages, six installed in total once their own transitive
+dependencies are counted. That is deliberate for a cryptographic tool: every
+package here is something a user has to trust, and the list is short enough to
+read.
 
 ---
 
@@ -895,13 +738,13 @@ jurisdictions. You are responsible for compliance with all applicable laws.
 - **No telemetry or analytics**: MORPHEUS does not phone home or collect usage
   data. The only network connection is opt-in breach checking (`--check-leaks`),
   which uses k-anonymity and never sends your actual password.
-- **Disk usage is narrow but not zero**: CLI text mode is entirely in-memory.
-  File mode writes only the ciphertext (or the decrypted original). The TUI
-  writes a temporary file if you press **Save to file**, or if **Copy** finds no
-  clipboard backend. `--save-config` writes `~/.morpheus/config.toml`. See
+- **Disk usage is narrow but not zero**: text mode is entirely in-memory. File
+  mode writes only the ciphertext (or the decrypted original). `--save-config`
+  writes `~/.morpheus/config.toml`. See
   [What Touches the Disk](#what-touches-the-disk).
-- **Clipboard is not managed**: MORPHEUS does not clear or restore your system
-  clipboard. Anything you copy stays there until something else overwrites it.
+- **Shell history**: passing plaintext via `--data` records it in your shell
+  history and exposes it in the process list. Pipe from stdin instead when that
+  matters.
 - **Plaintext length**: Without `--pad`, ciphertext length reveals approximate
   plaintext length. Use `--pad` for length-hiding (pads to buckets: 256B, 1K,
   4K, 16K, 64K). Bucket membership is still visible.

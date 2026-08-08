@@ -1,15 +1,19 @@
 # What the source distribution carries beyond the package itself.
 #
 # setuptools picked up tests/*.py on its own but not the data those tests read,
-# so the sdist shipped tests/test_vectors.py without tests/vectors/*.json and
-# tests/test_gui.py without tests/support.py. Running the suite from the built
-# archive produced four failures for "zero vectors found" plus import errors,
-# while the same suite passed in the repository (2026-08-02 review, F-12).
+# so the sdist shipped tests/test_vectors.py without tests/vectors/*.json.
+# Running the suite from the built archive produced four failures for "zero
+# vectors found", while the same suite passed in the repository
+# (2026-08-02 review, F-12).
 #
 # That matters more than a broken test run: the pinned vectors are how anyone
 # verifies that a MORPHEUS build decrypts what earlier versions produced. An
 # sdist that omits them cannot be checked by the person who downloaded it, which
 # is the one audience for a source distribution.
+#
+# docs/FORMAT.md travels for the same reason. It is the normative specification
+# and the vectors are its conformance suite; an archive with the vectors but not
+# the document they conform to is half an artifact. CI asserts both are present.
 recursive-include tests *.py
 recursive-include tests/vectors *.json
 
@@ -23,7 +27,6 @@ include requirements-lock.txt
 include morpheus.py
 
 recursive-include docs *.md
-recursive-include docs/screens *.svg
 
 # Never ship local tooling or working notes.
 prune tasks
