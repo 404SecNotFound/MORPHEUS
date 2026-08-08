@@ -10,6 +10,15 @@
 > `docs/superpowers/` was untracked and gitignored earlier today: it held internal agent
 > working notes that should not publish. This is product documentation and is tracked.
 
+> **Superseded in part on 2026-08-05** by
+> [2026-08-05-terminal-visual-system-v2.md](2026-08-05-terminal-visual-system-v2.md),
+> which revises the token values and the sidebar styling after a report that the
+> steps were not visible on a Raspberry Pi over SSH. Sections 3 and 4 below are
+> no longer the current palette. The reasoning here still stands, and the newer
+> document leans on one part of it directly: the note that surface tiers sitting
+> ~1.06-1.10:1 apart read as one flat colour in a terminal is why the revision
+> cut a second background it had briefly specified.
+
 > **Reading this after 2026-07-30.** The import package was renamed `morpheus` ->
 > `morpheus_crypt` on that date, after this document was written. Every `morpheus/...`
 > path below is the layout as it stood on 2026-07-28; the file lives at the same place

@@ -1,8 +1,9 @@
 """Theme tokens and CSS for the MORPHEUS wizard UI.
 
-Visual system: docs/design/2026-07-28-terminal-visual-system.md
-Translated from Replicant's `signal-instrument` spec. Warm graphite surfaces,
-one semantic accent, data brighter than chrome.
+Visual system: docs/design/2026-08-05-terminal-visual-system-v2.md, which
+supersedes docs/design/2026-07-28-terminal-visual-system.md for token values and
+sidebar styling. Warm graphite surface, data brighter than chrome, and hierarchy
+carried by structure so that it survives a terminal with little or no colour.
 """
 
 from __future__ import annotations
@@ -12,6 +13,15 @@ from __future__ import annotations
 # apart, which reads as depth in a browser (large fills, hairlines, shadows) and
 # as one flat colour in a terminal. Borders carry elevation here instead.
 BG              = "#0e0e11"    # warm graphite, deliberately not blue-black
+
+# The current sidebar row's fill. Reinforcement only, and the measurement says
+# so plainly: the lightest fill that keeps every informational token at AA is
+# #1f2127, which is 1.20:1 against BG. This one is 1.16:1 with a little margin
+# on ERROR (4.66 rather than 4.50 on the nose). Neither is visible on its own.
+# The accent bar glyph, at 7.98:1, is what actually marks the row. A 2026-08-05
+# revision briefly added a darker BG_BASE beneath the panels and cut it again
+# for the reason recorded above: terminals render these tiers as one flat colour.
+SURFACE_CURRENT = "#1c1e24"    # current step row               1.16:1 on BG
 
 # Borders are the source system's alpha hairlines composited onto BG, since
 # Textual has no alpha channel.
@@ -32,9 +42,22 @@ SELECTED        = "#ecebe6"    # active step, primary button, selection
 SIGNAL          = "#f4b23e"    # EXPOSED SECRET MATERIAL ONLY. Nothing else.
 ERROR           = "#e5594f"    # errors, refusals, weak-password floor
 
+# WIZARD STATE ONLY: where you are in the six steps, and which steps are done.
+# Deliberately a second *meaningful* colour rather than decoration, and it must
+# never appear on a selector sanctioned for SIGNAL. Amber says "secret material
+# is on screen"; this says "you are here". Two colours, one meaning each.
+ACCENT          = "#4bb3d4"    # current step + completed tick   7.98:1 on BG
+
 # Tokens that may render informational text. TEXT_4 is absent by design: it
 # fails AA and is bounded to decoration and non-focusable disabled controls.
-TEXT_TOKENS = frozenset({"TEXT", "TEXT_2", "TEXT_3", "SELECTED", "SIGNAL", "ERROR"})
+TEXT_TOKENS = frozenset({"TEXT", "TEXT_2", "TEXT_3", "SELECTED", "SIGNAL",
+                         "ERROR", "ACCENT"})
+
+# Every surface informational text can be painted on. The contrast guard walks
+# the product of TEXT_TOKENS and this set, because checking against BG alone
+# stopped answering the question the moment a second surface existed. That
+# extension is what caught a candidate fill dropping ERROR to 4.43:1.
+SURFACE_TOKENS = frozenset({"BG", "SURFACE_CURRENT"})
 
 # The stylesheet names its colours as Textual CSS variables rather than splicing
 # hex in with `""" + BG + """`. The names then survive into WIZARD_CSS itself,
@@ -54,9 +77,15 @@ TEXT_TOKENS = frozenset({"TEXT", "TEXT_2", "TEXT_3", "SELECTED", "SIGNAL", "ERRO
 _VARS = "\n".join(
     f"${name}: {value};"
     for name, value in (
-        ("m-bg", BG), ("m-border", BORDER), ("m-border-strong", BORDER_STRONG),
+        ("m-bg", BG), ("m-surface-current", SURFACE_CURRENT),
+        ("m-border", BORDER), ("m-border-strong", BORDER_STRONG),
         ("m-border-focus", BORDER_FOCUS), ("m-text", TEXT), ("m-text-2", TEXT_2),
         ("m-text-3", TEXT_3), ("m-text-4", TEXT_4), ("m-selected", SELECTED),
+        # ACCENT is deliberately absent. It tints a single glyph inside a row's
+        # text, which is Rich markup rather than CSS, so publishing a variable
+        # nothing references would add a token the CSS guards cannot police.
+        # Leaving it undeclared also means a later `color: $m-accent` fails loudly
+        # as an unknown variable instead of quietly escaping the accent rules.
         ("m-signal", SIGNAL), ("m-error", ERROR),
     )
 )
@@ -208,15 +237,20 @@ FooterLabel {
 #sidebar {
     width: 28;
     background: $m-bg;
-    border-right: heavy $m-border;
+    border-right: heavy $m-border-strong;
     padding: 1 0;
     overflow-y: auto;
 }
 
+/* Four step states, each carrying its own row prefix so the hierarchy survives
+   a terminal with little or no colour. Sidebar.refresh_indicators writes the
+   prefixes; these rules only reinforce them. Focus is an overlay that composes
+   with whichever of the four a row is in, not a fifth state. */
+
 .sidebar-item {
     height: 2;
     padding: 0 1;
-    color: $m-text-3;
+    color: $m-text-2;
     margin: 0 0 1 0;
 }
 
@@ -229,11 +263,11 @@ FooterLabel {
 .sidebar-item.--current {
     color: $m-selected;
     text-style: bold;
-    background: $m-bg;
+    background: $m-surface-current;
 }
 
 .sidebar-item.--completed {
-    color: $m-text-2;
+    color: $m-text-3;
 }
 
 .sidebar-item.--locked {

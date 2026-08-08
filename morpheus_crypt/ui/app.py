@@ -109,6 +109,31 @@ class MorpheusWizard(App):
         Binding("ctrl+e", "quick_encrypt", "Encrypt", priority=True),
         Binding("ctrl+d", "quick_decrypt", "Decrypt", priority=True),
         Binding("ctrl+l", "clear_all", "Clear"),
+        # Step navigation, and why it is not on the arrow keys alone.
+        #
+        # Left/Right are declared without priority, so a focused widget that
+        # wants them takes them first. Measured across the six steps, that is
+        # RadioSet on Mode and Input, Input on Password and TextArea on Output:
+        # four of six, while F1 help advertised arrows regardless. priority=True
+        # is not available here, unlike ctrl+e and ctrl+d above, because Left and
+        # Right must still move the cursor inside the password field.
+        #
+        # So a key was needed that reaches the app on every step in both
+        # directions. Measured: ctrl+left/right are taken by Input for word
+        # jumps, shift+left/right for selection, pageup/pagedown by the Output
+        # TextArea for scrolling, and ctrl+p globally by Textual. F2/F3 and
+        # alt+left/right are free on all six.
+        #
+        # F2/F3 is primary and shown in the footer: function keys survive SSH
+        # more reliably than Alt, which many terminals send as a special
+        # character rather than Meta, and the report that prompted this came from
+        # a Raspberry Pi over SSH. F1 is already Help, so the row is consistent.
+        # Alt+Left/Right are kept as hidden aliases for the browser convention.
+        # Arrows are retained: they work wherever nothing claims them.
+        Binding("f2", "prev_step", "Prev step"),
+        Binding("f3", "next_step", "Next step"),
+        Binding("alt+left", "prev_step", "Prev", show=False),
+        Binding("alt+right", "next_step", "Next", show=False),
         Binding("left", "prev_step", "Prev", show=False),
         Binding("right", "next_step", "Next", show=False),
         Binding("escape", "focus_sidebar", show=False),
@@ -503,11 +528,16 @@ class MorpheusWizard(App):
         self.notify("All fields cleared", severity="information")
 
     def action_show_help(self) -> None:
+        # Says what is true on every step. The previous version promised
+        # "Left/Right Prev/Next step", which a focused RadioSet, Input or
+        # TextArea silently swallowed on four of the six.
         self.notify(
             "Keyboard shortcuts:\n"
+            "  F2/F3  Prev/Next step  (works on every step)\n"
             "  1-6  Jump to step     Tab   Next field\n"
-            "  Left/Right  Prev/Next step\n"
-            "  Enter  Select item    Esc   Focus sidebar\n"
+            "  Left/Right  Prev/Next step, where the field does not use them\n"
+            "  Esc  Back to the step list, then Left/Right always work\n"
+            "  Enter  Select item\n"
             "  Ctrl+E  Encrypt mode  Ctrl+D  Decrypt mode\n"
             "  Ctrl+L  Clear all     Ctrl+Q  Quit",
             severity="information",

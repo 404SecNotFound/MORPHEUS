@@ -2,7 +2,13 @@
 """Print the WCAG contrast table for the MORPHEUS palette.
 
 Usage: python scripts/check_contrast.py
-Exits non-zero if any token used for text falls below AA on the background.
+Exits non-zero if any token used for text falls below AA on any surface it can
+be painted on.
+
+Every surface, not just BG. Checking one background answered the real question
+only while there was one, and the moment the current-step row fill arrived that
+stopped being true without the check failing, which is the dangerous shape for
+a guard. Walking the product caught a candidate fill that put ERROR at 4.43:1.
 """
 
 import sys
@@ -42,19 +48,29 @@ def grade(ratio: float) -> str:
 
 def main() -> int:
     failures = 0
-    print(f"Palette contrast against BG {theme.BG}\n")
-    for name in sorted(theme.TEXT_TOKENS):
-        value = getattr(theme, name)
-        ratio = contrast(value, theme.BG)
-        mark = grade(ratio)
-        if ratio < 4.5:
-            failures += 1
-            mark += "  <-- below AA"
-        print(f"  {name:14} {value}  {ratio:6.2f}:1  {mark}")
+    for surface_name in sorted(theme.SURFACE_TOKENS):
+        surface = getattr(theme, surface_name)
+        print(f"Palette contrast on {surface_name} {surface}\n")
+        for name in sorted(theme.TEXT_TOKENS):
+            value = getattr(theme, name)
+            ratio = contrast(value, surface)
+            mark = grade(ratio)
+            if ratio < 4.5:
+                failures += 1
+                mark += "  <-- below AA"
+            print(f"  {name:14} {value}  {ratio:6.2f}:1  {mark}")
 
-    print(f"\n  {'TEXT_4':14} {theme.TEXT_4}  "
-          f"{contrast(theme.TEXT_4, theme.BG):6.2f}:1  "
-          f"decoration and disabled controls only")
+        print(f"\n  {'TEXT_4':14} {theme.TEXT_4}  "
+              f"{contrast(theme.TEXT_4, surface):6.2f}:1  "
+              f"decoration and disabled controls only\n")
+
+    # How far the surfaces sit apart, which is the number that decides whether
+    # a fill can carry meaning on its own. It cannot: see the design note in
+    # theme.py. Printed so the next person does not have to rediscover it.
+    print(f"Surface separation {theme.SURFACE_CURRENT} vs {theme.BG}: "
+          f"{contrast(theme.SURFACE_CURRENT, theme.BG):.2f}:1")
+    print(f"Accent glyph {theme.ACCENT} on {theme.BG}: "
+          f"{contrast(theme.ACCENT, theme.BG):.2f}:1  <- what marks the row")
     return 1 if failures else 0
 
 

@@ -300,12 +300,14 @@ The result appears in a read-only text area:
 
 | Shortcut | Action |
 |----------|--------|
+| `F2` / `F3` | Previous / next step. **Works on every step**, whatever has focus |
 | `1`-`6` | Jump directly to a step (if unlocked) |
-| `←` / `→` | Previous / next step |
+| `←` / `→` | Previous / next step, but only where the focused field does not use them itself. A text box, a radio group or the output pane will take the arrow keys for their own cursor, which is why `F2`/`F3` exist |
+| `Alt+←` / `Alt+→` | Same as `F2`/`F3`, if your terminal passes `Alt` through |
 | `Tab` | Cycle through fields in the current step |
 | `Enter` | Select / confirm focused element |
 | `Space` | Toggle checkboxes |
-| `Esc` | Focus the sidebar (then arrow keys to browse) |
+| `Esc` | Back to the step list, where `←` / `→` always work |
 | `Ctrl+E` | Quick Encrypt (sets mode + advances) |
 | `Ctrl+D` | Quick Decrypt |
 | `Ctrl+L` | Clear all and restart |
@@ -775,7 +777,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**736 tests** across 15 test files:
+**748 tests** across 15 test files:
 
 | File | Scope |
 |------|-------|
@@ -833,7 +835,7 @@ Morpheus/
 │       ├── entropy.py         # Dice-roll entropy arithmetic (--dice-entropy)
 │       ├── netcheck.py        # Passive link-state reading (--check-network)
 │       └── errors.py          # MorpheusError hierarchy
-├── tests/                     # 736 tests (NIST/RFC vectors included)
+├── tests/                     # 748 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

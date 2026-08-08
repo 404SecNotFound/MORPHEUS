@@ -3,6 +3,48 @@
 All notable changes to MORPHEUS are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Step navigation now works from every step.** `Left`/`Right` are declared
+  without priority, so a focused widget that wants arrows took them first:
+  measured, that is four of the six steps (RadioSet on Mode and Input, Input on
+  Password, TextArea on Output), while F1 help advertised arrows regardless.
+  `priority=True` is not the fix, since Left and Right must still move the cursor
+  in the password field, so **`F2`/`F3` are added** and shown in the footer, with
+  `Alt+Left`/`Alt+Right` as aliases. Keys were chosen by measurement:
+  `ctrl+left/right` are taken by Input for word jumps, `shift+left/right` for
+  selection, `pageup/pagedown` by the Output TextArea, and `ctrl+p` globally by
+  Textual. Function keys were preferred over Alt because they survive SSH more
+  reliably, and the report came from a Raspberry Pi over SSH. A regression test
+  now presses the key on all six steps; its absence is why this shipped
+  documented but broken.
+
+### Changed
+
+- **The sidebar states are legible without colour.** Reported from a Pi over
+  SSH: "you cannot see the sections". The palette was not broken, every token
+  passed AA. The sidebar expressed its states through three close warm greys, and
+  locked and available were styled identically, so two of four states were
+  indistinguishable. Each state now carries its own marker (`▌` current, `✓`
+  completed, blank available, `·` locked) with the step number always shown, so
+  the hierarchy survives a terminal that flattens colour. New `ACCENT #4bb3d4`
+  tints the current bar and completed ticks; amber stays exclusively exposed
+  secret material. See
+  [docs/design/2026-08-05-terminal-visual-system-v2.md](docs/design/2026-08-05-terminal-visual-system-v2.md).
+
+- **The contrast guard walks every (token, surface) pair.** It measured against
+  `BG` alone, which stopped answering the real question the moment a second
+  surface existed, without failing. Extending it immediately caught a candidate
+  row fill putting `ERROR` at 4.43:1, below AA.
+
+- **A second background was specified and then cut.** Measurement put panel
+  against root at 1.04:1, confirming a note `theme.py` already carried from
+  2026-07-28: terminals render such tiers as one flat colour. The lightest
+  AA-safe row fill is only 1.20:1 against `BG`, against 7.98:1 for the accent
+  glyph, so structure carries the hierarchy and fills merely reinforce it.
+
 ## [2.3.0] - 2026-08-05
 
 One new CLI flag, a dependency advisory closed, a Windows crash on shutdown

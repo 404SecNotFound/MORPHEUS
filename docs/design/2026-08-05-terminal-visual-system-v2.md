@@ -1,7 +1,7 @@
 # MORPHEUS terminal visual system, revision 2
 
 **Date:** 2026-08-05
-**Status:** proposed
+**Status:** implemented 2026-08-05
 **Scope:** the Textual TUI palette, step hierarchy and keyboard step navigation.
 No change to the wizard's six steps, its flow, or any cryptographic behaviour.
 **Supersedes:** [2026-07-28-terminal-visual-system.md](2026-07-28-terminal-visual-system.md)
@@ -79,32 +79,45 @@ Added:
 
 | Token | Value | Purpose |
 |---|---|---|
-| `BG_BASE` | `#08080a` | app root, beneath the panels |
-| `SURFACE_CURRENT` | `#101820` | current sidebar row fill |
+| `SURFACE_CURRENT` | `#1c1e24` | current sidebar row fill, reinforcement only |
 | `ACCENT` | `#4bb3d4` | wizard state only: current-step bar and label, completed tick |
+
+### `BG_BASE` was specified and then cut
+
+An earlier revision of this document added `BG_BASE #08080a` as an app root
+beneath the panels. It is dropped, for a reason `theme.py` already recorded on
+2026-07-28: *"The source system's four surface tiers sit 1.06-1.10:1 apart, which
+reads as depth in a browser and as one flat colour in a terminal. Borders carry
+elevation here instead."*
+
+The measurement in section 3 rediscovered that independently at 1.04:1. Adding a
+token, a CSS variable and a guard surface for a difference nobody can see is cost
+with no benefit, so the single background stays and borders keep carrying
+elevation.
 
 **`SIGNAL` (amber) remains exclusively exposed secret material.** That rule does
 not move, and `ACCENT` must never appear on a selector sanctioned for `SIGNAL`.
 Two meaningful colours now exist and each means exactly one thing: amber says
 "this is secret material on screen", accent says "this is where you are".
 
-### Why `SURFACE_CURRENT` is `#101820`
+### Why `SURFACE_CURRENT` is `#1c1e24`, and why it barely matters
 
-It is not a taste pick. The first candidate, `#16242e`, drops `ERROR` to
-**4.43:1**, below AA, so an error rendered on the current row would fail. Every
-informational token measured against `#101820`:
+It is not a taste pick. The constraint is that every informational token stays AA
+on it, and `ERROR` binds first: a first candidate of `#16242e` drops `ERROR` to
+**4.43:1**, below AA. Sweeping for the lightest fill that keeps everything AA
+gives `#1f2127`, where `ERROR` lands on exactly 4.50. `#1c1e24` is one step back
+from that edge, keeping `ERROR` at 4.66 with margin.
 
-| Token | Ratio on `#101820` |
-|---|---|
-| `ERROR` | 5.00 |
-| `TEXT_3` | 5.38 |
-| `TEXT_2` | 6.99 |
-| `ACCENT` | 7.41 |
-| `SIGNAL` | 9.62 |
-| `SELECTED` | 14.99 |
-| `TEXT` | 15.69 |
+The more useful number is what that buys: `#1c1e24` is **1.16:1** against `BG`.
+Even the theoretical maximum, `#1f2127`, is only 1.20:1. **No AA-safe fill can
+make the current row visible on its own.** By contrast the accent bar glyph is
+**7.98:1** against `BG`.
 
-`ACCENT #4bb3d4` measures 7.98:1 on `BG` and 8.29:1 on `BG_BASE`.
+So the fill is reinforcement and nothing more. The bar, the weight and the marker
+carry the row, which is section 4 restated as a measurement rather than a
+preference.
+
+`ACCENT #4bb3d4` measures 7.98:1 on `BG`.
 
 ## 6. Sidebar states
 
@@ -135,12 +148,10 @@ by the existing guard, and the locked state uses `TEXT_3` for that reason.
 
 ## 7. Surfaces and borders
 
-- App root becomes `BG_BASE`. Sidebar and step pane stay `BG`, so the panels read
-  as raised.
-- The sidebar's right border moves from `BORDER` to `BORDER_STRONG` (`#303032`),
-  which is the visible edge doing the work the 1.04:1 tint cannot.
-
-Both are reinforcement under section 4 and neither is load-bearing.
+The single background stays, per the note above. The one change here is that the
+sidebar's right border moves from `BORDER` `#212124` to `BORDER_STRONG` `#303032`,
+which is the visible edge doing the work no tint can. This is reinforcement under
+section 4 and is not load-bearing.
 
 ## 8. Keyboard step navigation
 

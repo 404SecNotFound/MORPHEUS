@@ -32,6 +32,7 @@ from morpheus_crypt.ui.state import (
     STEP_PASSWORD,
     STEP_REVIEW,
     STEP_SETTINGS,
+    TOTAL_STEPS,
     InputMethod,
     Mode,
 )
@@ -220,6 +221,77 @@ class TestWizardApp:
             await pilot.pause()
 
             assert app._state.output == plaintext
+
+
+class TestStepNavigationWorksFromEveryStep:
+    """The keyboard must move between steps wherever the focus happens to be.
+
+    Reported from a Raspberry Pi 4 over SSH: "the arrow keys were not working
+    when I was trying to move from section to section and had to use the mouse".
+
+    They were not working on four of the six steps. `left`/`right` are declared
+    without priority, so a focused widget that wants arrows takes them first:
+    RadioSet on Mode and Input, Input on Password, TextArea on Output. F1 help
+    advertised arrows anyway, so the app documented behaviour it did not deliver.
+
+    No test covered it, which is the actual defect. Arrow bindings existed and
+    two steps happened to work, so nothing was obviously broken. This presses the
+    key on every step and asserts the step changed.
+
+    priority=True is not the fix, which is why F2/F3 exist: it would take Left and
+    Right away from the password field, where they must move the cursor.
+    """
+
+    @staticmethod
+    async def _ready(app, pilot):
+        app._state.mode = Mode.ENCRYPT
+        app._state.input_text = "some text to encrypt"
+        app._state.password = "T3st!Passw0rd#Str0ng"
+        app._state.password_confirm = app._state.password
+        for step in range(TOTAL_STEPS):
+            app._state.completed_steps.add(step)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("key", ["f3", "alt+right"])
+    async def test_forward_from_every_step_that_has_a_next(self, key):
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
+            await self._ready(app, pilot)
+            for step in range(TOTAL_STEPS - 1):
+                app._goto_step(step)
+                await settle(app, pilot)
+                await pilot.press(key)
+                await pilot.pause()
+                assert app._current_step == step + 1, (
+                    f"{key} did not advance from step {step + 1}; focus was on "
+                    f"{type(app.focused).__name__}, which swallowed it"
+                )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("key", ["f2", "alt+left"])
+    async def test_backward_from_every_step_that_has_a_previous(self, key):
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
+            await self._ready(app, pilot)
+            for step in range(1, TOTAL_STEPS):
+                app._goto_step(step)
+                await settle(app, pilot)
+                await pilot.press(key)
+                await pilot.pause()
+                assert app._current_step == step - 1, (
+                    f"{key} did not go back from step {step + 1}; focus was on "
+                    f"{type(app.focused).__name__}, which swallowed it"
+                )
+
+    @pytest.mark.asyncio
+    async def test_the_help_does_not_promise_arrows_work_everywhere(self):
+        """The old help said "Left/Right Prev/Next step" flatly. It does not."""
+        import inspect
+        source = inspect.getsource(MorpheusWizard.action_show_help)
+        assert "F2/F3" in source, "help must name the keys that work on every step"
+        assert "Esc" in source, "help must name the route back to the step list"
 
 
 # ── Queued messages outliving the widgets they refer to ──────────

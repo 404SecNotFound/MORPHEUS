@@ -1,4 +1,8 @@
-"""Guards for the terminal visual system (docs/design/2026-07-28-terminal-visual-system.md)."""
+"""Guards for the terminal visual system.
+
+Current spec: docs/design/2026-08-05-terminal-visual-system-v2.md, which
+supersedes the 2026-07-28 document for token values and sidebar styling.
+"""
 
 import math
 import re
@@ -8,7 +12,7 @@ from typing import NamedTuple
 import pytest
 from textual.widgets import Checkbox
 
-from morpheus_crypt.ui import theme
+from morpheus_crypt.ui import sidebar, theme
 from morpheus_crypt.ui.app import MorpheusWizard
 from morpheus_crypt.ui.state import STEP_OUTPUT, STEP_PASSWORD, TOTAL_STEPS, Mode
 from tests.support import settle
@@ -25,21 +29,27 @@ from tests.support import settle
 # to `"""+SIGNAL+"""` written without spaces and named the wrong selector for
 # several ordinary reformattings.
 SPEC_TOKENS = {
-    "BG": "#0e0e11", "BORDER": "#212124", "BORDER_STRONG": "#303032",
+    "BG": "#0e0e11", "SURFACE_CURRENT": "#1c1e24",
+    "BORDER": "#212124", "BORDER_STRONG": "#303032",
     "BORDER_FOCUS": "#ecebe6", "TEXT": "#f1f0ec", "TEXT_2": "#a3a29b",
     "TEXT_3": "#8f8d84", "TEXT_4": "#5f5e58", "SELECTED": "#ecebe6",
-    "SIGNAL": "#f4b23e", "ERROR": "#e5594f",
+    "SIGNAL": "#f4b23e", "ERROR": "#e5594f", "ACCENT": "#4bb3d4",
 }
 
 # Python token name -> the CSS variable it is published as. The `m-` prefix is
 # load-bearing: Textual 8.2.8 defines $text, $border and $error itself, so the
 # unprefixed names would repoint every Textual widget rather than our own rules.
 TOKEN_VARS = {
-    "BG": "$m-bg", "BORDER": "$m-border", "BORDER_STRONG": "$m-border-strong",
+    "BG": "$m-bg", "SURFACE_CURRENT": "$m-surface-current",
+    "BORDER": "$m-border", "BORDER_STRONG": "$m-border-strong",
     "BORDER_FOCUS": "$m-border-focus", "TEXT": "$m-text", "TEXT_2": "$m-text-2",
     "TEXT_3": "$m-text-3", "TEXT_4": "$m-text-4", "SELECTED": "$m-selected",
     "SIGNAL": "$m-signal", "ERROR": "$m-error",
 }
+
+# ACCENT has no CSS variable on purpose: it tints one glyph inside a row's text,
+# which is Rich markup, not CSS. See the note in theme.py's _VARS block.
+TOKENS_WITHOUT_CSS_VARS = {"ACCENT"}
 
 
 def _linear(channel: float) -> float:
@@ -171,11 +181,48 @@ def selectors_using(token_name: str) -> set[str]:
 
 
 class TestPaletteContrast:
-    def test_every_text_token_passes_aa_against_the_background(self):
-        for name in sorted(theme.TEXT_TOKENS):
-            value = getattr(theme, name)
-            ratio = contrast(value, theme.BG)
-            assert ratio >= 4.5, f"{name} ({value}) is {ratio:.2f}:1 on BG, needs >= 4.5"
+    def test_every_text_token_passes_aa_on_every_surface(self):
+        """Against each surface text can land on, not just against BG.
+
+        This used to check `theme.BG` alone, which answered the real question
+        only while there was one surface. Adding the current-step row fill made
+        it insufficient without making it fail, which is the dangerous shape for
+        a guard: still green, no longer sufficient.
+
+        Extending it earned its place immediately. A candidate fill of #16242e
+        put ERROR at 4.43:1, below AA, and the sweep for the lightest fill that
+        keeps every token AA stopped at #1f2127 with ERROR on 4.50 exactly.
+        SURFACE_CURRENT sits one step back from that edge.
+        """
+        failures = []
+        for surface_name in sorted(theme.SURFACE_TOKENS):
+            surface = getattr(theme, surface_name)
+            for name in sorted(theme.TEXT_TOKENS):
+                value = getattr(theme, name)
+                ratio = contrast(value, surface)
+                if ratio < 4.5:
+                    failures.append(
+                        f"{name} ({value}) is {ratio:.2f}:1 on "
+                        f"{surface_name} ({surface}), needs >= 4.5"
+                    )
+        assert not failures, "\n".join(failures)
+
+    def test_the_surface_list_covers_every_declared_background(self):
+        """A surface added to the palette but not to SURFACE_TOKENS is unguarded.
+
+        Without this, the contrast walk above silently stops covering the new
+        one, which is exactly how the single-surface version of it went stale.
+        """
+        backgrounds = {
+            name
+            for name, value in vars(theme).items()
+            if name.isupper() and isinstance(value, str) and value.startswith("#")
+            and (name == "BG" or name.startswith("SURFACE"))
+        }
+        assert backgrounds == set(theme.SURFACE_TOKENS), (
+            "a background token is not covered by the contrast guard: "
+            f"{sorted(backgrounds ^ set(theme.SURFACE_TOKENS))}"
+        )
 
     def test_text_4_fails_aa_and_is_excluded_from_the_text_token_list(self):
         """TEXT_4 failing AA is deliberate, not a bug to fix by brightening it.
@@ -185,6 +232,63 @@ class TestPaletteContrast:
         """
         assert contrast(theme.TEXT_4, theme.BG) < 4.5
         assert "TEXT_4" not in theme.TEXT_TOKENS
+
+
+class TestHierarchySurvivesWithoutColour:
+    """The sidebar must stay readable when colour does not arrive.
+
+    This exists because of a report from a Raspberry Pi 4 over SSH: "you cannot
+    see the sections". The palette was not broken, every token passed AA. The
+    sidebar simply expressed its states almost entirely through three warm greys
+    sitting close together, and two of the states were styled identically.
+
+    Contrast ratios cannot catch that, and neither can the rendered-palette pin:
+    both would stay green while the list read as one undifferentiated block on a
+    terminal that flattens colour. So the property asserted here is the one that
+    actually matters, that state is legible with colour removed.
+    """
+
+    def test_the_four_step_states_use_four_distinct_markers(self):
+        markers = [sidebar.STATE_MARKERS[s] for s in
+                   (sidebar.CURRENT, sidebar.COMPLETED,
+                    sidebar.AVAILABLE, sidebar.LOCKED)]
+        assert len(set(markers)) == 4, (
+            f"two step states share a marker ({markers}), so they are "
+            f"indistinguishable once colour is gone"
+        )
+
+    def test_every_row_shows_its_step_number_in_every_state(self):
+        """Keys 1-6 jump to a step, so hiding the number hides the affordance.
+
+        Completed rows are the ones a user goes back through, which is exactly
+        where dropping the number would cost most.
+        """
+        for state in (sidebar.CURRENT, sidebar.COMPLETED,
+                      sidebar.AVAILABLE, sidebar.LOCKED):
+            for step in range(sidebar.TOTAL_STEPS):
+                text = sidebar.row_text(step, state)
+                assert f" {step + 1} " in text, (
+                    f"step {step + 1} in state {state!r} does not show its "
+                    f"number: {text.splitlines()[0]!r}"
+                )
+
+    def test_stripping_colour_still_separates_the_states(self):
+        """Belt and braces: render each state with markup removed and compare.
+
+        The marker test above reads the table; this reads what a row actually
+        produces, so re-pointing `row_text` at one glyph would fail here even if
+        the table stayed diverse.
+        """
+        seen = {}
+        for state in (sidebar.CURRENT, sidebar.COMPLETED,
+                      sidebar.AVAILABLE, sidebar.LOCKED):
+            plain = re.sub(r"\[/?[^\]]*\]", "", sidebar.row_text(0, state))
+            first_line = plain.splitlines()[0]
+            assert first_line not in seen, (
+                f"states {seen[first_line]!r} and {state!r} render the same row "
+                f"once colour is stripped: {first_line!r}"
+            )
+            seen[first_line] = state
 
 
 class TestTokenValues:
@@ -231,6 +335,47 @@ class TestTokenValues:
             if not re.search(rf"{re.escape(var)}(?![\w-])", body)
         ]
         assert unused == []
+
+    def test_every_token_either_has_a_css_variable_or_is_listed_as_not_having_one(self):
+        """No token may quietly drop out of the CSS guards.
+
+        ACCENT legitimately has no variable, because it is applied as markup on a
+        glyph. That exemption is written down here rather than inferred, so a
+        future token cannot go unguarded merely by being left out of TOKEN_VARS.
+        """
+        covered = set(TOKEN_VARS) | TOKENS_WITHOUT_CSS_VARS
+        assert covered == set(SPEC_TOKENS), (
+            "token(s) neither published as a CSS variable nor exempted: "
+            f"{sorted(covered ^ set(SPEC_TOKENS))}"
+        )
+
+
+class TestTheAccentStaysOnWizardState:
+    """ACCENT means "you are here", the way SIGNAL means "secret on screen".
+
+    SIGNAL is confined by selector guards because it lives in CSS. ACCENT lives
+    in Rich markup instead, so the equivalent boundary is which module may name
+    it. Confining it to the sidebar keeps it a statement about wizard state
+    rather than decoration that spreads.
+    """
+
+    def test_only_the_sidebar_applies_the_accent(self):
+        ui = Path(theme.__file__).parent
+        offenders = sorted(
+            path.relative_to(ui).as_posix()
+            for path in ui.rglob("*.py")
+            if path.name not in ("theme.py", "sidebar.py")
+            and re.search(r"\bACCENT\b", path.read_text(encoding="utf-8"))
+        )
+        assert offenders == [], (
+            f"ACCENT is referenced outside the sidebar: {offenders}. It marks "
+            f"wizard state; anything else needs its own token and its own rule."
+        )
+
+    def test_the_accent_is_not_the_secret_material_colour(self):
+        assert theme.ACCENT != theme.SIGNAL, (
+            "amber must stay unique to exposed secret material"
+        )
 
 
 class TestRestrictedTokenUsage:
