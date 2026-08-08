@@ -536,7 +536,7 @@ class TestTheGuardsSurviveReformatting:
     """
 
     OUTPUT_RULE = """#output-area {
-    height: 10;
+    height: 1fr;
     min-height: 6;
     color: $m-signal;
 }"""
@@ -558,7 +558,7 @@ class TestTheGuardsSurviveReformatting:
         [
             pytest.param(
                 """#output-area {  /* pane holding exposed secret material */
-    height: 10;
+    height: 1fr;
     min-height: 6;
     color: $m-signal;
 }""",
@@ -567,7 +567,7 @@ class TestTheGuardsSurviveReformatting:
             pytest.param(
                 """#output-area
 {
-    height: 10;
+    height: 1fr;
     min-height: 6;
     color: $m-signal;
 }""",
@@ -575,7 +575,7 @@ class TestTheGuardsSurviveReformatting:
             ),
             pytest.param(
                 """#output-area { color: $m-signal;
-    height: 10;
+    height: 1fr;
     min-height: 6;
 }""",
                 id="declaration-on-the-selector-line",
@@ -586,7 +586,7 @@ class TestTheGuardsSurviveReformatting:
 }
 
 #output-area {
-    height: 10;
+    height: 1fr;
     min-height: 6;
 }""",
                 id="grouped-selector",
@@ -653,9 +653,9 @@ class TestTheGuardsSurviveReformatting:
     def test_a_violation_hidden_in_a_grouped_selector_is_caught(self):
         """Grouping an unsanctioned selector onto a sanctioned rule is not a loophole."""
         mutated = theme.WIZARD_CSS.replace(
-            "#output-area {\n    height: 10;",
+            "#output-area {\n    height: 1fr;",
             "#output-area, .step-title {\n    color: $m-signal;\n}\n\n"
-            "#output-area {\n    height: 10;",
+            "#output-area {\n    height: 1fr;",
             1,
         )
         assert ".step-title" in _signal_selectors(mutated)

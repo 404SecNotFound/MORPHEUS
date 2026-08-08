@@ -682,8 +682,14 @@ CollapsibleTitle:focus {
     border: none;
 }
 
+/* Grows into whatever height the terminal gives, rather than sitting at a fixed
+   12 rows with the rest of the pane left as empty background. On a tall window
+   that dead space was most of the screen, which is what "the app has no life to
+   it" described: the layout stopped a third of the way down and the remainder
+   was nothing. `min-height` keeps it usable at the 100x30 floor, where `1fr`
+   alone would squeeze it. */
 #input-editor {
-    height: 12;
+    height: 1fr;
     min-height: 8;
 }
 
@@ -737,8 +743,11 @@ CollapsibleTitle:focus {
     padding: 1 0 0 0;
 }
 
+/* Same reasoning as #input-editor: fills the pane instead of stopping at ten
+   rows. This one also holds the longest content in the app, so a fixed height
+   meant scrolling a result that had room to be shown. */
 #output-area {
-    height: 10;
+    height: 1fr;
     min-height: 6;
     color: $m-signal;
 }
