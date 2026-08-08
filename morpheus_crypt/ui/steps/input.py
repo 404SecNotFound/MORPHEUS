@@ -39,8 +39,10 @@ class InputStep(Vertical):
         yield Static(
             f"[{theme.TEXT_3}]Use Up/Down to switch between Text and File. "
             "Tab to move into the editor. "
-            "To paste: click the text area, then use Ctrl+Shift+V "
-            "(terminal paste).[/]",
+            "To paste: use your terminal's paste (Ctrl+Shift+V, or right-click "
+            "in MobaXterm and PuTTY). It lands in the box from anywhere on this "
+            "step. The Paste button reads this machine's clipboard, which over "
+            "SSH is the remote one, not yours.[/]",
             classes="step-hint",
         )
 
@@ -106,9 +108,24 @@ class InputStep(Vertical):
             self._copy_input()
 
     def _paste_input(self) -> None:
+        """Read the clipboard of the machine MORPHEUS is running on.
+
+        Worth being explicit when it fails, because the failure is confusing
+        rather than obvious. Over SSH this button asks the *remote* machine's
+        clipboard, and a headless box has no X server to ask, while the text the
+        user copied is on the client's clipboard at the other end. No amount of
+        pressing this can reach it, so the message points at the paste that can.
+        """
         text = clipboard_paste()
         if text is None:
-            self.notify("Could not read clipboard", severity="warning")
+            self.notify(
+                "No clipboard on this machine. If you are connected over SSH, "
+                "this button reads the remote clipboard, not the one you copied "
+                "from. Use your terminal's paste instead: Ctrl+Shift+V, or "
+                "right-click in MobaXterm and PuTTY.",
+                severity="warning",
+                timeout=12,
+            )
             return
         editor = self.query_one("#input-editor", TextArea)
         editor.clear()

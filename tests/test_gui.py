@@ -223,6 +223,66 @@ class TestWizardApp:
             assert app._state.output == plaintext
 
 
+class TestTerminalPasteReachesTheInputBox:
+    """Over SSH, terminal paste is the only paste that can work.
+
+    Reported from a Raspberry Pi: "when you try to decrypt you cannot paste
+    encoded string into the input box". The Paste button reads the clipboard of
+    the machine MORPHEUS runs on, so on a headless box it queries an X server
+    that does not exist while the ciphertext sits on the client's clipboard at
+    the other end of the connection. It cannot succeed there, by construction.
+
+    That leaves terminal paste, which Textual delivers as a Paste event to the
+    focused widget. Nothing handled it above that, so a paste made while
+    standing anywhere other than the text area went nowhere at all, silently.
+    A wizard has six steps and a dozen controls, so "anywhere other than the
+    text area" is most of the time.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_paste_lands_even_when_the_editor_is_not_focused(self):
+        from textual.events import Paste
+
+        ciphertext = "AgECAAD" + "E3f7a" * 40
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
+            app._state.mode = Mode.DECRYPT
+            app._state.completed_steps.add(STEP_MODE)
+            app._goto_step(STEP_INPUT)
+            await settle(app, pilot)
+
+            # Stand somewhere that is not the editor, which is the reported case.
+            app.set_focus(app.query_one("#btn-paste-input", Button))
+            await pilot.pause()
+
+            app.post_message(Paste(ciphertext))
+            await pilot.pause()
+
+            assert app._state.input_text == ciphertext, (
+                "a terminal paste made while the editor was not focused did not "
+                "reach the input box"
+            )
+            assert app.query_one("#input-editor", TextArea).text == ciphertext
+
+    @pytest.mark.asyncio
+    async def test_a_paste_on_another_step_is_ignored(self):
+        """A stray paste must not be routed into a field the user cannot read."""
+        from textual.events import Paste
+
+        app = MorpheusWizard()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await settle(app, pilot)
+            app._state.mode = Mode.ENCRYPT
+            app._goto_step(STEP_MODE)
+            await settle(app, pilot)
+
+            app.post_message(Paste("should-not-be-stored"))
+            await pilot.pause()
+
+            assert app._state.input_text != "should-not-be-stored"
+
+
 class TestStepNavigationWorksFromEveryStep:
     """The keyboard must move between steps wherever the focus happens to be.
 

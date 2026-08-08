@@ -22,7 +22,7 @@ from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.geometry import Size
 from textual.widget import Widget
-from textual.widgets import Button, Footer, Static
+from textual.widgets import Button, Footer, Static, TextArea
 
 from .. import __version__
 from ..core.ciphers import CIPHER_CHOICES
@@ -551,6 +551,44 @@ class MorpheusWizard(App):
         self._goto_step(event.step)
 
     # ── Button events ────────────────────────────────────────────
+
+    def on_paste(self, event: events.Paste) -> None:
+        """Catch a terminal paste that no focused widget took, and place it.
+
+        Over SSH this is the only paste that can work. The Paste button reads
+        the clipboard of the machine MORPHEUS is running on, so on a headless
+        box it is asking an X server that is not there, and the ciphertext the
+        user copied is sitting on the client's clipboard on the other end of the
+        connection. Terminal paste sends the text down the wire as input, which
+        is why the on-screen hint points at it.
+
+        Textual offers this event to the focused widget first, so this only runs
+        when nothing consumed it: paste with the editor focused and the editor
+        still handles it. That is the whole bug, because a wizard has plenty of
+        places to be standing that are not the text box, and a paste made from
+        any of them silently went nowhere.
+
+        Bounded to the Input step in text mode. Routing a paste into whatever
+        happens to be on screen would mean a stray paste on the Password step
+        landing in a field the user cannot read back.
+        """
+        text = event.text.strip()
+        if not text or self._current_step != STEP_INPUT:
+            return
+        if self._state.input_method != InputMethod.TEXT:
+            return
+        try:
+            editor = self.query_one("#input-editor", TextArea)
+        except NoMatches:
+            return
+        editor.clear()
+        editor.insert(text)
+        self._state.input_text = text
+        event.stop()
+        self.notify(
+            f"Pasted {len(text)} characters into the input box.",
+            severity="information",
+        )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-back":
