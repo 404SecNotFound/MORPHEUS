@@ -266,8 +266,13 @@ FooterLabel {
     background: $m-surface-current;
 }
 
+/* Deliberately the same brightness as an available row, separated by the tick
+   alone. An earlier revision dimmed completed rows to recede, which reads well
+   as a principle and was wrong for the reported problem: most steps are
+   completed most of the time, so it dimmed the majority of the sidebar for
+   someone who had just said they could not see it. */
 .sidebar-item.--completed {
-    color: $m-text-3;
+    color: $m-text-2;
 }
 
 .sidebar-item.--locked {

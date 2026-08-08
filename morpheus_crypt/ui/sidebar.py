@@ -51,13 +51,20 @@ _ACCENTED = (CURRENT, COMPLETED)
 
 
 def row_text(step: int, state: str) -> str:
-    """The two lines of one sidebar row: marker, number, label, then description."""
+    """The two lines of one sidebar row: marker, number, label, then description.
+
+    The label carries the row's own colour; the description is pinned dim. They
+    are one `Static`, so CSS cannot tell them apart and only markup can. Without
+    that split every row is a single flat block of grey, which is what "you
+    cannot see the sections" described: nothing on the row was brighter than
+    anything else, so the step names had nothing to stand out against.
+    """
     marker = STATE_MARKERS[state]
     if state in _ACCENTED:
         marker = f"[{theme.ACCENT}]{marker}[/]"
     return (
         f" {marker} {step + 1} {STEP_LABELS[step]}\n"
-        f"     {STEP_DESCRIPTIONS_SHORT[step]}"
+        f"     [{theme.TEXT_3}]{STEP_DESCRIPTIONS_SHORT[step]}[/]"
     )
 
 
