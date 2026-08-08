@@ -78,6 +78,12 @@ Plaintext is UTF-8 encoded text. The format carries no charset field and no
 declaration of plaintext length outside the padding scheme in
 [section 10](#10-padding).
 
+Because the format is text-oriented, encrypting a *file* requires one more
+layer: the bytes and the original filename are wrapped in a small JSON object
+which is then encrypted as ordinary UTF-8 plaintext. That layer is specified in
+[section 16](#16-file-transport-envelope). It sits above everything described
+here and does not change any of it.
+
 ---
 
 ## 4. Header
@@ -664,3 +670,86 @@ On Apple platforms, CryptoKit covers AES-GCM, ChaCha20-Poly1305, SHA-256, HMAC
 and HKDF; swift-crypto covers ML-KEM. Argon2id has no first-party
 implementation and must be supplied. Scrypt is required only to decrypt
 existing Scrypt ciphertexts, not to produce new ones.
+
+---
+
+## 16. File transport envelope
+
+A layer **above** the ciphertext format, not part of it. Nothing in sections 1
+to 15 changes because of this section, and an implementation that only ever
+handles text can ignore it entirely.
+
+The ciphertext format carries UTF-8 text. Encrypting a file therefore needs
+somewhere to put the bytes and the original name, and that is this envelope: a
+JSON object which is serialised, then encrypted exactly like any other
+plaintext.
+
+```json
+{"envelope_version": 1, "data": "<base64 of the file bytes>", "filename": "report.pdf"}
+```
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `envelope_version` | integer | yes | Currently `1` |
+| `data` | string | yes | Standard base64 of the file's bytes |
+| `filename` | string | no | Basename only. Omitted when the sender chooses not to disclose it |
+
+Key order and whitespace are not significant: this is parsed, never compared
+byte for byte.
+
+### 16.1 Decoding MUST be strict
+
+A decoder receives plaintext that may or may not be an envelope, and **the
+common case is that it is not**. Ordinary plaintext that merely resembles the
+schema has to survive untouched.
+
+An implementation MUST treat the plaintext as an envelope only when every one
+of the following holds, and MUST otherwise return it unchanged as text:
+
+1. It parses as JSON, **and** the top-level value is an object. A JSON array or
+   scalar is not an envelope.
+2. `envelope_version` is present and is an integer. A boolean MUST NOT be
+   accepted, which matters in languages where `true` and `1` share a numeric
+   type after parsing.
+3. `envelope_version` is at least 1.
+4. `data` is present, is a string, and decodes as **strictly validated**
+   base64. A decoder that skips characters outside the alphabet MUST NOT be
+   used here.
+5. If `filename` is present it is a string of at most 255 characters.
+
+The single exception: when the object is a well-formed envelope whose
+`envelope_version` is **greater** than the implementation supports, it MUST
+raise an error naming the version rather than returning the JSON as text.
+Showing a wall of JSON to someone whose file was written by a newer build is
+strictly worse than telling them to update.
+
+These rules are not stylistic. Each corresponds to a defect a looser parser
+produced: a plaintext that was a JSON list crashed the decoder; a document
+containing a `data` key was mistaken for a file and written to disk, destroying
+the user's actual JSON; and unvalidated base64 silently dropped characters.
+
+### 16.2 Filenames are attacker-controlled
+
+`filename` arrives inside someone else's ciphertext. Before it reaches any
+filesystem call it MUST be reduced to a safe basename:
+
+1. Replace `\` with `/` first. A POSIX basename leaves `..\..\x` intact.
+2. Take the last path component.
+3. Remove any character that is not printable, plus `/` and NUL. Terminal
+   control sequences in a filename are a display attack in their own right.
+4. Strip leading and trailing `.` and space characters.
+5. Reject the results `""`, `"."` and `".."`.
+6. Reject Windows reserved device names, compared case-insensitively against
+   the stem before the first `.`: `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`,
+   `LPT1`-`LPT9`. These are reserved even with an extension, so `NUL.txt` is
+   rejected too.
+7. Truncate to 255 characters.
+
+When nothing usable survives, the implementation MUST fall back to a generated
+name rather than writing to whatever is left.
+
+### 16.3 Decrypted files MUST NOT be written implicitly
+
+Decrypting produces bytes in memory. An implementation MUST NOT write them to
+disk as a side effect of decryption, because that puts plaintext on disk
+whether or not the user wanted it there. Writing is a separate, explicit step.
