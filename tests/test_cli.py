@@ -1363,6 +1363,25 @@ class TestTopLevelExceptionHandler:
         assert "boom" in err
         assert os.path.dirname(os.__file__) not in err, "leaked an install path"
 
+    def test_a_missing_dependency_is_not_called_a_bug(self, capsys):
+        """It is a setup problem, and saying "bug" sends people the wrong way.
+
+        A virtualenv that was never activated lands here. Reported from a
+        Raspberry Pi where the app ran correctly under one shell and failed
+        under another, and the message insisted the code was at fault.
+        """
+        with patch("morpheus_crypt.cli.run_cli",
+                   side_effect=ModuleNotFoundError(name="textual")), \
+             patch.object(sys, "argv", ["morpheus", "-o", "encrypt"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code != 0
+        err = capsys.readouterr().err
+        assert "This is a bug" not in err
+        assert "textual" in err, "must name the module that is missing"
+        assert "pip install -r requirements.txt" in err, "must say how to fix it"
+        assert "Traceback" not in err
+
     def test_keyboard_interrupt_exits_quietly(self, capsys):
         with patch("morpheus_crypt.cli.run_cli", side_effect=KeyboardInterrupt), \
              patch.object(sys, "argv", ["morpheus", "-o", "encrypt"]):

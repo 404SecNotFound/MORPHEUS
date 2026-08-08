@@ -777,7 +777,7 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
-**756 tests** across 15 test files:
+**757 tests** across 15 test files:
 
 | File | Scope |
 |------|-------|
@@ -835,7 +835,7 @@ Morpheus/
 │       ├── entropy.py         # Dice-roll entropy arithmetic (--dice-entropy)
 │       ├── netcheck.py        # Passive link-state reading (--check-network)
 │       └── errors.py          # MorpheusError hierarchy
-├── tests/                     # 756 tests (NIST/RFC vectors included)
+├── tests/                     # 757 tests (NIST/RFC vectors included)
 ├── docs/USAGE.md              # Full guide for technical and non-technical readers
 ├── SECURITY.md                # Vulnerability disclosure policy
 ├── CHANGELOG.md               # Version history

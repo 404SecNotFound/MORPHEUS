@@ -44,6 +44,21 @@ def main():
         print(f"Error: input or output ended unexpectedly ({type(exc).__name__}).",
               file=sys.stderr)
         sys.exit(1)
+    except ModuleNotFoundError as exc:
+        # Not a bug, and the catch-all below used to insist it was. A venv that
+        # is not activated lands here, which cost a user an evening chasing a
+        # theme that was rendering correctly under a different interpreter.
+        print(
+            f"Error: missing dependency '{exc.name}'.\n"
+            "Install requirements, activating your virtualenv first if you use "
+            "one:\n"
+            "    source .venv/bin/activate\n"
+            "    pip install -r requirements.txt",
+            file=sys.stderr,
+        )
+        if os.environ.get("MORPHEUS_DEBUG"):
+            raise
+        sys.exit(1)
     except Exception as exc:  # noqa: BLE001 - deliberate catch-all at the boundary
         print(
             f"Error: unexpected failure: {type(exc).__name__}: {exc}\n"
