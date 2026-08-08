@@ -234,6 +234,59 @@ class TestPaletteContrast:
         assert "TEXT_4" not in theme.TEXT_TOKENS
 
 
+class TestThePaletteSurvives256Colours:
+    """Validated in truecolor, but the report came from a 256-colour terminal.
+
+    The Raspberry Pi that prompted this revision runs `TERM=xterm-256color` with
+    `COLORTERM` unset, so Rich quantises every token to the nearest of 256
+    entries before it reaches the screen. Every ratio measured elsewhere in this
+    file is therefore a ratio for a colour that terminal never shows.
+
+    Quantisation moves things: TEXT_3 lands on #808080 and drops from 5.79:1 to
+    4.74:1, and ERROR lands on #d75f5f. Both still clear AA, but neither does so
+    by the margin the truecolor numbers suggest, and a future token chosen for a
+    truecolor ratio could pass every other guard here while failing on the
+    hardware that reported the bug.
+    """
+
+    @staticmethod
+    def _as_256(value: str) -> str:
+        from rich.color import Color, ColorSystem
+        triplet = (Color.parse(value)
+                   .downgrade(ColorSystem.EIGHT_BIT)
+                   .get_truecolor())
+        return f"#{triplet.red:02x}{triplet.green:02x}{triplet.blue:02x}"
+
+    def test_every_text_token_still_passes_aa_once_quantised(self):
+        background = self._as_256(theme.BG)
+        failures = []
+        for name in sorted(theme.TEXT_TOKENS):
+            ratio = contrast(self._as_256(getattr(theme, name)), background)
+            if ratio < 4.5:
+                failures.append(f"{name} falls to {ratio:.2f}:1 at 256 colours")
+        assert not failures, "\n".join(failures)
+
+    # Pairs whose whole job is to be told apart. TEXT_3 serves both completed and
+    # locked deliberately, so it is absent: those two are separated by marker, per
+    # the spec's structure-first rule, not by colour.
+    MUST_STAY_DISTINCT = [
+        ("SELECTED", "TEXT_2"),   # current step label vs an available one
+        ("TEXT_2", "TEXT_3"),     # available vs completed
+        ("ACCENT", "SIGNAL"),     # "you are here" vs "secret material on screen"
+        ("ACCENT", "ERROR"),
+        ("SIGNAL", "ERROR"),
+    ]
+
+    @pytest.mark.parametrize("first,second", MUST_STAY_DISTINCT)
+    def test_meaningful_pairs_do_not_collapse_onto_one_colour(self, first, second):
+        a, b = getattr(theme, first), getattr(theme, second)
+        assert self._as_256(a) != self._as_256(b), (
+            f"{first} ({a}) and {second} ({b}) both quantise to "
+            f"{self._as_256(a)} on a 256-colour terminal, so they carry the same "
+            f"meaning to anyone reading one"
+        )
+
+
 class TestHierarchySurvivesWithoutColour:
     """The sidebar must stay readable when colour does not arrive.
 

@@ -27,7 +27,7 @@ pip install pqcrypto             # For post-quantum tests
 
 ```bash
 python -m pytest tests/ -v
-# 748 tests should pass (1 skips off Linux: the sysfs check --check-network reads)
+# 754 tests should pass (1 skips off Linux: the sysfs check --check-network reads)
 ```
 
 ## What We Welcome
