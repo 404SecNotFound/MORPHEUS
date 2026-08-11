@@ -173,7 +173,7 @@ pip install pqcrypto
 
 ```bash
 python -m pytest tests/ -v
-# You should see: "605 passed"
+# You should see: "632 passed"
 ```
 
 ---
@@ -186,8 +186,8 @@ python -m pytest tests/ -v
 python morpheus.py -o encrypt
 ```
 
-Prompts you step by step for the remaining input and the password. Passing any
-flag runs the CLI; running `python morpheus.py` with no arguments launches the GUI.
+Prompts you step by step for the remaining input and the password. Running
+`python morpheus.py` with no arguments prints the help.
 
 ### Non-Interactive Mode
 
@@ -784,7 +784,7 @@ used, and from v3 onward the exact KDF parameters too. So:
 python -m pytest tests/ -v
 ```
 
-Expected output: **605 passed**
+Expected output: **632 passed**
 
 ### What the Tests Cover
 

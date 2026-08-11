@@ -49,7 +49,8 @@ VECTOR_DIR = Path(__file__).parent / "vectors"
 AES, CHACHA = 0x01, 0x02
 SCRYPT, ARGON2ID = 0x01, 0x02
 FLAG_CHAINED, FLAG_HYBRID_PQ, FLAG_PADDED = 0x01, 0x02, 0x04
-CHECK_SIZE = {2: 0, 3: 8, 4: 32}
+# v5 reuses v4's payload and commitment. FORMAT.md section 17.5.
+CHECK_SIZE = {2: 0, 3: 8, 4: 32, 5: 32}
 
 
 def _lp(x: bytes) -> bytes:
@@ -115,8 +116,20 @@ def _unpad(data: bytes) -> bytes:
     return data[:-last]
 
 
+def _keyfile_master(master: bytes, key_file: bytes, salt: bytes) -> bytes:
+    """FORMAT.md section 7.4. Folds a key file into the password key.
+
+    Note the digest is not length-prefixed: the key file is the only
+    variable-length input and sits last after a fixed-length label, so the
+    concatenation is already injective.
+    """
+    digest = hashlib.sha256(b"morpheus-keyfile-digest-v5" + key_file).digest()
+    return _hkdf(master + digest, salt, b"morpheus-keyfile-v5", 32)
+
+
 def spec_decrypt(b64: str, password: str, *, fallback_kdf: dict,
-                 pq_secret_key: bytes | None = None) -> str:
+                 pq_secret_key: bytes | None = None,
+                 key_file: bytes | None = None) -> str:
     """Decrypt strictly according to docs/FORMAT.md."""
     raw = base64.b64decode(b64, validate=True)  # section 3
     if len(raw) < 6:
@@ -170,16 +183,22 @@ def spec_decrypt(b64: str, password: str, *, fallback_kdf: dict,
 
     # ---- section 9: AAD. Note LP() over kem_prefix, which is itself already
     # length-prefixed, so the KEM field carries two length words. ----
-    aad = header + _lp(salt) + _lp(kem_prefix) if version == 4 else header
+    aad = header + _lp(salt) + _lp(kem_prefix) if version >= 4 else header
 
     # ---- section 7.1: password key ----
     master = _derive_master(kdf_id, kdf_params, password.encode("utf-8"), salt,
                             fallback_kdf)
 
+    # ---- section 7.4: v5 folds in a mandatory key file ----
+    if version == 5:
+        if not key_file:
+            raise ValueError("v5 requires a key file as well as the password")
+        master = _keyfile_master(master, key_file, salt)
+
     # ---- section 7.2: subkeys, chained mode only. Single-cipher mode uses the
     # KDF output directly with no HKDF step at all. ----
     if chained:
-        label = b"morpheus-v4-key-" if version == 4 else b"morpheus-v2-key-"
+        label = b"morpheus-v4-key-" if version >= 4 else b"morpheus-v2-key-"
         keys = [_hkdf_expand(master, label + str(i).encode() + salt, 32)
                 for i in (0, 1)]
     else:
@@ -190,7 +209,7 @@ def spec_decrypt(b64: str, password: str, *, fallback_kdf: dict,
         if not PQ_AVAILABLE:
             raise RuntimeError("pqcrypto not installed")
         shared_secret = ml_kem_768.decrypt(pq_secret_key, kem_ct)
-        if version == 4:
+        if version >= 4:
             # The encapsulation key is never transmitted: ML-KEM-768 embeds it
             # in the decapsulation key, so it is recovered locally.
             ek = pq_secret_key[1152:2336]
@@ -200,7 +219,7 @@ def spec_decrypt(b64: str, password: str, *, fallback_kdf: dict,
         keys = [_hkdf(k + shared_secret, salt, info, 32) for k in keys]
 
     # ---- section 8: key verification, before the AEAD ----
-    if version == 4:
+    if version >= 4:
         computed = hashlib.sha256(
             b"morpheus-cmt-v4" + _lp(keys[0]) + _lp(keys[1] if chained else b"")
         ).digest()
@@ -247,9 +266,11 @@ class TestSpecificationIsImplementable:
             pytest.skip("pqcrypto not installed")
         secret_key = (base64.b64decode(case["pq_secret_key"])
                       if case.get("hybrid_pq") else None)
+        key_file = (base64.b64decode(case["key_file"])
+                    if case.get("key_file") else None)
         got = spec_decrypt(case["ciphertext"], case["password"],
                            fallback_kdf=case["kdf_params"],
-                           pq_secret_key=secret_key)
+                           pq_secret_key=secret_key, key_file=key_file)
         assert got == case["plaintext"], (
             f"{label}: an implementation built from docs/FORMAT.md alone no "
             "longer reproduces this plaintext. Either the format changed and "
@@ -267,7 +288,7 @@ class TestSpecificationIsImplementable:
             f"this module must not import the reference implementation: {offending}"
         )
 
-    @pytest.mark.parametrize("version", [2, 3, 4])
+    @pytest.mark.parametrize("version", [2, 3, 4, 5])
     def test_wrong_password_is_rejected(self, version):
         """Proves the assertions above test decryption, not base64 plumbing.
 
@@ -280,6 +301,8 @@ class TestSpecificationIsImplementable:
                        if not c.get("hybrid_pq")
                        and base64.b64decode(c["ciphertext"])[0] == version)
         expected = InvalidTag if version == 2 else ValueError
+        key_file = (base64.b64decode(case["key_file"])
+                    if case.get("key_file") else None)
         with pytest.raises(expected):
             spec_decrypt(case["ciphertext"], case["password"] + "x",
-                         fallback_kdf=case["kdf_params"])
+                         fallback_kdf=case["kdf_params"], key_file=key_file)

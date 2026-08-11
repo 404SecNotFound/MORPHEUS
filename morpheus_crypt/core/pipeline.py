@@ -54,6 +54,7 @@ from .formats import (
     FLAG_PADDED,
     FORMAT_VERSION_3,
     FORMAT_VERSION_4,
+    FORMAT_VERSION_5,
     KEY_CHECK_SIZE,
     build_aad,
     deserialize,
@@ -190,6 +191,7 @@ def _derive_keys(
     salt: bytes,
     num_keys: int = 1,
     version: int = FORMAT_VERSION_3,
+    key_file: bytes | None = None,
 ) -> list[bytearray]:
     """
     Derive one or more 32-byte keys from a password.
@@ -207,10 +209,24 @@ def _derive_keys(
     """
     master = kdf.derive(password_bytes, salt, key_length=32)  # returns bytearray
 
+    # FORMAT.md section 7.4. v5 always requires a key file; there is no v5
+    # without one.
+    if version == FORMAT_VERSION_5:
+        if not key_file:
+            raise ConfigurationError(
+                "This ciphertext needs its key file as well as the password."
+            )
+        combined = _combine_with_keyfile(master, key_file, salt)
+        secure_zero(master)
+        master = combined
+
     if num_keys == 1:
         return [master]
 
-    label = "morpheus-v4-key-" if version == FORMAT_VERSION_4 else "morpheus-v2-key-"
+    # v5 reuses v4's subkey label: the master already differs and the version
+    # byte is authenticated in the AAD, so a new label would be another frozen
+    # string buying nothing. FORMAT.md section 7.4.
+    label = "morpheus-v4-key-" if version >= FORMAT_VERSION_4 else "morpheus-v2-key-"
     keys: list[bytearray] = []
     for i in range(num_keys):
         # Domain-separate each subkey by binding application context and salt
@@ -226,6 +242,41 @@ def _derive_keys(
     secure_zero(master)
 
     return keys
+
+
+def _keyfile_digest(key_file: bytes) -> bytes:
+    """FORMAT.md section 7.4: condense a key file to 32 bytes.
+
+    Deliberately *not* length-prefixed. `key_file` is the only
+    variable-length input and it sits last, after a fixed-length label, so the
+    concatenation is already injective. A length prefix would also cap key
+    files at 65535 bytes for no reason.
+
+    Hashed rather than stretched: the memory-hard KDF exists to slow down
+    guessing a low-entropy password, and a key file with real entropy cannot be
+    guessed at all, so spending 64 MiB on it would double the cost of every
+    operation and buy nothing.
+    """
+    return hashlib.sha256(b"morpheus-keyfile-digest-v5" + key_file).digest()
+
+
+def _combine_with_keyfile(master: bytes | bytearray, key_file: bytes,
+                          salt: bytes) -> bytearray:
+    """FORMAT.md section 7.4. Folds a key file into the password key, once.
+
+    Applied between the password KDF and everything downstream, so chaining and
+    hybrid mode compose with it unchanged.
+    """
+    combined = bytearray(bytes(master) + _keyfile_digest(key_file))
+    try:
+        return bytearray(HKDF(
+            algorithm=SHA256(),
+            length=32,
+            salt=salt,
+            info=b"morpheus-keyfile-v5",
+        ).derive(bytes(combined)))
+    finally:
+        secure_zero(combined)
 
 
 def _lp(data: bytes) -> bytes:
@@ -272,7 +323,7 @@ def _combine_with_kem(
     ciphertext and encapsulation key, not by changing the core function, and an
     XOR-shaped combiner reads as a downgrade to a non-expert reader.
     """
-    if version == FORMAT_VERSION_4:
+    if version >= FORMAT_VERSION_4:
         info = (b"morpheus-hybrid-v4"
                 + _lp(kem_ciphertext) + _lp(encapsulation_key) + _lp(aad))
     else:
@@ -588,6 +639,7 @@ class EncryptionPipeline:
         hybrid_pq: bool = False,
         pq_public_key: bytes | None = None,
         pq_secret_key: bytes | None = None,
+        key_file: bytes | None = None,
         allow_expensive_kdf: bool = False,
     ):
         self.cipher = cipher or AES256GCM()
@@ -596,6 +648,9 @@ class EncryptionPipeline:
         self.hybrid_pq = hybrid_pq
         self.pq_public_key = pq_public_key
         self.pq_secret_key = pq_secret_key
+        # Supplying one makes encrypt() emit format v5 rather than v4, and is
+        # required to decrypt a v5 ciphertext. FORMAT.md section 17.
+        self.key_file = key_file
         # Opt-in to KDF settings above the cost ceiling when decrypting. Off by
         # default because the header is unauthenticated at the point it is read.
         self.allow_expensive_kdf = allow_expensive_kdf
@@ -664,7 +719,16 @@ class EncryptionPipeline:
             flags |= FLAG_PADDED
 
         kdf_params = _get_kdf_params(self.kdf)
-        version = FORMAT_VERSION_4
+        # v4 normally, v5 when a key file is supplied. FORMAT.md section 17.4:
+        # there is deliberately no "v5 without a key file". An empty one is
+        # refused because hashing zero bytes is well defined, which is exactly
+        # the danger: a valid ciphertext whose second factor is a constant.
+        if self.key_file is not None and len(self.key_file) == 0:
+            raise ConfigurationError(
+                "An empty key file is not a second factor. Choose a file with "
+                "contents, or generate one."
+            )
+        version = FORMAT_VERSION_5 if self.key_file else FORMAT_VERSION_4
 
         # Refuse here what decrypt will refuse later. These bounds were applied
         # only when reading a header, so a caller constructing a pipeline with
@@ -708,7 +772,7 @@ class EncryptionPipeline:
             # Key derivation (returns list of bytearray)
             num_keys = 2 if self.chain else 1
             keys = _derive_keys(self.kdf, password_bytes, salt, num_keys,
-                                version=version)
+                                version=version, key_file=self.key_file)
 
             # Hybrid PQ layer
             if self.hybrid_pq:
@@ -772,10 +836,11 @@ class EncryptionPipeline:
         is_chained = bool(flags & FLAG_CHAINED)
         is_hybrid = bool(flags & FLAG_HYBRID_PQ)
         is_padded = bool(flags & FLAG_PADDED)
-        is_v4 = version == FORMAT_VERSION_4
+        # v5 shares v4's commitment width, AAD and hybrid combiner.
+        is_v4 = version >= FORMAT_VERSION_4
         # v4 shares v3's header layout and its KDF-params-in-header behaviour,
         # so everything keyed off is_v3 below applies to v4 too.
-        is_v3 = version in (FORMAT_VERSION_3, FORMAT_VERSION_4)
+        is_v3 = version in (FORMAT_VERSION_3, FORMAT_VERSION_4, FORMAT_VERSION_5)
 
         # Resolve cipher(s)
         if is_chained:
@@ -880,7 +945,7 @@ class EncryptionPipeline:
             try:
                 num_keys = 2 if is_chained else 1
                 keys = _derive_keys(kdf, password_bytes, salt, num_keys,
-                                    version=version)
+                                    version=version, key_file=self.key_file)
 
                 if is_hybrid and kem_ss is not None:
                     # The encapsulation key is not transmitted: ML-KEM-768 embeds it

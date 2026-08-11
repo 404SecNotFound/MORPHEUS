@@ -40,12 +40,15 @@ from .errors import FormatError
 FORMAT_VERSION = 0x02      # Legacy default
 FORMAT_VERSION_3 = 0x03    # Extended with KDF params
 FORMAT_VERSION_4 = 0x04    # v3 layout, wider commitment, extended AAD
+FORMAT_VERSION_5 = 0x05    # v4 exactly, plus a mandatory key file (FORMAT.md 17)
 
 # Single source of truth for what deserialize() accepts. Tests derive their
 # "unsupported version" generators from this: an inline list in test_fuzz.py
 # silently stopped matching reality when v4 landed, leaving a property test
 # asserting something false.
-SUPPORTED_VERSIONS = frozenset({FORMAT_VERSION, FORMAT_VERSION_3, FORMAT_VERSION_4})
+SUPPORTED_VERSIONS = frozenset(
+    {FORMAT_VERSION, FORMAT_VERSION_3, FORMAT_VERSION_4, FORMAT_VERSION_5}
+)
 
 HEADER_FORMAT = "!BBBBH"   # version, cipher_id, kdf_id, flags, reserved
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)  # 6 bytes
@@ -86,9 +89,12 @@ def build_aad(version: int, cipher_id: int, kdf_id: int, flags: int,
     Each v4 field is length-prefixed so the concatenation is injective; without
     that, a shorter salt and a longer KEM prefix could produce the same bytes.
     """
-    if version == FORMAT_VERSION_4:
+    # v5 is identical to v4 here. The key file needs nothing in the AAD: it is
+    # already bound through the key, and putting a function of it on the wire
+    # would publish a value derived from a long-term secret. FORMAT.md 9.3.
+    if version >= FORMAT_VERSION_4:
         if kdf_params is None:
-            raise FormatError("v4 AAD requires KDF parameters")
+            raise FormatError(f"v{version} AAD requires KDF parameters")
         header = struct.pack(HEADER_FORMAT_V3, version, cipher_id, kdf_id,
                              flags, 0, *kdf_params)
         return (header
@@ -104,7 +110,8 @@ def serialize(cipher_id: int, kdf_id: int, flags: int, payload: bytes,
               *, version: int = FORMAT_VERSION,
               kdf_params: tuple[int, int, int] | None = None) -> str:
     """Pack header + payload and return base64 string."""
-    if version in (FORMAT_VERSION_3, FORMAT_VERSION_4) and kdf_params is not None:
+    if version in (FORMAT_VERSION_3, FORMAT_VERSION_4, FORMAT_VERSION_5) \
+            and kdf_params is not None:
         # v4 reuses the v3 18-byte header layout unchanged; only the version
         # byte, the commitment width and the AAD differ. Keeping the header
         # identical means deserialize needs no new parsing branch.
@@ -157,7 +164,7 @@ def deserialize(b64_data: str) -> tuple[int, int, int, int, bytes,
             )
         return version, cipher_id, kdf_id, flags, raw[HEADER_SIZE:], None
 
-    if version in (FORMAT_VERSION_3, FORMAT_VERSION_4):
+    if version in (FORMAT_VERSION_3, FORMAT_VERSION_4, FORMAT_VERSION_5):
         if len(raw) < HEADER_SIZE_V3:
             raise FormatError(
                 f"Ciphertext too short for v{version} ({len(raw)} bytes, "
