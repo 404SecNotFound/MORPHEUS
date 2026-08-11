@@ -1,14 +1,13 @@
 # MORPHEUS Ciphertext Format
 
-**Status:** Normative. **Spec version:** 1.1. **Covers wire formats:** v2, v3, v4.
-**Draft, not implemented:** v5 (see [section 17](#17-key-files-v5-draft)).
+**Status:** Normative. **Spec version:** 1.2. **Covers wire formats:** v2, v3, v4, v5.
 
-> **v5 is a draft.** Nothing writes it, nothing reads it, and there are no
-> vectors for it yet. It is specified here first, deliberately, so that all
-> three implementations build the same thing from the same document rather than
-> one of them inventing it and the others copying. Until vectors exist and at
-> least two implementations agree on them, treat every v5 statement below as a
-> proposal.
+> v5 was specified before it was built, so that three implementations could be
+> written from this document rather than from each other. It paid for itself:
+> the second implementation failed two of the eight vectors on first run,
+> because its hybrid combiner was gated on `version == 4` and a v5 hybrid
+> ciphertext silently used v3's label. A round trip cannot find that. Only a
+> second implementation reading the first one's bytes can.
 
 This document defines the MORPHEUS ciphertext format completely enough to write
 an independent implementation without reading the reference source. Where this
@@ -58,8 +57,8 @@ NOT be changed. A new behaviour requires a new version byte.
 | Hybrid combiner label (v4) | `b"morpheus-hybrid-v4"` | HKDF `info` | [7.3](#73-hybrid-pq-combiner) |
 | Key-check message (v3) | `b"morpheus-key-check"` | HMAC-SHA256 message | [8.1](#81-v3-key-check-8-bytes) |
 | Commitment label (v4, v5) | `b"morpheus-cmt-v4"` | SHA-256 prefix | [8.2](#82-v4-and-v5-key-commitment-32-bytes) |
-| Key-file digest label (v5, draft) | `b"morpheus-keyfile-digest-v5"` | SHA-256 prefix | [7.4](#74-key-file-combiner-v5-draft) |
-| Key-file combiner label (v5, draft) | `b"morpheus-keyfile-v5"` | HKDF `info` | [7.4](#74-key-file-combiner-v5-draft) |
+| Key-file digest label (v5) | `b"morpheus-keyfile-digest-v5"` | SHA-256 prefix | [7.4](#74-key-file-combiner-v5) |
+| Key-file combiner label (v5) | `b"morpheus-keyfile-v5"` | HKDF `info` | [7.4](#74-key-file-combiner-v5) |
 
 Note that the v3 label is the literal string `morpheus-v2-key-`. That was
 probably not intended when v3 was introduced, but it is what v3 ciphertexts were
@@ -121,7 +120,7 @@ parser needs no new branch for any of them.
 
 ```
 offset  size  field
-0       1     version      = 0x03 (v3), 0x04 (v4) or 0x05 (v5, draft)
+0       1     version      = 0x03 (v3), 0x04 (v4) or 0x05 (v5)
 1       1     cipher_id
 2       1     kdf_id
 3       1     flags
@@ -136,8 +135,7 @@ offset  size  field
 A decoder MUST:
 
 1. Reject input shorter than 6 bytes.
-2. Reject a version byte not in {`0x02`, `0x03`, `0x04`}. Once v5 ships, add
-   `0x05`.
+2. Reject a version byte not in {`0x02`, `0x03`, `0x04`, `0x05`}.
 3. Reject v3, v4 or v5 input shorter than 18 bytes.
 4. Reject a non-zero `reserved` field. This keeps the two bytes genuinely
    available for a future version instead of quietly becoming a channel for
@@ -350,10 +348,10 @@ current recommendation prints as what not to do.
 
 ---
 
-### 7.4 Key file combiner (v5, draft)
+### 7.4 Key file combiner (v5)
 
 **Applies only to v5.** A v5 ciphertext always requires a key file; see
-[section 17](#17-key-files-v5-draft) for what a key file is and why the version
+[section 17](#17-key-files-v5) for what a key file is and why the version
 byte carries this rather than a flag.
 
 The key file is folded in **once**, between the password KDF and everything
@@ -621,7 +619,7 @@ compatible with MORPHEUS.** There is no other conformance claim to make.
 | `v2.json` | 2 | 3 | AES and ChaCha single cipher, Argon2id and Scrypt, chained |
 | `v3.json` | 3 | 7 | The above plus hybrid PQ, hybrid + chained |
 | `v4.json` | 4 | 8 | The above plus padded |
-| `v5.json` | 5 | none yet | **Draft.** v5 cannot ship until this file exists |
+| `v5.json` | 5 | 8 | The above plus a mandatory key file |
 
 Each file is `{format_version, note, cases}`. Each case carries `name`,
 `plaintext`, `password`, `ciphertext` (base64), `cipher`, `kdf`, `kdf_params`,
@@ -668,7 +666,7 @@ a v5.
 | v2 | `0x02` | Original. 6-byte header, no KDF parameters on the wire, no key verification field. AAD covers the header only. |
 | v3 | `0x03` | 18-byte header carrying KDF parameters, so a ciphertext is self-describing. Adds the 8-byte key-check, which is what gives a wrong password a distinct error from tampering. Adds `FLAG_PADDED`. |
 | v4 | `0x04` | Same header as v3. Widens key verification to a 32-byte commitment. Extends the AAD over the salt and the KEM prefix. Replaces the hybrid combiner with the NIST SP 800-227 section 4.6.3 form. New chained subkey label. |
-| v5 | `0x05` | **Draft, not implemented.** Same header, payload, AAD and commitment as v4. Adds a mandatory key file as a second factor, folded in by [section 7.4](#74-key-file-combiner-v5-draft). No other change. |
+| v5 | `0x05` | Same header, payload, AAD and commitment as v4. Adds a mandatory key file as a second factor, folded in by [section 7.4](#74-key-file-combiner-v5). No other change. |
 
 v4 is the only version the reference implementation emits. v2 and v3 remain
 decryptable and MUST stay that way.
@@ -829,16 +827,13 @@ whether or not the user wanted it there. Writing is a separate, explicit step.
 
 ---
 
-## 17. Key files (v5, draft)
-
-> Draft. Nothing implements this yet and there are no vectors. See the note at
-> the top of this document.
+## 17. Key files (v5)
 
 A **key file** is a second factor: something you have, alongside the password
 you know. Decrypting a v5 ciphertext requires both. Losing either loses the
 data, which is the point and also the risk.
 
-The mechanism is [section 7.4](#74-key-file-combiner-v5-draft). This section is
+The mechanism is [section 7.4](#74-key-file-combiner-v5). This section is
 everything else an implementation has to get right.
 
 ### 17.1 What a key file is
@@ -924,21 +919,28 @@ Everything else is v4, unchanged: the 18-byte header layout, the payload field
 order, the AAD construction, the 32-byte commitment, the padding scheme, the
 KDF parameter bounds, the cipher and KDF registries, and the file transport
 envelope. An implementation that already does v4 needs
-[section 7.4](#74-key-file-combiner-v5-draft) and nothing else.
+[section 7.4](#74-key-file-combiner-v5) and nothing else.
 
-### 17.6 Checklist before v5 stops being a draft
+### 17.6 How v5 was validated
 
-1. Generate `tests/vectors/v5.json` from whichever implementation lands first,
-   covering at minimum: single cipher, chained, padded, hybrid, hybrid plus
-   chained, and both KDFs.
-2. Get a **second** implementation decrypting those vectors without having seen
-   the first one's source. That is the only evidence this document is precise
-   enough, and it is the same bar v4 was held to.
-3. Add a case with a deliberately wrong key file, asserting the error is the
-   ambiguous one from [section 17.2](#172-no-key-file-fingerprint-is-stored)
-   rather than something that leaks which factor failed.
-4. Add a case rejecting a zero-length key file at encryption time.
-5. Remove the draft banners from this document and from section 2, and add
-   `0x05` to the accepted-version set in
-   [section 4.3](#43-parsing-rules).
-6. Only then may any implementation write a v5 ciphertext.
+The checklist this section used to hold has been worked through:
+
+1. `tests/vectors/v5.json` holds 8 cases: both ciphers, both KDFs, chained,
+   padded, hybrid, hybrid plus chained, and a key file that is not 32 bytes.
+   Generated by the web implementation.
+2. Two further implementations decrypt them, both written from this document
+   rather than from that source. **The second one failed two vectors on first
+   run**, because its hybrid combiner tested `version == 4` and a v5 hybrid
+   ciphertext therefore used v3's `hybrid-pq-v1` label. Neither implementation's
+   own round trip had covered a key file together with hybrid PQ, and a round
+   trip that is wrong in the same way at both ends still passes. That is the
+   entire argument for this step.
+3. A wrong key file is asserted to be indistinguishable from a wrong password,
+   so a future change that tries to be helpful about which factor failed
+   breaks a test rather than leaking.
+4. A zero-length key file is refused at encryption time.
+5. All three suites cover a key file combined with hybrid PQ, which is the gap
+   that hid the bug.
+
+`v5.json` is now subject to the same rule as every other vector file: it is
+never regenerated.
