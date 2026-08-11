@@ -1,6 +1,14 @@
 # MORPHEUS Ciphertext Format
 
-**Status:** Normative. **Spec version:** 1.0. **Covers wire formats:** v2, v3, v4.
+**Status:** Normative. **Spec version:** 1.1. **Covers wire formats:** v2, v3, v4.
+**Draft, not implemented:** v5 (see [section 17](#17-key-files-v5-draft)).
+
+> **v5 is a draft.** Nothing writes it, nothing reads it, and there are no
+> vectors for it yet. It is specified here first, deliberately, so that all
+> three implementations build the same thing from the same document rather than
+> one of them inventing it and the others copying. Until vectors exist and at
+> least two implementations agree on them, treat every v5 statement below as a
+> proposal.
 
 This document defines the MORPHEUS ciphertext format completely enough to write
 an independent implementation without reading the reference source. Where this
@@ -49,7 +57,9 @@ NOT be changed. A new behaviour requires a new version byte.
 | Hybrid combiner label (v2, v3) | `b"hybrid-pq-v1"` | HKDF `info` | [7.3](#73-hybrid-pq-combiner) |
 | Hybrid combiner label (v4) | `b"morpheus-hybrid-v4"` | HKDF `info` | [7.3](#73-hybrid-pq-combiner) |
 | Key-check message (v3) | `b"morpheus-key-check"` | HMAC-SHA256 message | [8.1](#81-v3-key-check-8-bytes) |
-| Commitment label (v4) | `b"morpheus-cmt-v4"` | SHA-256 prefix | [8.2](#82-v4-key-commitment-32-bytes) |
+| Commitment label (v4, v5) | `b"morpheus-cmt-v4"` | SHA-256 prefix | [8.2](#82-v4-and-v5-key-commitment-32-bytes) |
+| Key-file digest label (v5, draft) | `b"morpheus-keyfile-digest-v5"` | SHA-256 prefix | [7.4](#74-key-file-combiner-v5-draft) |
+| Key-file combiner label (v5, draft) | `b"morpheus-keyfile-v5"` | HKDF `info` | [7.4](#74-key-file-combiner-v5-draft) |
 
 Note that the v3 label is the literal string `morpheus-v2-key-`. That was
 probably not intended when v3 was introduced, but it is what v3 ciphertexts were
@@ -102,14 +112,16 @@ offset  size  field
 4       2     reserved     = 0x0000
 ```
 
-### 4.2 v3 and v4 header (18 bytes)
+### 4.2 v3, v4 and v5 header (18 bytes)
 
-v4 reuses the v3 header layout unchanged. Only the version byte, the width of
-the key-check field and the AAD construction differ.
+v4 and v5 reuse the v3 header layout unchanged. Only the version byte, the
+width of the key-check field, the AAD construction and (for v5) the key
+derivation differ. Keeping one header layout across three versions means a
+parser needs no new branch for any of them.
 
 ```
 offset  size  field
-0       1     version      = 0x03 (v3) or 0x04 (v4)
+0       1     version      = 0x03 (v3), 0x04 (v4) or 0x05 (v5, draft)
 1       1     cipher_id
 2       1     kdf_id
 3       1     flags
@@ -124,8 +136,9 @@ offset  size  field
 A decoder MUST:
 
 1. Reject input shorter than 6 bytes.
-2. Reject a version byte not in {`0x02`, `0x03`, `0x04`}.
-3. Reject v3 or v4 input shorter than 18 bytes.
+2. Reject a version byte not in {`0x02`, `0x03`, `0x04`}. Once v5 ships, add
+   `0x05`.
+3. Reject v3, v4 or v5 input shorter than 18 bytes.
 4. Reject a non-zero `reserved` field. This keeps the two bytes genuinely
    available for a future version instead of quietly becoming a channel for
    unauthenticated data.
@@ -201,7 +214,7 @@ nonce1          12 bytes           always (primary cipher)
 nonce2          12 bytes           only if FLAG_CHAINED
 kem_len         2 bytes  (u16)     only if FLAG_HYBRID_PQ
 kem_ct          kem_len bytes      only if FLAG_HYBRID_PQ
-key_check       0 / 8 / 32 bytes   v2: absent, v3: 8, v4: 32
+key_check       0 / 8 / 32 bytes   v2: absent, v3: 8, v4 and v5: 32
 body            remainder          AEAD output(s) including tag(s)
 ```
 
@@ -337,6 +350,54 @@ current recommendation prints as what not to do.
 
 ---
 
+### 7.4 Key file combiner (v5, draft)
+
+**Applies only to v5.** A v5 ciphertext always requires a key file; see
+[section 17](#17-key-files-v5-draft) for what a key file is and why the version
+byte carries this rather than a flag.
+
+The key file is folded in **once**, between the password KDF and everything
+downstream, so chaining and hybrid mode compose with it unchanged:
+
+```
+digest  = SHA-256( b"morpheus-keyfile-digest-v5" || key_file_bytes )
+
+master' = HKDF(hash = SHA-256,
+               ikm  = master || digest,        # 64 bytes
+               salt = salt,                    # the 16-byte payload salt
+               info = b"morpheus-keyfile-v5",
+               L    = 32)
+```
+
+`master'` then replaces `master` everywhere: section 7.2 expands it into
+subkeys for chained mode, and section 7.3 combines it with the KEM shared
+secret for hybrid mode. Both use their **v4** labels unchanged, because
+`master'` already differs from any v4 master and the version byte is
+authenticated in the AAD, so a fresh subkey label would add a frozen string
+that buys nothing.
+
+Four things an implementation MUST get right:
+
+1. **The digest is not length-prefixed**, unlike every other variable field in
+   this format. It does not need to be: `key_file_bytes` is the only
+   variable-length input and it sits at the end, after a fixed-length label,
+   so the concatenation is already injective. A length prefix would also cap
+   key files at 65535 bytes, and there is no reason to.
+2. **The key file is hashed, not stretched.** It goes through plain SHA-256
+   rather than Argon2id. The memory-hard KDF exists to slow down guessing a
+   low-entropy password; a key file with real entropy cannot be guessed at all,
+   so spending 64 MiB on it buys nothing and would double the cost of every
+   operation.
+3. **The HKDF salt is the payload salt**, the same 16 bytes the password KDF
+   used. So two ciphertexts made from the same password and the same key file
+   still produce different keys.
+4. **An empty key file MUST be rejected** at encryption time. Hashing zero
+   bytes is well defined, which is exactly the problem: it would silently
+   produce a valid ciphertext with no second factor at all, and the user would
+   believe they had one.
+
+---
+
 ## 8. Key verification
 
 This field answers "is this the right key". It is verified **before** the AEAD
@@ -359,7 +420,7 @@ key_check = HMAC-SHA256(key = key_0, message = b"morpheus-key-check")[0:8]
 
 Only `key_0` is bound, including in chained mode.
 
-### 8.2 v4 key commitment (32 bytes)
+### 8.2 v4 and v5 key commitment (32 bytes)
 
 ```
 key_1_or_empty = key_1 if FLAG_CHAINED else b""
@@ -369,6 +430,12 @@ commitment = SHA-256( b"morpheus-cmt-v4" || LP(key_0) || LP(key_1_or_empty) )
 
 For a single cipher the trailing field is `LP(b"")`, which is the two bytes
 `0x0000`. It is present, not omitted.
+
+v5 uses this unchanged. Because the key file feeds into the keys through
+section 7.4, the commitment covers it transitively: a wrong key file yields
+different keys and therefore a different commitment. Nothing about the key file
+is stored separately, and [section 17.2](#172-no-key-file-fingerprint-is-stored)
+explains why that is deliberate.
 
 **Why 32 bytes.** Neither AES-GCM nor ChaCha20-Poly1305 is a committing AEAD,
 and efficient key multi-collision attacks against both are published (Len,
@@ -405,11 +472,15 @@ aad = header[0:6]
 aad = header[0:18]
 ```
 
-### 9.3 v4
+### 9.3 v4 and v5
 
 ```
 aad = header[0:18] || LP(salt) || LP(kem_prefix)
 ```
+
+v5 is identical. The key file needs nothing here: it is already bound through
+the key by section 7.4, and putting a function of it in the AAD would write a
+value derived from a long-term secret onto the wire in the clear.
 
 where `kem_prefix` is `kem_len || kem_ct` as defined in
 [section 6](#6-payload-layout), and is `b""` when `FLAG_HYBRID_PQ` is clear.
@@ -550,6 +621,7 @@ compatible with MORPHEUS.** There is no other conformance claim to make.
 | `v2.json` | 2 | 3 | AES and ChaCha single cipher, Argon2id and Scrypt, chained |
 | `v3.json` | 3 | 7 | The above plus hybrid PQ, hybrid + chained |
 | `v4.json` | 4 | 8 | The above plus padded |
+| `v5.json` | 5 | none yet | **Draft.** v5 cannot ship until this file exists |
 
 Each file is `{format_version, note, cases}`. Each case carries `name`,
 `plaintext`, `password`, `ciphertext` (base64), `cipher`, `kdf`, `kdf_params`,
@@ -596,6 +668,7 @@ a v5.
 | v2 | `0x02` | Original. 6-byte header, no KDF parameters on the wire, no key verification field. AAD covers the header only. |
 | v3 | `0x03` | 18-byte header carrying KDF parameters, so a ciphertext is self-describing. Adds the 8-byte key-check, which is what gives a wrong password a distinct error from tampering. Adds `FLAG_PADDED`. |
 | v4 | `0x04` | Same header as v3. Widens key verification to a 32-byte commitment. Extends the AAD over the salt and the KEM prefix. Replaces the hybrid combiner with the NIST SP 800-227 section 4.6.3 form. New chained subkey label. |
+| v5 | `0x05` | **Draft, not implemented.** Same header, payload, AAD and commitment as v4. Adds a mandatory key file as a second factor, folded in by [section 7.4](#74-key-file-combiner-v5-draft). No other change. |
 
 v4 is the only version the reference implementation emits. v2 and v3 remain
 decryptable and MUST stay that way.
@@ -753,3 +826,119 @@ name rather than writing to whatever is left.
 Decrypting produces bytes in memory. An implementation MUST NOT write them to
 disk as a side effect of decryption, because that puts plaintext on disk
 whether or not the user wanted it there. Writing is a separate, explicit step.
+
+---
+
+## 17. Key files (v5, draft)
+
+> Draft. Nothing implements this yet and there are no vectors. See the note at
+> the top of this document.
+
+A **key file** is a second factor: something you have, alongside the password
+you know. Decrypting a v5 ciphertext requires both. Losing either loses the
+data, which is the point and also the risk.
+
+The mechanism is [section 7.4](#74-key-file-combiner-v5-draft). This section is
+everything else an implementation has to get right.
+
+### 17.1 What a key file is
+
+Any file, of any type and any length above zero. Its bytes are hashed exactly
+as they are on disk. There is no format, no header and no magic number,
+deliberately: a key file that announces itself is a key file an adversary can
+find on a disk.
+
+- Implementations SHOULD offer to **generate** one, and a generated key file
+  MUST be exactly 32 bytes from a cryptographic RNG. That is the output width
+  of the digest, so more bytes add no strength.
+- A generated key file SHOULD have no extension, or an unremarkable one. Do not
+  name it `morpheus.key`.
+- Implementations MUST reject a **zero-length** key file, at encryption time,
+  with an error. Hashing nothing is well defined, and that is the danger: it
+  would produce a perfectly valid ciphertext whose second factor is a constant,
+  while the user believes they have one.
+- Implementations MUST NOT modify, move or rewrite a user-supplied key file.
+  A user may reasonably point this at a photograph they already have.
+
+**The warning that MUST accompany the feature:** if the key file changes by a
+single byte, the data is unrecoverable. Files get re-encoded, re-saved,
+synced, stripped of metadata and "optimised" by the software that holds them.
+Pointing this at a photo in a cloud photo library is a way to lose data, and an
+implementation that offers to pick an arbitrary file SHOULD say so at the
+moment of choosing.
+
+### 17.2 No key file fingerprint is stored
+
+A v5 ciphertext records **nothing** about which key file it needs. Not a hash,
+not a truncated hash, not a random identifier.
+
+This is a deliberate refusal, and it has a cost worth stating plainly: when
+decryption fails, an implementation cannot tell the user whether the password
+or the key file was wrong. It MUST say so honestly, with wording along the
+lines of *"the password or the key file is not correct"*, and MUST NOT guess.
+
+The cost is accepted because the alternative is worse. Any stored fingerprint,
+however short, makes two ciphertexts encrypted under the same key file
+**linkable** by anyone holding both. That turns a key file into a persistent
+identifier across everything it protects, which is exactly the property someone
+using a second factor is trying to avoid. It would also let an adversary who
+has a candidate key file confirm it offline without touching the password.
+
+The key commitment in [section 8.2](#82-v4-and-v5-key-commitment-32-bytes)
+already answers "are these the right keys". It does so without revealing which
+of the two inputs was wrong, and that is the correct amount of information to
+publish.
+
+### 17.3 Why a new version and not a flag on v4
+
+Bits 3 to 7 of the flags field are unassigned, and
+[section 5.3](#53-flags) says a decoder is not required to reject them. So a v4
+ciphertext with a new "key file" flag set would be accepted by every existing
+v4 decoder, which would then derive the key without the key file, fail the
+commitment, and report **"incorrect password"** to a user whose password was
+perfectly correct.
+
+A version byte is refused loudly by exactly the same decoders. Loud is correct
+here: the ciphertext genuinely cannot be read by an implementation that does
+not know about key files.
+
+Note the consequence for the flags field: because bits 3 to 7 are explicitly
+tolerated by existing decoders, **no future flag bit can ever change how a
+ciphertext is decrypted**. Flags may only ever describe something a decoder can
+safely ignore. Anything else needs a version byte. That constraint was already
+true and is written down here because it is not obvious.
+
+### 17.4 Why v5 has no "key file optional" mode
+
+v5 always requires a key file. There is no flag to turn it off, and a v5
+ciphertext without one is not a thing.
+
+The alternative was a v5 that supports key files optionally, which would make a
+v5-without-key-file byte-for-byte equivalent to v4 apart from the version byte:
+two ways to express one thing, two paths to test, and a reader having to check
+a flag to know what a version means. If there is no key file, write v4.
+
+### 17.5 What v5 does not change
+
+Everything else is v4, unchanged: the 18-byte header layout, the payload field
+order, the AAD construction, the 32-byte commitment, the padding scheme, the
+KDF parameter bounds, the cipher and KDF registries, and the file transport
+envelope. An implementation that already does v4 needs
+[section 7.4](#74-key-file-combiner-v5-draft) and nothing else.
+
+### 17.6 Checklist before v5 stops being a draft
+
+1. Generate `tests/vectors/v5.json` from whichever implementation lands first,
+   covering at minimum: single cipher, chained, padded, hybrid, hybrid plus
+   chained, and both KDFs.
+2. Get a **second** implementation decrypting those vectors without having seen
+   the first one's source. That is the only evidence this document is precise
+   enough, and it is the same bar v4 was held to.
+3. Add a case with a deliberately wrong key file, asserting the error is the
+   ambiguous one from [section 17.2](#172-no-key-file-fingerprint-is-stored)
+   rather than something that leaks which factor failed.
+4. Add a case rejecting a zero-length key file at encryption time.
+5. Remove the draft banners from this document and from section 2, and add
+   `0x05` to the accepted-version set in
+   [section 4.3](#43-parsing-rules).
+6. Only then may any implementation write a v5 ciphertext.
