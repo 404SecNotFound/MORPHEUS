@@ -33,7 +33,7 @@ cryptography==50.0.0
 
 # --- Optional: post-quantum support (the [pq] extra) ---
 # Required only for --hybrid-pq. Remove this line if you do not need it.
-pqcrypto==0.4.0
+pqcrypto==1.0.0
 
 # --- Transitive dependencies ---
 argon2-cffi-bindings==25.1.0
