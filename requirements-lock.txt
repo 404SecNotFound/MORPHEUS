@@ -29,7 +29,7 @@
 
 # --- Direct dependencies ---
 argon2-cffi==25.1.0
-cryptography==50.0.0
+cryptography==50.0.1
 
 # --- Optional: post-quantum support (the [pq] extra) ---
 # Required only for --hybrid-pq. Remove this line if you do not need it.
